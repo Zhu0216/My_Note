@@ -206,6 +206,14 @@ class AppStoreScope extends InheritedNotifier<AppStore> {
     assert(scope != null, 'AppStoreScope not found');
     return scope!.notifier!;
   }
+
+  static AppStore read(BuildContext context) {
+    final element = context
+        .getElementForInheritedWidgetOfExactType<AppStoreScope>();
+    final scope = element?.widget as AppStoreScope?;
+    assert(scope != null, 'AppStoreScope not found');
+    return scope!.notifier!;
+  }
 }
 
 enum CalendarViewMode { month, week, list }
@@ -231,6 +239,8 @@ enum NoteTemplateType { general, plan, mindMap, lifeSheet }
 enum NoteImageAlignment { free, left, center, right }
 
 enum NoteBackgroundMode { fill, stretch, repeat }
+
+enum AppNavBarStyle { template6 }
 
 class NoteItem {
   NoteItem({
@@ -1795,10 +1805,12 @@ class AppBottomNavigation extends StatelessWidget {
     super.key,
     required this.selectedIndex,
     required this.onSelected,
+    this.style = AppNavBarStyle.template6,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onSelected;
+  final AppNavBarStyle style;
 
   static const items = [
     AppNavItem(
@@ -1830,41 +1842,43 @@ class AppBottomNavigation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.96),
-            borderRadius: BorderRadius.circular(32),
-            border: Border.all(color: const Color(0xffe2e6f4)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.10),
-                blurRadius: 24,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: SizedBox(
-            height: 82,
-            child: Row(
-              children: [
-                for (var index = 0; index < items.length; index++)
-                  Expanded(
-                    child: AppBottomNavigationItem(
-                      item: items[index],
-                      selected: selectedIndex == index,
-                      onTap: () => onSelected(index),
-                    ),
-                  ),
+    return switch (style) {
+      AppNavBarStyle.template6 => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.96),
+              borderRadius: BorderRadius.circular(30),
+              border: Border.all(color: const Color(0xffe2e6f4)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.10),
+                  blurRadius: 24,
+                  offset: const Offset(0, 10),
+                ),
               ],
+            ),
+            child: SizedBox(
+              height: 92,
+              child: Row(
+                children: [
+                  for (var index = 0; index < items.length; index++)
+                    Expanded(
+                      child: AppBottomNavigationItem(
+                        item: items[index],
+                        selected: selectedIndex == index,
+                        onTap: () => onSelected(index),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
       ),
-    );
+    };
   }
 }
 
@@ -1883,6 +1897,7 @@ class AppBottomNavigationItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final inactiveColor = const Color(0xff596273);
     return Semantics(
       selected: selected,
       button: true,
@@ -1891,43 +1906,44 @@ class AppBottomNavigationItem extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(28),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 240),
+          duration: const Duration(milliseconds: 260),
           curve: Curves.easeOutCubic,
-          margin: EdgeInsets.fromLTRB(5, selected ? 8 : 13, 5, 10),
-          padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
-          decoration: BoxDecoration(
-            color: selected ? colorScheme.primary : Colors.transparent,
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: selected
-                ? [
-                    BoxShadow(
-                      color: colorScheme.primary.withValues(alpha: 0.28),
-                      blurRadius: 16,
-                      offset: const Offset(0, 8),
-                    ),
-                  ]
-                : null,
-          ),
-          transform: Matrix4.translationValues(0, selected ? -5 : 0, 0),
+          margin: const EdgeInsets.fromLTRB(4, 10, 4, 9),
+          padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 4),
+          transform: Matrix4.translationValues(0, selected ? -10 : 0, 0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
             children: [
-              AnimatedScale(
-                scale: selected ? 1.24 : 1,
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOut,
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 260),
+                curve: Curves.easeOutCubic,
+                width: selected ? 46 : 40,
+                height: selected ? 46 : 38,
+                decoration: BoxDecoration(
+                  color: selected ? colorScheme.primary : Colors.transparent,
+                  borderRadius: BorderRadius.circular(selected ? 999 : 18),
+                  boxShadow: selected
+                      ? [
+                          BoxShadow(
+                            color: colorScheme.primary.withValues(alpha: 0.32),
+                            blurRadius: 18,
+                            offset: const Offset(0, 9),
+                          ),
+                        ]
+                      : null,
+                ),
                 child: Icon(
                   selected ? item.selectedIcon : item.icon,
-                  color: selected ? Colors.white : const Color(0xff596273),
-                  size: selected ? 26 : 23,
+                  color: selected ? Colors.white : inactiveColor,
+                  size: selected ? 27 : 23,
                 ),
               ),
-              const SizedBox(height: 3),
+              SizedBox(height: selected ? 2 : 3),
               Text(
                 item.label,
                 style: TextStyle(
-                  color: selected ? Colors.white : const Color(0xff596273),
+                  color: selected ? colorScheme.primary : inactiveColor,
                   fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                   fontSize: 11,
                 ),
@@ -1950,6 +1966,12 @@ class AppNavItem {
   final String label;
   final IconData icon;
   final IconData selectedIcon;
+}
+
+String appNavBarStyleLabel(AppNavBarStyle style) {
+  return switch (style) {
+    AppNavBarStyle.template6 => 'Template 6',
+  };
 }
 
 Future<bool> showExitConfirmDialog(BuildContext context) async {
@@ -5497,6 +5519,26 @@ class SettingsPage extends StatelessWidget {
               ],
             ),
           ),
+          SizedBox(height: 16),
+          InfoCard(
+            child: Column(
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.space_dashboard_outlined),
+                  title: Text('介面風格'),
+                  subtitle: Text('下方導覽列已套用 Nav Bars Template 6，後續可在此加入風格切換。'),
+                ),
+                Divider(),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.edit_note_outlined),
+                  title: Text('筆記編輯器'),
+                  subtitle: Text('一般筆記使用 Rich Text template 風格的整合編輯面板。'),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -8236,11 +8278,14 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                   ),
                   const SizedBox(height: 12),
                 ],
-                if (!readOnly) ...[
-                  NoteEditorToolbar(
+                if (templateType == NoteTemplateType.general)
+                  GeneralRichTextEditorPanel(
+                    controller: body,
+                    readOnly: readOnly,
                     style: noteStyle,
                     imageCount: noteImages.length,
                     attachmentCount: noteAttachments.length,
+                    background: noteBackground,
                     onStyleChanged: (value) =>
                         setState(() => noteStyle = value),
                     onAddImage: addImagePlaceholder,
@@ -8249,32 +8294,51 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                     onExport: showExportOptions,
                     onInsertTodo: insertTodoReference,
                     onInsertNote: insertNoteReference,
+                  )
+                else ...[
+                  if (!readOnly) ...[
+                    NoteEditorToolbar(
+                      style: noteStyle,
+                      imageCount: noteImages.length,
+                      attachmentCount: noteAttachments.length,
+                      onStyleChanged: (value) =>
+                          setState(() => noteStyle = value),
+                      onAddImage: addImagePlaceholder,
+                      onAddAttachment: addAttachmentPlaceholder,
+                      onBackground: editBackground,
+                      onExport: showExportOptions,
+                      onInsertTodo: insertTodoReference,
+                      onInsertNote: insertNoteReference,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  TextField(
+                    controller: body,
+                    readOnly: readOnly,
+                    minLines: 5,
+                    maxLines: 10,
+                    style: noteBodyTextStyle(noteStyle),
+                    decoration: InputDecoration(
+                      labelText: noteBodyLabel(templateType),
+                      alignLabelWithHint: true,
+                      filled: true,
+                      fillColor: colorFromHex(
+                        readString(
+                          noteBackground['color'],
+                          fallback: '#FFFFFF',
+                        ),
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: const BorderSide(color: Color(0xffdfe5f4)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: const BorderSide(color: Color(0xffdfe5f4)),
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 12),
                 ],
-                TextField(
-                  controller: body,
-                  readOnly: readOnly,
-                  minLines: templateType == NoteTemplateType.general ? 10 : 5,
-                  maxLines: templateType == NoteTemplateType.general ? 18 : 10,
-                  style: noteBodyTextStyle(noteStyle),
-                  decoration: InputDecoration(
-                    labelText: noteBodyLabel(templateType),
-                    alignLabelWithHint: true,
-                    filled: true,
-                    fillColor: colorFromHex(
-                      readString(noteBackground['color'], fallback: '#FFFFFF'),
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(18),
-                      borderSide: const BorderSide(color: Color(0xffdfe5f4)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(18),
-                      borderSide: const BorderSide(color: Color(0xffdfe5f4)),
-                    ),
-                  ),
-                ),
                 const SizedBox(height: 12),
                 NoteAssetsSummary(
                   images: noteImages,
@@ -8407,6 +8471,616 @@ class NoteTemplateBadge extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class GeneralRichTextEditorPanel extends StatelessWidget {
+  const GeneralRichTextEditorPanel({
+    super.key,
+    required this.controller,
+    required this.readOnly,
+    required this.style,
+    required this.imageCount,
+    required this.attachmentCount,
+    required this.background,
+    required this.onStyleChanged,
+    required this.onAddImage,
+    required this.onAddAttachment,
+    required this.onBackground,
+    required this.onExport,
+    required this.onInsertTodo,
+    required this.onInsertNote,
+  });
+
+  final TextEditingController controller;
+  final bool readOnly;
+  final Map<String, dynamic> style;
+  final int imageCount;
+  final int attachmentCount;
+  final Map<String, dynamic> background;
+  final ValueChanged<Map<String, dynamic>> onStyleChanged;
+  final VoidCallback onAddImage;
+  final VoidCallback onAddAttachment;
+  final VoidCallback onBackground;
+  final VoidCallback onExport;
+  final VoidCallback onInsertTodo;
+  final VoidCallback onInsertNote;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final backgroundColor = colorFromHex(
+      readString(background['color'], fallback: '#FFFFFF'),
+    );
+    return Material(
+      color: Colors.white,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: const BorderSide(color: Color(0xffdfe5f4)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            color: const Color(0xfff7f8fc),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.text_fields, color: colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Rich Text',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (imageCount > 0 || attachmentCount > 0)
+                      Text(
+                        '圖片 $imageCount  附件 $attachmentCount',
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(color: const Color(0xff687386)),
+                      ),
+                  ],
+                ),
+                if (!readOnly) ...[
+                  const SizedBox(height: 12),
+                  RichTextTemplateToolbar(
+                    controller: controller,
+                    style: style,
+                    onStyleChanged: onStyleChanged,
+                    onAddImage: onAddImage,
+                    onAddAttachment: onAddAttachment,
+                    onBackground: onBackground,
+                    onExport: onExport,
+                    onInsertTodo: onInsertTodo,
+                    onInsertNote: onInsertNote,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(color: backgroundColor),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+              child: TextField(
+                controller: controller,
+                readOnly: readOnly,
+                minLines: 14,
+                maxLines: 24,
+                style: noteBodyTextStyle(style),
+                decoration: const InputDecoration(
+                  hintText: '開始輸入筆記內容',
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  filled: false,
+                  isCollapsed: true,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class RichTextTemplateToolbar extends StatefulWidget {
+  const RichTextTemplateToolbar({
+    super.key,
+    required this.controller,
+    required this.style,
+    required this.onStyleChanged,
+    required this.onAddImage,
+    required this.onAddAttachment,
+    required this.onBackground,
+    required this.onExport,
+    required this.onInsertTodo,
+    required this.onInsertNote,
+  });
+
+  final TextEditingController controller;
+  final Map<String, dynamic> style;
+  final ValueChanged<Map<String, dynamic>> onStyleChanged;
+  final VoidCallback onAddImage;
+  final VoidCallback onAddAttachment;
+  final VoidCallback onBackground;
+  final VoidCallback onExport;
+  final VoidCallback onInsertTodo;
+  final VoidCallback onInsertNote;
+
+  @override
+  State<RichTextTemplateToolbar> createState() =>
+      _RichTextTemplateToolbarState();
+}
+
+class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
+  final List<TextEditingValue> undoStack = [];
+  late TextEditingValue lastValue;
+  bool applyingChange = false;
+
+  @override
+  void initState() {
+    super.initState();
+    lastValue = widget.controller.value;
+    widget.controller.addListener(recordExternalChange);
+  }
+
+  @override
+  void didUpdateWidget(covariant RichTextTemplateToolbar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(recordExternalChange);
+      lastValue = widget.controller.value;
+      undoStack.clear();
+      widget.controller.addListener(recordExternalChange);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(recordExternalChange);
+    super.dispose();
+  }
+
+  void recordExternalChange() {
+    if (applyingChange) {
+      return;
+    }
+    final current = widget.controller.value;
+    if (current.text == lastValue.text &&
+        current.selection == lastValue.selection) {
+      return;
+    }
+    undoStack.add(lastValue);
+    if (undoStack.length > 50) {
+      undoStack.removeAt(0);
+    }
+    lastValue = current;
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  TextRange currentRange() {
+    final text = widget.controller.text;
+    final selection = widget.controller.selection;
+    if (!selection.isValid) {
+      return TextRange.collapsed(text.length);
+    }
+    final start = math
+        .min(selection.start, selection.end)
+        .clamp(0, text.length)
+        .toInt();
+    final end = math
+        .max(selection.start, selection.end)
+        .clamp(0, text.length)
+        .toInt();
+    return TextRange(start: start, end: end);
+  }
+
+  void commitText(String nextText, int cursorOffset) {
+    applyingChange = true;
+    undoStack.add(widget.controller.value);
+    if (undoStack.length > 50) {
+      undoStack.removeAt(0);
+    }
+    final nextOffset = cursorOffset.clamp(0, nextText.length).toInt();
+    widget.controller.value = TextEditingValue(
+      text: nextText,
+      selection: TextSelection.collapsed(offset: nextOffset),
+    );
+    lastValue = widget.controller.value;
+    applyingChange = false;
+    setState(() {});
+  }
+
+  void wrapSelection(String prefix, String suffix, String placeholder) {
+    final text = widget.controller.text;
+    final range = currentRange();
+    final selected = text.substring(range.start, range.end);
+    final content = selected.isEmpty ? placeholder : selected;
+    final replacement = '$prefix$content$suffix';
+    commitText(
+      text.replaceRange(range.start, range.end, replacement),
+      range.start + replacement.length,
+    );
+  }
+
+  void insertText(String value) {
+    final text = widget.controller.text;
+    final range = currentRange();
+    commitText(
+      text.replaceRange(range.start, range.end, value),
+      range.start + value.length,
+    );
+  }
+
+  void prefixSelectedLines(String prefix) {
+    final text = widget.controller.text;
+    final range = currentRange();
+    final lineStart = range.start <= 0
+        ? 0
+        : text.lastIndexOf('\n', range.start - 1) + 1;
+    final lineEnd = range.end >= text.length
+        ? text.length
+        : text.indexOf('\n', range.end);
+    final end = lineEnd == -1 ? text.length : lineEnd;
+    final block = text.substring(lineStart, end);
+    final lines = block.split('\n');
+    final replacement = lines.map((line) => '$prefix$line').join('\n');
+    commitText(text.replaceRange(lineStart, end, replacement), lineStart);
+  }
+
+  void outdentSelectedLines() {
+    final text = widget.controller.text;
+    final range = currentRange();
+    final lineStart = range.start <= 0
+        ? 0
+        : text.lastIndexOf('\n', range.start - 1) + 1;
+    final lineEnd = range.end >= text.length
+        ? text.length
+        : text.indexOf('\n', range.end);
+    final end = lineEnd == -1 ? text.length : lineEnd;
+    final block = text.substring(lineStart, end);
+    final replacement = block
+        .split('\n')
+        .map((line) {
+          if (line.startsWith('  ')) return line.substring(2);
+          if (line.startsWith('\t')) return line.substring(1);
+          return line;
+        })
+        .join('\n');
+    commitText(text.replaceRange(lineStart, end, replacement), lineStart);
+  }
+
+  void applyOrderedList() {
+    final text = widget.controller.text;
+    final range = currentRange();
+    final lineStart = range.start <= 0
+        ? 0
+        : text.lastIndexOf('\n', range.start - 1) + 1;
+    final lineEnd = range.end >= text.length
+        ? text.length
+        : text.indexOf('\n', range.end);
+    final end = lineEnd == -1 ? text.length : lineEnd;
+    final replacement = text
+        .substring(lineStart, end)
+        .split('\n')
+        .asMap()
+        .entries
+        .map((entry) => '${entry.key + 1}. ${entry.value}')
+        .join('\n');
+    commitText(text.replaceRange(lineStart, end, replacement), lineStart);
+  }
+
+  void applyHeading(int level) {
+    prefixSelectedLines('${'#' * level} ');
+  }
+
+  void undo() {
+    if (undoStack.isEmpty) {
+      return;
+    }
+    applyingChange = true;
+    final previous = undoStack.removeLast();
+    widget.controller.value = previous;
+    lastValue = previous;
+    applyingChange = false;
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fontSize = readDouble(widget.style['fontSize'], fallback: 16).round();
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xff12171c),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: SizedBox(
+        height: 48,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RichToolbarIconButton(
+                tooltip: '復原',
+                icon: Icons.undo,
+                enabled: undoStack.isNotEmpty,
+                onPressed: undo,
+              ),
+              RichToolbarMenuButton<int>(
+                label: '$fontSize',
+                tooltip: '字級',
+                values: const [14, 16, 18, 22, 28],
+                labelBuilder: (value) => '$value',
+                onSelected: (value) => widget.onStyleChanged({
+                  ...widget.style,
+                  'fontSize': value.toDouble(),
+                }),
+              ),
+              RichToolbarTextButton(
+                label: 'B',
+                tooltip: '粗體',
+                onPressed: () => wrapSelection('**', '**', '粗體'),
+              ),
+              RichToolbarIconButton(
+                tooltip: '斜體',
+                icon: Icons.format_italic,
+                onPressed: () => wrapSelection('_', '_', '斜體'),
+              ),
+              RichToolbarIconButton(
+                tooltip: '底線',
+                icon: Icons.format_underlined,
+                onPressed: () => wrapSelection('<u>', '</u>', '底線'),
+              ),
+              RichToolbarIconButton(
+                tooltip: '刪除線',
+                icon: Icons.format_strikethrough,
+                onPressed: () => wrapSelection('~~', '~~', '刪除線'),
+              ),
+              RichToolbarTextButton(
+                label: '<>',
+                tooltip: '行內程式碼',
+                onPressed: () => wrapSelection('`', '`', 'code'),
+              ),
+              RichToolbarTextButton(
+                label: 'X₂',
+                tooltip: '下標',
+                onPressed: () => wrapSelection('<sub>', '</sub>', '2'),
+              ),
+              RichToolbarTextButton(
+                label: 'X²',
+                tooltip: '上標',
+                onPressed: () => wrapSelection('<sup>', '</sup>', '2'),
+              ),
+              const RichToolbarDivider(),
+              RichToolbarMenuButton<int>(
+                label: '1',
+                tooltip: '標題',
+                values: const [1, 2, 3],
+                labelBuilder: (value) => 'H$value',
+                onSelected: applyHeading,
+              ),
+              const RichToolbarDivider(),
+              RichToolbarIconButton(
+                tooltip: '編號清單',
+                icon: Icons.format_list_numbered,
+                onPressed: applyOrderedList,
+              ),
+              RichToolbarIconButton(
+                tooltip: '項目清單',
+                icon: Icons.format_list_bulleted,
+                onPressed: () => prefixSelectedLines('- '),
+              ),
+              RichToolbarIconButton(
+                tooltip: '待辦清單',
+                icon: Icons.check_box,
+                onPressed: () => prefixSelectedLines('- [ ] '),
+              ),
+              RichToolbarTextButton(
+                label: '<>',
+                tooltip: '程式碼區塊',
+                onPressed: () => wrapSelection('```\n', '\n```', 'code'),
+              ),
+              const RichToolbarDivider(),
+              RichToolbarIconButton(
+                tooltip: '引用',
+                icon: Icons.format_quote,
+                onPressed: () => prefixSelectedLines('> '),
+              ),
+              RichToolbarIconButton(
+                tooltip: '增加縮排',
+                icon: Icons.format_indent_increase,
+                onPressed: () => prefixSelectedLines('  '),
+              ),
+              RichToolbarIconButton(
+                tooltip: '減少縮排',
+                icon: Icons.format_indent_decrease,
+                onPressed: outdentSelectedLines,
+              ),
+              const RichToolbarDivider(),
+              RichToolbarIconButton(
+                tooltip: '上傳圖片',
+                icon: Icons.image_outlined,
+                onPressed: widget.onAddImage,
+              ),
+              RichToolbarIconButton(
+                tooltip: '上傳附件',
+                icon: Icons.attach_file,
+                onPressed: widget.onAddAttachment,
+              ),
+              RichToolbarIconButton(
+                tooltip: '背景設定',
+                icon: Icons.format_color_fill_outlined,
+                onPressed: widget.onBackground,
+              ),
+              RichToolbarIconButton(
+                tooltip: '插入待辦',
+                icon: Icons.add_task,
+                onPressed: widget.onInsertTodo,
+              ),
+              RichToolbarIconButton(
+                tooltip: '插入筆記連結',
+                icon: Icons.link,
+                onPressed: widget.onInsertNote,
+              ),
+              RichToolbarIconButton(
+                tooltip: '另存為',
+                icon: Icons.save_alt_outlined,
+                onPressed: widget.onExport,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class RichToolbarIconButton extends StatelessWidget {
+  const RichToolbarIconButton({
+    super.key,
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+    this.enabled = true,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: enabled ? onPressed : null,
+      color: Colors.white,
+      disabledColor: Colors.white30,
+      iconSize: 22,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 42, height: 48),
+      icon: Icon(icon),
+    );
+  }
+}
+
+class RichToolbarTextButton extends StatelessWidget {
+  const RichToolbarTextButton({
+    super.key,
+    required this.label,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final String label;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onPressed,
+        child: SizedBox(
+          width: 42,
+          height: 48,
+          child: Center(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 17,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class RichToolbarMenuButton<T> extends StatelessWidget {
+  const RichToolbarMenuButton({
+    super.key,
+    required this.label,
+    required this.tooltip,
+    required this.values,
+    required this.labelBuilder,
+    required this.onSelected,
+  });
+
+  final String label;
+  final String tooltip;
+  final List<T> values;
+  final String Function(T value) labelBuilder;
+  final ValueChanged<T> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: PopupMenuButton<T>(
+        color: const Color(0xff1f252b),
+        tooltip: tooltip,
+        onSelected: onSelected,
+        itemBuilder: (context) => [
+          for (final value in values)
+            PopupMenuItem<T>(
+              value: value,
+              child: Text(
+                labelBuilder(value),
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+        ],
+        child: SizedBox(
+          width: 60,
+          height: 48,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(width: 2),
+              const Icon(Icons.arrow_drop_down, color: Colors.white, size: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class RichToolbarDivider extends StatelessWidget {
+  const RichToolbarDivider({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 26,
+      margin: const EdgeInsets.symmetric(horizontal: 6),
+      color: Colors.white.withValues(alpha: 0.12),
     );
   }
 }
@@ -8556,17 +9230,17 @@ class NoteEditorToolbar extends StatelessWidget {
                 icon: const Icon(Icons.format_color_fill_outlined),
               ),
               IconButton.filledTonal(
-                tooltip: '匯出',
+                tooltip: '插入待辦',
                 onPressed: onInsertTodo,
                 icon: const Icon(Icons.check_box_outlined),
               ),
               IconButton.filledTonal(
-                tooltip: '插入待辦',
+                tooltip: '插入筆記連結',
                 onPressed: onInsertNote,
                 icon: const Icon(Icons.link),
               ),
               IconButton.filledTonal(
-                tooltip: '插入筆記連結',
+                tooltip: '另存為',
                 onPressed: onExport,
                 icon: const Icon(Icons.save_alt_outlined),
               ),
@@ -8668,25 +9342,25 @@ class NoteTemplateFields extends StatelessWidget {
       ),
       LinearProgressIndicator(value: progress),
       const SizedBox(height: 8),
-      Text('心智圖節點'),
+      Text('完成率 ${(progress * 100).round()}%'),
       TemplateTextField(
-        label: '主題',
+        label: '開始日期',
         value: readString(data['startDate']),
         onChanged: (value) => setValue('startDate', value),
       ),
       TemplateTextField(
-        label: '標題',
+        label: '截止日期',
         value: readString(data['dueDate']),
         onChanged: (value) => setValue('dueDate', value),
       ),
       TemplateTextField(
-        label: '次標',
+        label: '進行時間',
         value: readString(data['spentHours'], fallback: '0'),
         onChanged: (value) =>
             setValue('spentHours', double.tryParse(value) ?? 0),
       ),
       TemplateTextField(
-        label: '說明',
+        label: '備註',
         value: readString(data['notes']),
         minLines: 2,
         onChanged: (value) => setValue('notes', value),
@@ -8697,12 +9371,12 @@ class NoteTemplateFields extends StatelessWidget {
   List<Widget> buildMindMapFields() {
     return [
       TemplateTextField(
-        label: '位置',
+        label: '主題',
         value: readString(data['topic']),
         onChanged: (value) => setValue('topic', value),
       ),
       TemplateTextField(
-        label: '顏色',
+        label: '節點（標題 | 次標 | 說明 | x,y | 顏色 | 展開/收合）',
         value: readMapList(data['nodes'])
             .map(
               (item) =>
@@ -8737,7 +9411,7 @@ class NoteTemplateFields extends StatelessWidget {
         : (totalCurrent / totalTarget).clamp(0.0, 1.0);
     return [
       TemplateTextField(
-        label: '備註',
+        label: '連結計劃',
         value: readStringList(data['linkedPlanIds']).join(', '),
         onChanged: (value) => setValue(
           'linkedPlanIds',
@@ -8749,7 +9423,7 @@ class NoteTemplateFields extends StatelessWidget {
         ),
       ),
       TemplateTextField(
-        label: '連結計劃',
+        label: '項目（名稱 | 目標金額 | 目前金額 | 實際花費）',
         value: items
             .map(
               (item) =>
@@ -8768,7 +9442,7 @@ class NoteTemplateFields extends StatelessWidget {
       ),
       LinearProgressIndicator(value: progress),
       const SizedBox(height: 8),
-      Text('人生試算表'),
+      Text('金額對比'),
       const SizedBox(height: 8),
       SizedBox(
         height: 88,
@@ -10669,102 +11343,175 @@ Future<void> showSavingsAccountEditor(
   SavingsAccount? account,
   bool editName = true,
 }) async {
-  final pageContext = context;
-  final store = AppStoreScope.of(context);
-  final controller = TextEditingController(
-    text: account == null
-        ? ''
-        : editName
-        ? account.name
-        : account.amount.toStringAsFixed(0),
-  );
-  final amountController = TextEditingController(text: '0');
   await showDialog<void>(
-    context: pageContext,
-    builder: (dialogContext) => AlertDialog(
-      title: Text(
-        account == null
-            ? '新增存餘帳戶'
-            : editName
-            ? '編輯帳戶名稱'
-            : '編輯帳戶金額',
-      ),
-      content: account == null
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: controller,
-                  autofocus: true,
-                  decoration: const InputDecoration(labelText: '帳戶名稱'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: amountController,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: moneyInputFormatters(),
-                  decoration: const InputDecoration(
-                    labelText: '初始金額',
-                    prefixText: r'$ ',
-                  ),
-                ),
-              ],
-            )
-          : TextField(
-              controller: controller,
-              autofocus: true,
-              keyboardType: editName
-                  ? TextInputType.text
-                  : TextInputType.number,
-              inputFormatters: editName ? null : moneyInputFormatters(),
-              decoration: InputDecoration(
-                labelText: editName ? '帳戶名稱' : '金額',
-                prefixText: editName ? null : r'$ ',
-              ),
-            ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: () {
-            final value = controller.text.trim();
-            if (account == null) {
-              final name = value.isEmpty ? '未命名帳戶' : value;
-              if (savingsAccountNameExists(store, name)) {
-                showDuplicateSavingsAccountNotice(pageContext, name);
-                return;
-              }
-              final nextAccount = SavingsAccount(
-                id: store.newId('sa'),
-                name: name,
-                amount: double.tryParse(amountController.text) ?? 0,
-              );
-              Navigator.of(dialogContext).pop();
-              store.upsertSavingsAccount(nextAccount);
-            } else if (editName) {
-              final name = value.isEmpty ? account.name : value;
-              if (savingsAccountNameExists(store, name, exceptId: account.id)) {
-                showDuplicateSavingsAccountNotice(pageContext, name);
-                return;
-              }
-              account.name = name;
-              Navigator.of(dialogContext).pop();
-              store.upsertSavingsAccount(account);
-            } else {
-              account.amount = double.tryParse(value) ?? account.amount;
-              Navigator.of(dialogContext).pop();
-              store.upsertSavingsAccount(account);
-            }
-          },
-          child: const Text('確認'),
-        ),
-      ],
+    context: context,
+    builder: (dialogContext) => SavingsAccountEditorDialog(
+      store: AppStoreScope.read(context),
+      account: account,
+      editName: editName,
     ),
   );
-  controller.dispose();
-  amountController.dispose();
+}
+
+class SavingsAccountEditorDialog extends StatefulWidget {
+  const SavingsAccountEditorDialog({
+    super.key,
+    required this.store,
+    this.account,
+    required this.editName,
+  });
+
+  final AppStore store;
+  final SavingsAccount? account;
+  final bool editName;
+
+  @override
+  State<SavingsAccountEditorDialog> createState() =>
+      _SavingsAccountEditorDialogState();
+}
+
+class _SavingsAccountEditorDialogState
+    extends State<SavingsAccountEditorDialog> {
+  late final TextEditingController nameController;
+  late final TextEditingController amountController;
+
+  bool get isNewAccount => widget.account == null;
+
+  @override
+  void initState() {
+    super.initState();
+    final account = widget.account;
+    nameController = TextEditingController(text: account?.name ?? '');
+    amountController = TextEditingController(
+      text: account == null ? '0' : account.amount.toStringAsFixed(0),
+    );
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    amountController.dispose();
+    super.dispose();
+  }
+
+  String get dialogTitle {
+    if (isNewAccount) {
+      return '新增存餘帳戶';
+    }
+    return widget.editName ? '編輯帳戶名稱' : '編輯帳戶金額';
+  }
+
+  void submit() {
+    final account = widget.account;
+    if (account == null) {
+      final name = nameController.text.trim().isEmpty
+          ? '未命名帳戶'
+          : nameController.text.trim();
+      if (savingsAccountNameExists(widget.store, name)) {
+        showDuplicateSavingsAccountNotice(context, name);
+        return;
+      }
+      final nextAccount = SavingsAccount(
+        id: widget.store.newId('sa'),
+        name: name,
+        amount: double.tryParse(amountController.text) ?? 0,
+      );
+      Navigator.of(context).pop();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        widget.store.upsertSavingsAccount(nextAccount);
+      });
+      return;
+    }
+
+    if (widget.editName) {
+      final name = nameController.text.trim().isEmpty
+          ? account.name
+          : nameController.text.trim();
+      if (savingsAccountNameExists(widget.store, name, exceptId: account.id)) {
+        showDuplicateSavingsAccountNotice(context, name);
+        return;
+      }
+      final nextAccount = SavingsAccount(
+        id: account.id,
+        name: name,
+        amount: account.amount,
+      );
+      Navigator.of(context).pop();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        widget.store.upsertSavingsAccount(nextAccount);
+      });
+      return;
+    }
+
+    final nextAccount = SavingsAccount(
+      id: account.id,
+      name: account.name,
+      amount: double.tryParse(amountController.text) ?? account.amount,
+    );
+    Navigator.of(context).pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.store.upsertSavingsAccount(nextAccount);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(dialogTitle),
+      scrollable: true,
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isNewAccount || widget.editName)
+              TextField(
+                controller: nameController,
+                autofocus: true,
+                textInputAction: isNewAccount
+                    ? TextInputAction.next
+                    : TextInputAction.done,
+                onSubmitted: (_) {
+                  if (!isNewAccount) {
+                    submit();
+                  }
+                },
+                decoration: const InputDecoration(
+                  labelText: '帳戶名稱',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            if (isNewAccount || widget.editName) const SizedBox(height: 12),
+            if (isNewAccount || !widget.editName)
+              TextField(
+                controller: amountController,
+                keyboardType: TextInputType.number,
+                inputFormatters: moneyInputFormatters(),
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => submit(),
+                decoration: const InputDecoration(
+                  labelText: '金額',
+                  prefixText: r'$ ',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton.icon(
+          onPressed: () => Navigator.of(context).pop(),
+          icon: const Icon(Icons.close),
+          label: const Text('取消'),
+        ),
+        FilledButton.icon(
+          onPressed: submit,
+          icon: const Icon(Icons.check),
+          label: const Text('確認'),
+        ),
+      ],
+    );
+  }
 }
 
 Future<void> showSavingsAccountActions(
