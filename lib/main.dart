@@ -1421,6 +1421,10 @@ Map<String, dynamic> readStringMap(
   return Map<String, dynamic>.from(value);
 }
 
+Map<String, dynamic> cloneJsonMap(Map<String, dynamic> value) {
+  return Map<String, dynamic>.from(jsonDecode(jsonEncode(value)) as Map);
+}
+
 List<Map<String, dynamic>> readMapList(Object? value) {
   if (value is! List) {
     return <Map<String, dynamic>>[];
@@ -1632,7 +1636,14 @@ Map<String, dynamic> defaultNoteBackground() {
 Map<String, dynamic> defaultNoteTemplateData(NoteTemplateType type) {
   switch (type) {
     case NoteTemplateType.general:
-      return <String, dynamic>{'schema': 'general.v1'};
+      return <String, dynamic>{
+        'schema': 'general.v2',
+        'richText': {
+          'format': richTextFormatVersion,
+          'plainText': '',
+          'spans': <Map<String, dynamic>>[],
+        },
+      };
     case NoteTemplateType.plan:
       return {
         'schema': 'plan.v1',
@@ -7850,11 +7861,13 @@ class NoteTemplatePickerCard extends StatelessWidget {
 
 class _NoteEditorPageState extends State<NoteEditorPage> {
   late final TextEditingController title;
-  late final TextEditingController body;
+  late final RichNoteTextController body;
   late final TextEditingController tags;
   late String folder;
   late NoteTemplateType templateType;
   late Map<String, dynamic> templateData;
+  late final String initialEditorBody;
+  late final Map<String, dynamic> initialEditorTemplateData;
   late Map<String, dynamic> noteStyle;
   late List<Map<String, dynamic>> noteImages;
   late List<Map<String, dynamic>> noteAttachments;
@@ -7868,13 +7881,21 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     super.initState();
     final note = widget.note;
     title = TextEditingController(text: note?.title ?? '');
-    body = TextEditingController(text: note?.body ?? '');
     tags = TextEditingController(text: note?.tags.join(', ') ?? '');
     folder = note?.category ?? normalizeFolderPath(widget.initialFolder);
     templateType = note?.templateType ?? widget.initialTemplateType;
     templateData = Map<String, dynamic>.from(
       note?.templateData ?? defaultNoteTemplateData(templateType),
     );
+    final richSeed = templateType == NoteTemplateType.general
+        ? richNoteSeedFromTemplateData(note?.body ?? '', templateData)
+        : RichNoteSeed(text: note?.body ?? '', marks: const []);
+    body = RichNoteTextController(text: richSeed.text, marks: richSeed.marks);
+    if (templateType == NoteTemplateType.general) {
+      templateData = richTextTemplateData(templateData, body);
+    }
+    initialEditorBody = body.text;
+    initialEditorTemplateData = cloneJsonMap(templateData);
     noteStyle = Map<String, dynamic>.from(note?.style ?? defaultNoteStyle());
     noteImages = List<Map<String, dynamic>>.from(
       note?.images ?? <Map<String, dynamic>>[],
@@ -7898,16 +7919,17 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   bool get hasChanges {
     final note = widget.note;
     final nextTitle = title.text.trim();
-    final nextBody = body.text.trim();
+    final nextBody = body.text;
     final nextFolder = folder.trim();
     final nextTags = splitTags(tags.text);
+    final nextTemplateData = currentNoteTemplateData();
     if (note == null) {
       return nextTitle.isNotEmpty ||
-          nextBody.isNotEmpty ||
+          nextBody.trim().isNotEmpty ||
           nextFolder.isNotEmpty ||
           nextTags.isNotEmpty ||
           templateType != NoteTemplateType.general ||
-          jsonEncode(templateData) !=
+          jsonEncode(nextTemplateData) !=
               jsonEncode(defaultNoteTemplateData(templateType)) ||
           jsonEncode(noteStyle) != jsonEncode(defaultNoteStyle()) ||
           noteImages.isNotEmpty ||
@@ -7915,15 +7937,22 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
           jsonEncode(noteBackground) != jsonEncode(defaultNoteBackground());
     }
     return nextTitle != note.title ||
-        nextBody != note.body ||
+        nextBody != initialEditorBody ||
         nextFolder != note.category ||
         !stringListsEqual(nextTags, note.tags) ||
         templateType != note.templateType ||
-        jsonEncode(templateData) != jsonEncode(note.templateData) ||
+        jsonEncode(nextTemplateData) != jsonEncode(initialEditorTemplateData) ||
         jsonEncode(noteStyle) != jsonEncode(note.style) ||
         jsonEncode(noteImages) != jsonEncode(note.images) ||
         jsonEncode(noteAttachments) != jsonEncode(note.attachments) ||
         jsonEncode(noteBackground) != jsonEncode(note.background);
+  }
+
+  Map<String, dynamic> currentNoteTemplateData() {
+    if (templateType == NoteTemplateType.general) {
+      return richTextTemplateData(templateData, body);
+    }
+    return templateData;
   }
 
   void saveNote() {
@@ -7940,18 +7969,20 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     final store = AppStoreScope.of(context);
     final now = DateTime.now();
     final note = widget.note;
+    final nextBody = body.text;
+    final nextTemplateData = currentNoteTemplateData();
     store.upsertNote(
       NoteItem(
         id: note?.id ?? store.newId('n'),
         title: title.text.trim().isEmpty ? '未命名筆記' : title.text.trim(),
-        body: body.text.trim(),
+        body: nextBody,
         category: folder.trim(),
         tags: splitTags(tags.text),
         createdAt: note?.createdAt ?? now,
         updatedAt: now,
         isPinned: note?.isPinned ?? false,
         templateType: templateType,
-        templateData: templateData,
+        templateData: nextTemplateData,
         style: noteStyle,
         images: noteImages,
         attachments: noteAttachments,
@@ -8317,16 +8348,14 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                     readOnly: readOnly,
                     minLines: 5,
                     maxLines: 10,
-                    style: noteBodyTextStyle(noteStyle),
+                    style: noteBodyTextStyle(noteStyle, context: context),
                     decoration: InputDecoration(
                       labelText: noteBodyLabel(templateType),
                       alignLabelWithHint: true,
                       filled: true,
-                      fillColor: colorFromHex(
-                        readString(
-                          noteBackground['color'],
-                          fallback: '#FFFFFF',
-                        ),
+                      fillColor: effectiveNoteBackgroundColor(
+                        context,
+                        noteBackground,
                       ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(18),
@@ -8475,6 +8504,706 @@ class NoteTemplateBadge extends StatelessWidget {
   }
 }
 
+const richTextFormatVersion = 'my_note.rich_text.v1';
+
+class RichNoteAttribute {
+  const RichNoteAttribute._();
+
+  static const bold = 'bold';
+  static const italic = 'italic';
+  static const underline = 'underline';
+  static const strikethrough = 'strikethrough';
+  static const inlineCode = 'inlineCode';
+  static const codeBlock = 'codeBlock';
+  static const subscript = 'subscript';
+  static const superscript = 'superscript';
+  static const heading = 'heading';
+  static const quote = 'quote';
+}
+
+class RichNoteMark {
+  const RichNoteMark({
+    required this.start,
+    required this.end,
+    required this.attributes,
+  });
+
+  final int start;
+  final int end;
+  final Map<String, dynamic> attributes;
+
+  bool get isValid => end > start && attributes.isNotEmpty;
+
+  RichNoteMark copyWith({
+    int? start,
+    int? end,
+    Map<String, dynamic>? attributes,
+  }) {
+    return RichNoteMark(
+      start: start ?? this.start,
+      end: end ?? this.end,
+      attributes: attributes ?? Map<String, dynamic>.from(this.attributes),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'start': start,
+    'end': end,
+    'attributes': attributes,
+  };
+
+  static RichNoteMark? fromJson(Map<String, dynamic> data, int textLength) {
+    final start = readInt(data['start']).clamp(0, textLength).toInt();
+    final end = readInt(data['end']).clamp(0, textLength).toInt();
+    final attributes = readStringMap(data['attributes']);
+    final mark = RichNoteMark(
+      start: math.min(start, end),
+      end: math.max(start, end),
+      attributes: attributes,
+    );
+    return mark.isValid ? mark : null;
+  }
+}
+
+class RichNoteEditingSnapshot {
+  const RichNoteEditingSnapshot(this.value, this.marks);
+
+  final TextEditingValue value;
+  final List<RichNoteMark> marks;
+}
+
+class RichNoteSeed {
+  const RichNoteSeed({required this.text, required this.marks});
+
+  final String text;
+  final List<RichNoteMark> marks;
+}
+
+class RichNoteTextController extends TextEditingController {
+  RichNoteTextController({
+    required String text,
+    required List<RichNoteMark> marks,
+  }) : _marks = normalizeRichNoteMarks(marks, text.length),
+       _lastText = text,
+       _lastValue = TextEditingValue(
+         text: text,
+         selection: TextSelection.collapsed(offset: text.length),
+       ),
+       _lastMarks = normalizeRichNoteMarks(marks, text.length),
+       super(text: text) {
+    addListener(_handleUserTextChange);
+  }
+
+  List<RichNoteMark> _marks;
+  String _lastText;
+  TextEditingValue _lastValue;
+  List<RichNoteMark> _lastMarks;
+  bool _applyingChange = false;
+  final List<RichNoteEditingSnapshot> _undoStack = [];
+
+  bool get canUndoRichChange => _undoStack.isNotEmpty;
+
+  List<RichNoteMark> get marks =>
+      _marks.map((mark) => mark.copyWith()).toList();
+
+  Map<String, dynamic> toRichTextJson() => {
+    'format': richTextFormatVersion,
+    'plainText': text,
+    'spans': _marks.map((mark) => mark.toJson()).toList(),
+  };
+
+  void _handleUserTextChange() {
+    if (_applyingChange || text == _lastText) {
+      return;
+    }
+    _pushUndo(_lastValue, _lastMarks);
+    _marks = adjustRichNoteMarksAfterTextChange(
+      _marks,
+      oldText: _lastText,
+      newText: text,
+    );
+    _syncLastSnapshot();
+  }
+
+  void _syncLastSnapshot() {
+    _lastText = text;
+    _lastValue = value;
+    _lastMarks = marks;
+  }
+
+  void _pushUndo(TextEditingValue value, List<RichNoteMark> marks) {
+    _undoStack.add(
+      RichNoteEditingSnapshot(
+        value,
+        marks.map((mark) => mark.copyWith()).toList(),
+      ),
+    );
+    if (_undoStack.length > 50) {
+      _undoStack.removeAt(0);
+    }
+  }
+
+  void _pushCurrentUndo() {
+    _pushUndo(value, marks);
+  }
+
+  TextRange normalizedSelectionRange() {
+    final currentText = text;
+    final selection = this.selection;
+    if (!selection.isValid) {
+      return TextRange.collapsed(currentText.length);
+    }
+    final start = math
+        .min(selection.start, selection.end)
+        .clamp(0, currentText.length)
+        .toInt();
+    final end = math
+        .max(selection.start, selection.end)
+        .clamp(0, currentText.length)
+        .toInt();
+    return TextRange(start: start, end: end);
+  }
+
+  TextRange currentLineRange() {
+    final range = normalizedSelectionRange();
+    final currentText = text;
+    final lineStart = range.start <= 0
+        ? 0
+        : currentText.lastIndexOf('\n', range.start - 1) + 1;
+    final rawEnd = range.end >= currentText.length
+        ? currentText.length
+        : currentText.indexOf('\n', range.end);
+    final lineEnd = rawEnd == -1 ? currentText.length : rawEnd;
+    return TextRange(start: lineStart, end: lineEnd);
+  }
+
+  void replaceSelection(
+    String replacement, {
+    Map<String, dynamic>? attributes,
+  }) {
+    final range = normalizedSelectionRange();
+    _pushCurrentUndo();
+    _applyingChange = true;
+    final nextText = text.replaceRange(range.start, range.end, replacement);
+    _marks = adjustRichNoteMarksForReplacement(
+      _marks,
+      oldStart: range.start,
+      oldEnd: range.end,
+      replacementLength: replacement.length,
+      textLength: nextText.length,
+    );
+    if (attributes != null && attributes.isNotEmpty && replacement.isNotEmpty) {
+      _marks.add(
+        RichNoteMark(
+          start: range.start,
+          end: range.start + replacement.length,
+          attributes: Map<String, dynamic>.from(attributes),
+        ),
+      );
+    }
+    _marks = normalizeRichNoteMarks(_marks, nextText.length);
+    value = TextEditingValue(
+      text: nextText,
+      selection: TextSelection.collapsed(
+        offset: range.start + replacement.length,
+      ),
+    );
+    _syncLastSnapshot();
+    _applyingChange = false;
+    notifyListeners();
+  }
+
+  void applyInlineAttribute(
+    String attribute,
+    Object value, {
+    required String placeholder,
+  }) {
+    var range = normalizedSelectionRange();
+    if (range.isCollapsed) {
+      replaceSelection(placeholder, attributes: {attribute: value});
+      return;
+    }
+    _pushCurrentUndo();
+    _applyingChange = true;
+    if (selectionHasAttribute(attribute, value: value)) {
+      _marks = removeRichNoteAttribute(_marks, range, attribute, text.length);
+    } else {
+      _marks = removeRichNoteAttribute(_marks, range, attribute, text.length);
+      _marks.add(
+        RichNoteMark(
+          start: range.start,
+          end: range.end,
+          attributes: {attribute: value},
+        ),
+      );
+      _marks = normalizeRichNoteMarks(_marks, text.length);
+    }
+    _syncLastSnapshot();
+    _applyingChange = false;
+    notifyListeners();
+  }
+
+  void applyLineAttribute(
+    String attribute,
+    Object value, {
+    required String placeholder,
+  }) {
+    var range = currentLineRange();
+    if (range.isCollapsed) {
+      replaceSelection(placeholder, attributes: {attribute: value});
+      return;
+    }
+    _pushCurrentUndo();
+    _applyingChange = true;
+    if (rangeHasAttribute(range, attribute, value: value)) {
+      _marks = removeRichNoteAttribute(_marks, range, attribute, text.length);
+    } else {
+      _marks = removeRichNoteAttribute(_marks, range, attribute, text.length);
+      _marks.add(
+        RichNoteMark(
+          start: range.start,
+          end: range.end,
+          attributes: {attribute: value},
+        ),
+      );
+      _marks = normalizeRichNoteMarks(_marks, text.length);
+    }
+    _syncLastSnapshot();
+    _applyingChange = false;
+    notifyListeners();
+  }
+
+  void prefixSelectedLines(String prefix) {
+    final range = normalizedSelectionRange();
+    final currentText = text;
+    final lineStart = range.start <= 0
+        ? 0
+        : currentText.lastIndexOf('\n', range.start - 1) + 1;
+    final rawEnd = range.end >= currentText.length
+        ? currentText.length
+        : currentText.indexOf('\n', range.end);
+    final lineEnd = rawEnd == -1 ? currentText.length : rawEnd;
+    final block = currentText.substring(lineStart, lineEnd);
+    final replacement = block
+        .split('\n')
+        .map((line) => '$prefix$line')
+        .join('\n');
+    replaceTextRange(lineStart, lineEnd, replacement);
+  }
+
+  void replaceTextRange(int start, int end, String replacement) {
+    _pushCurrentUndo();
+    _applyingChange = true;
+    final nextText = text.replaceRange(start, end, replacement);
+    _marks = adjustRichNoteMarksForReplacement(
+      _marks,
+      oldStart: start,
+      oldEnd: end,
+      replacementLength: replacement.length,
+      textLength: nextText.length,
+    );
+    _marks = normalizeRichNoteMarks(_marks, nextText.length);
+    value = TextEditingValue(
+      text: nextText,
+      selection: TextSelection.collapsed(offset: start + replacement.length),
+    );
+    _syncLastSnapshot();
+    _applyingChange = false;
+    notifyListeners();
+  }
+
+  void outdentSelectedLines() {
+    final range = normalizedSelectionRange();
+    final currentText = text;
+    final lineStart = range.start <= 0
+        ? 0
+        : currentText.lastIndexOf('\n', range.start - 1) + 1;
+    final rawEnd = range.end >= currentText.length
+        ? currentText.length
+        : currentText.indexOf('\n', range.end);
+    final lineEnd = rawEnd == -1 ? currentText.length : rawEnd;
+    final replacement = currentText
+        .substring(lineStart, lineEnd)
+        .split('\n')
+        .map((line) {
+          if (line.startsWith('  ')) return line.substring(2);
+          if (line.startsWith('\t')) return line.substring(1);
+          return line;
+        })
+        .join('\n');
+    replaceTextRange(lineStart, lineEnd, replacement);
+  }
+
+  void applyOrderedList() {
+    final range = normalizedSelectionRange();
+    final currentText = text;
+    final lineStart = range.start <= 0
+        ? 0
+        : currentText.lastIndexOf('\n', range.start - 1) + 1;
+    final rawEnd = range.end >= currentText.length
+        ? currentText.length
+        : currentText.indexOf('\n', range.end);
+    final lineEnd = rawEnd == -1 ? currentText.length : rawEnd;
+    final replacement = currentText
+        .substring(lineStart, lineEnd)
+        .split('\n')
+        .asMap()
+        .entries
+        .map((entry) => '${entry.key + 1}. ${entry.value}')
+        .join('\n');
+    replaceTextRange(lineStart, lineEnd, replacement);
+  }
+
+  bool selectionHasAttribute(String attribute, {Object? value}) {
+    final range = normalizedSelectionRange();
+    if (range.isCollapsed) {
+      final position = range.start.clamp(0, text.length).toInt();
+      return _marks.any((mark) {
+        final covers = position == text.length
+            ? mark.start < position && mark.end >= position
+            : mark.start <= position && mark.end > position;
+        return covers &&
+            mark.attributes.containsKey(attribute) &&
+            (value == null || mark.attributes[attribute] == value);
+      });
+    }
+    return rangeHasAttribute(range, attribute, value: value);
+  }
+
+  bool rangeHasAttribute(TextRange range, String attribute, {Object? value}) {
+    for (var index = range.start; index < range.end; index++) {
+      if (text[index] == '\n') {
+        continue;
+      }
+      final covered = _marks.any(
+        (mark) =>
+            mark.start <= index &&
+            mark.end > index &&
+            mark.attributes.containsKey(attribute) &&
+            (value == null || mark.attributes[attribute] == value),
+      );
+      if (!covered) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void undoRichChange() {
+    if (_undoStack.isEmpty) {
+      return;
+    }
+    _applyingChange = true;
+    final previous = _undoStack.removeLast();
+    _marks = previous.marks.map((mark) => mark.copyWith()).toList();
+    value = previous.value;
+    _syncLastSnapshot();
+    _applyingChange = false;
+    notifyListeners();
+  }
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    final baseStyle = style ?? const TextStyle();
+    final currentText = text;
+    if (currentText.isEmpty) {
+      return TextSpan(style: baseStyle, text: '');
+    }
+
+    final boundaries = <int>{0, currentText.length};
+    for (final mark in _marks) {
+      boundaries.add(mark.start.clamp(0, currentText.length).toInt());
+      boundaries.add(mark.end.clamp(0, currentText.length).toInt());
+    }
+    final ordered = boundaries.toList()..sort();
+    final children = <InlineSpan>[];
+    for (var i = 0; i < ordered.length - 1; i++) {
+      final start = ordered[i];
+      final end = ordered[i + 1];
+      if (end <= start) {
+        continue;
+      }
+      final attributes = <String, dynamic>{};
+      for (final mark in _marks) {
+        if (mark.start <= start && mark.end >= end) {
+          attributes.addAll(mark.attributes);
+        }
+      }
+      children.add(
+        TextSpan(
+          text: currentText.substring(start, end),
+          style: richNoteTextStyleForAttributes(context, baseStyle, attributes),
+        ),
+      );
+    }
+    return TextSpan(style: baseStyle, children: children);
+  }
+}
+
+List<RichNoteMark> normalizeRichNoteMarks(
+  List<RichNoteMark> marks,
+  int textLength,
+) {
+  final normalized = <RichNoteMark>[];
+  for (final mark in marks) {
+    final start = mark.start.clamp(0, textLength).toInt();
+    final end = mark.end.clamp(0, textLength).toInt();
+    final next = RichNoteMark(
+      start: math.min(start, end),
+      end: math.max(start, end),
+      attributes: Map<String, dynamic>.from(mark.attributes),
+    );
+    if (next.isValid) {
+      normalized.add(next);
+    }
+  }
+  normalized.sort((a, b) {
+    final start = a.start.compareTo(b.start);
+    if (start != 0) return start;
+    return a.end.compareTo(b.end);
+  });
+  return normalized;
+}
+
+List<RichNoteMark> adjustRichNoteMarksAfterTextChange(
+  List<RichNoteMark> marks, {
+  required String oldText,
+  required String newText,
+}) {
+  var prefix = 0;
+  while (prefix < oldText.length &&
+      prefix < newText.length &&
+      oldText.codeUnitAt(prefix) == newText.codeUnitAt(prefix)) {
+    prefix++;
+  }
+  var suffix = 0;
+  while (suffix < oldText.length - prefix &&
+      suffix < newText.length - prefix &&
+      oldText.codeUnitAt(oldText.length - 1 - suffix) ==
+          newText.codeUnitAt(newText.length - 1 - suffix)) {
+    suffix++;
+  }
+  return adjustRichNoteMarksForReplacement(
+    marks,
+    oldStart: prefix,
+    oldEnd: oldText.length - suffix,
+    replacementLength: newText.length - prefix - suffix,
+    textLength: newText.length,
+  );
+}
+
+List<RichNoteMark> adjustRichNoteMarksForReplacement(
+  List<RichNoteMark> marks, {
+  required int oldStart,
+  required int oldEnd,
+  required int replacementLength,
+  required int textLength,
+}) {
+  final delta = replacementLength - (oldEnd - oldStart);
+  final changedNewEnd = oldStart + replacementLength;
+  final next = <RichNoteMark>[];
+  for (final mark in marks) {
+    if (mark.end <= oldStart) {
+      next.add(mark);
+    } else if (mark.start >= oldEnd) {
+      next.add(mark.copyWith(start: mark.start + delta, end: mark.end + delta));
+    } else {
+      final start = mark.start <= oldStart ? mark.start : changedNewEnd;
+      final end = mark.end >= oldEnd ? mark.end + delta : oldStart;
+      if (end > start) {
+        next.add(mark.copyWith(start: start, end: end));
+      }
+    }
+  }
+  return normalizeRichNoteMarks(next, textLength);
+}
+
+List<RichNoteMark> removeRichNoteAttribute(
+  List<RichNoteMark> marks,
+  TextRange range,
+  String attribute,
+  int textLength,
+) {
+  final next = <RichNoteMark>[];
+  for (final mark in marks) {
+    if (mark.end <= range.start ||
+        mark.start >= range.end ||
+        !mark.attributes.containsKey(attribute)) {
+      next.add(mark);
+      continue;
+    }
+    if (mark.start < range.start) {
+      next.add(mark.copyWith(end: range.start));
+    }
+    final middleAttributes = Map<String, dynamic>.from(mark.attributes)
+      ..remove(attribute);
+    if (middleAttributes.isNotEmpty) {
+      next.add(
+        RichNoteMark(
+          start: math.max(mark.start, range.start),
+          end: math.min(mark.end, range.end),
+          attributes: middleAttributes,
+        ),
+      );
+    }
+    if (mark.end > range.end) {
+      next.add(mark.copyWith(start: range.end));
+    }
+  }
+  return normalizeRichNoteMarks(next, textLength);
+}
+
+RichNoteSeed richNoteSeedFromTemplateData(
+  String body,
+  Map<String, dynamic> templateData,
+) {
+  final richText = readStringMap(templateData['richText']);
+  final plainText = readString(richText['plainText'], fallback: body);
+  final spans = readMapList(richText['spans'])
+      .map((item) => RichNoteMark.fromJson(item, plainText.length))
+      .whereType<RichNoteMark>()
+      .toList();
+  if (spans.isNotEmpty || richText['format'] == richTextFormatVersion) {
+    return RichNoteSeed(text: plainText, marks: spans);
+  }
+  return migrateLegacyRichTextMarkers(body);
+}
+
+RichNoteSeed migrateLegacyRichTextMarkers(String body) {
+  var text = body;
+  final marks = <RichNoteMark>[];
+
+  void removeRange(int start, int length) {
+    text = text.replaceRange(start, start + length, '');
+    final shifted = adjustRichNoteMarksForReplacement(
+      marks,
+      oldStart: start,
+      oldEnd: start + length,
+      replacementLength: 0,
+      textLength: text.length,
+    );
+    marks
+      ..clear()
+      ..addAll(shifted);
+  }
+
+  void consumePair(String open, String close, Map<String, dynamic> attributes) {
+    var index = 0;
+    while (index < text.length) {
+      final start = text.indexOf(open, index);
+      if (start < 0) break;
+      final contentStart = start + open.length;
+      final end = text.indexOf(close, contentStart);
+      if (end < 0) break;
+      removeRange(end, close.length);
+      removeRange(start, open.length);
+      final markEnd = end - open.length;
+      if (markEnd > start) {
+        marks.add(
+          RichNoteMark(
+            start: start,
+            end: markEnd,
+            attributes: Map<String, dynamic>.from(attributes),
+          ),
+        );
+      }
+      index = math.max(start + 1, markEnd);
+    }
+  }
+
+  consumePair('```\n', '\n```', {RichNoteAttribute.codeBlock: true});
+  consumePair('**', '**', {RichNoteAttribute.bold: true});
+  consumePair('~~', '~~', {RichNoteAttribute.strikethrough: true});
+  consumePair('<u>', '</u>', {RichNoteAttribute.underline: true});
+  consumePair('<sub>', '</sub>', {RichNoteAttribute.subscript: true});
+  consumePair('<sup>', '</sup>', {RichNoteAttribute.superscript: true});
+  consumePair('`', '`', {RichNoteAttribute.inlineCode: true});
+
+  return RichNoteSeed(
+    text: text,
+    marks: normalizeRichNoteMarks(marks, text.length),
+  );
+}
+
+Map<String, dynamic> richTextTemplateData(
+  Map<String, dynamic> current,
+  RichNoteTextController controller,
+) {
+  final next = Map<String, dynamic>.from(current);
+  next['schema'] = 'general.v2';
+  next['richText'] = controller.toRichTextJson();
+  return next;
+}
+
+TextStyle richNoteTextStyleForAttributes(
+  BuildContext context,
+  TextStyle base,
+  Map<String, dynamic> attributes,
+) {
+  final colorScheme = Theme.of(context).colorScheme;
+  final decorations = <TextDecoration>[];
+  if (attributes[RichNoteAttribute.underline] == true) {
+    decorations.add(TextDecoration.underline);
+  }
+  if (attributes[RichNoteAttribute.strikethrough] == true) {
+    decorations.add(TextDecoration.lineThrough);
+  }
+  var style = base.copyWith(
+    fontWeight: attributes[RichNoteAttribute.bold] == true
+        ? FontWeight.w800
+        : base.fontWeight,
+    fontStyle:
+        attributes[RichNoteAttribute.italic] == true ||
+            attributes[RichNoteAttribute.quote] == true
+        ? FontStyle.italic
+        : base.fontStyle,
+    decoration: decorations.isEmpty
+        ? base.decoration
+        : TextDecoration.combine(decorations),
+  );
+  if (attributes[RichNoteAttribute.inlineCode] == true ||
+      attributes[RichNoteAttribute.codeBlock] == true) {
+    style = style.copyWith(
+      fontFamily: 'monospace',
+      color: colorScheme.primary,
+      backgroundColor: colorScheme.surfaceContainerHighest,
+    );
+  }
+  if (attributes[RichNoteAttribute.subscript] == true) {
+    style = style.copyWith(
+      fontSize: (style.fontSize ?? 16) * 0.78,
+      fontFeatures: const [FontFeature.subscripts()],
+    );
+  }
+  if (attributes[RichNoteAttribute.superscript] == true) {
+    style = style.copyWith(
+      fontSize: (style.fontSize ?? 16) * 0.78,
+      fontFeatures: const [FontFeature.superscripts()],
+    );
+  }
+  final heading = readInt(attributes[RichNoteAttribute.heading]);
+  if (heading > 0) {
+    final multiplier = switch (heading) {
+      1 => 1.55,
+      2 => 1.32,
+      _ => 1.16,
+    };
+    style = style.copyWith(
+      fontSize: (style.fontSize ?? 16) * multiplier,
+      fontWeight: FontWeight.w900,
+      height: 1.2,
+    );
+  }
+  if (attributes[RichNoteAttribute.quote] == true) {
+    style = style.copyWith(color: colorScheme.onSurfaceVariant);
+  }
+  return style;
+}
+
 class GeneralRichTextEditorPanel extends StatelessWidget {
   const GeneralRichTextEditorPanel({
     super.key,
@@ -8493,7 +9222,7 @@ class GeneralRichTextEditorPanel extends StatelessWidget {
     required this.onInsertNote,
   });
 
-  final TextEditingController controller;
+  final RichNoteTextController controller;
   final bool readOnly;
   final Map<String, dynamic> style;
   final int imageCount;
@@ -8510,15 +9239,13 @@ class GeneralRichTextEditorPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final backgroundColor = colorFromHex(
-      readString(background['color'], fallback: '#FFFFFF'),
-    );
+    final backgroundColor = effectiveNoteBackgroundColor(context, background);
     return Material(
-      color: Colors.white,
+      color: colorScheme.surface,
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
-        side: const BorderSide(color: Color(0xffdfe5f4)),
+        side: BorderSide(color: colorScheme.outlineVariant),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -8526,7 +9253,7 @@ class GeneralRichTextEditorPanel extends StatelessWidget {
         children: [
           Container(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-            color: const Color(0xfff7f8fc),
+            color: colorScheme.surfaceContainerLowest,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -8545,7 +9272,7 @@ class GeneralRichTextEditorPanel extends StatelessWidget {
                       Text(
                         '圖片 $imageCount  附件 $attachmentCount',
                         style: Theme.of(context).textTheme.labelMedium
-                            ?.copyWith(color: const Color(0xff687386)),
+                            ?.copyWith(color: colorScheme.onSurfaceVariant),
                       ),
                   ],
                 ),
@@ -8575,7 +9302,7 @@ class GeneralRichTextEditorPanel extends StatelessWidget {
                 readOnly: readOnly,
                 minLines: 14,
                 maxLines: 24,
-                style: noteBodyTextStyle(style),
+                style: noteBodyTextStyle(style, context: context),
                 decoration: const InputDecoration(
                   hintText: '開始輸入筆記內容',
                   border: InputBorder.none,
@@ -8607,7 +9334,7 @@ class RichTextTemplateToolbar extends StatefulWidget {
     required this.onInsertNote,
   });
 
-  final TextEditingController controller;
+  final RichNoteTextController controller;
   final Map<String, dynamic> style;
   final ValueChanged<Map<String, dynamic>> onStyleChanged;
   final VoidCallback onAddImage;
@@ -8623,188 +9350,58 @@ class RichTextTemplateToolbar extends StatefulWidget {
 }
 
 class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
-  final List<TextEditingValue> undoStack = [];
-  late TextEditingValue lastValue;
-  bool applyingChange = false;
-
   @override
   void initState() {
     super.initState();
-    lastValue = widget.controller.value;
-    widget.controller.addListener(recordExternalChange);
+    widget.controller.addListener(refresh);
   }
 
   @override
   void didUpdateWidget(covariant RichTextTemplateToolbar oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
-      oldWidget.controller.removeListener(recordExternalChange);
-      lastValue = widget.controller.value;
-      undoStack.clear();
-      widget.controller.addListener(recordExternalChange);
+      oldWidget.controller.removeListener(refresh);
+      widget.controller.addListener(refresh);
     }
   }
 
   @override
   void dispose() {
-    widget.controller.removeListener(recordExternalChange);
+    widget.controller.removeListener(refresh);
     super.dispose();
   }
 
-  void recordExternalChange() {
-    if (applyingChange) {
-      return;
-    }
-    final current = widget.controller.value;
-    if (current.text == lastValue.text &&
-        current.selection == lastValue.selection) {
-      return;
-    }
-    undoStack.add(lastValue);
-    if (undoStack.length > 50) {
-      undoStack.removeAt(0);
-    }
-    lastValue = current;
+  void refresh() {
     if (mounted) {
       setState(() {});
     }
   }
 
-  TextRange currentRange() {
-    final text = widget.controller.text;
-    final selection = widget.controller.selection;
-    if (!selection.isValid) {
-      return TextRange.collapsed(text.length);
-    }
-    final start = math
-        .min(selection.start, selection.end)
-        .clamp(0, text.length)
-        .toInt();
-    final end = math
-        .max(selection.start, selection.end)
-        .clamp(0, text.length)
-        .toInt();
-    return TextRange(start: start, end: end);
-  }
-
-  void commitText(String nextText, int cursorOffset) {
-    applyingChange = true;
-    undoStack.add(widget.controller.value);
-    if (undoStack.length > 50) {
-      undoStack.removeAt(0);
-    }
-    final nextOffset = cursorOffset.clamp(0, nextText.length).toInt();
-    widget.controller.value = TextEditingValue(
-      text: nextText,
-      selection: TextSelection.collapsed(offset: nextOffset),
-    );
-    lastValue = widget.controller.value;
-    applyingChange = false;
-    setState(() {});
-  }
-
-  void wrapSelection(String prefix, String suffix, String placeholder) {
-    final text = widget.controller.text;
-    final range = currentRange();
-    final selected = text.substring(range.start, range.end);
-    final content = selected.isEmpty ? placeholder : selected;
-    final replacement = '$prefix$content$suffix';
-    commitText(
-      text.replaceRange(range.start, range.end, replacement),
-      range.start + replacement.length,
+  void applyInline(String attribute, Object value, String placeholder) {
+    widget.controller.applyInlineAttribute(
+      attribute,
+      value,
+      placeholder: placeholder,
     );
   }
 
-  void insertText(String value) {
-    final text = widget.controller.text;
-    final range = currentRange();
-    commitText(
-      text.replaceRange(range.start, range.end, value),
-      range.start + value.length,
+  void applyLine(String attribute, Object value, String placeholder) {
+    widget.controller.applyLineAttribute(
+      attribute,
+      value,
+      placeholder: placeholder,
     );
-  }
-
-  void prefixSelectedLines(String prefix) {
-    final text = widget.controller.text;
-    final range = currentRange();
-    final lineStart = range.start <= 0
-        ? 0
-        : text.lastIndexOf('\n', range.start - 1) + 1;
-    final lineEnd = range.end >= text.length
-        ? text.length
-        : text.indexOf('\n', range.end);
-    final end = lineEnd == -1 ? text.length : lineEnd;
-    final block = text.substring(lineStart, end);
-    final lines = block.split('\n');
-    final replacement = lines.map((line) => '$prefix$line').join('\n');
-    commitText(text.replaceRange(lineStart, end, replacement), lineStart);
-  }
-
-  void outdentSelectedLines() {
-    final text = widget.controller.text;
-    final range = currentRange();
-    final lineStart = range.start <= 0
-        ? 0
-        : text.lastIndexOf('\n', range.start - 1) + 1;
-    final lineEnd = range.end >= text.length
-        ? text.length
-        : text.indexOf('\n', range.end);
-    final end = lineEnd == -1 ? text.length : lineEnd;
-    final block = text.substring(lineStart, end);
-    final replacement = block
-        .split('\n')
-        .map((line) {
-          if (line.startsWith('  ')) return line.substring(2);
-          if (line.startsWith('\t')) return line.substring(1);
-          return line;
-        })
-        .join('\n');
-    commitText(text.replaceRange(lineStart, end, replacement), lineStart);
-  }
-
-  void applyOrderedList() {
-    final text = widget.controller.text;
-    final range = currentRange();
-    final lineStart = range.start <= 0
-        ? 0
-        : text.lastIndexOf('\n', range.start - 1) + 1;
-    final lineEnd = range.end >= text.length
-        ? text.length
-        : text.indexOf('\n', range.end);
-    final end = lineEnd == -1 ? text.length : lineEnd;
-    final replacement = text
-        .substring(lineStart, end)
-        .split('\n')
-        .asMap()
-        .entries
-        .map((entry) => '${entry.key + 1}. ${entry.value}')
-        .join('\n');
-    commitText(text.replaceRange(lineStart, end, replacement), lineStart);
-  }
-
-  void applyHeading(int level) {
-    prefixSelectedLines('${'#' * level} ');
-  }
-
-  void undo() {
-    if (undoStack.isEmpty) {
-      return;
-    }
-    applyingChange = true;
-    final previous = undoStack.removeLast();
-    widget.controller.value = previous;
-    lastValue = previous;
-    applyingChange = false;
-    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final fontSize = readDouble(widget.style['fontSize'], fallback: 16).round();
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: const Color(0xff12171c),
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: SizedBox(
         height: 48,
@@ -8816,8 +9413,8 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
               RichToolbarIconButton(
                 tooltip: '復原',
                 icon: Icons.undo,
-                enabled: undoStack.isNotEmpty,
-                onPressed: undo,
+                enabled: widget.controller.canUndoRichChange,
+                onPressed: widget.controller.undoRichChange,
               ),
               RichToolbarMenuButton<int>(
                 label: '$fontSize',
@@ -8832,37 +9429,75 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
               RichToolbarTextButton(
                 label: 'B',
                 tooltip: '粗體',
-                onPressed: () => wrapSelection('**', '**', '粗體'),
+                active: widget.controller.selectionHasAttribute(
+                  RichNoteAttribute.bold,
+                  value: true,
+                ),
+                onPressed: () =>
+                    applyInline(RichNoteAttribute.bold, true, '粗體'),
               ),
               RichToolbarIconButton(
                 tooltip: '斜體',
                 icon: Icons.format_italic,
-                onPressed: () => wrapSelection('_', '_', '斜體'),
+                active: widget.controller.selectionHasAttribute(
+                  RichNoteAttribute.italic,
+                  value: true,
+                ),
+                onPressed: () =>
+                    applyInline(RichNoteAttribute.italic, true, '斜體'),
               ),
               RichToolbarIconButton(
                 tooltip: '底線',
                 icon: Icons.format_underlined,
-                onPressed: () => wrapSelection('<u>', '</u>', '底線'),
+                active: widget.controller.selectionHasAttribute(
+                  RichNoteAttribute.underline,
+                  value: true,
+                ),
+                onPressed: () =>
+                    applyInline(RichNoteAttribute.underline, true, '底線'),
               ),
               RichToolbarIconButton(
                 tooltip: '刪除線',
                 icon: Icons.format_strikethrough,
-                onPressed: () => wrapSelection('~~', '~~', '刪除線'),
+                active: widget.controller.selectionHasAttribute(
+                  RichNoteAttribute.strikethrough,
+                  value: true,
+                ),
+                onPressed: () =>
+                    applyInline(RichNoteAttribute.strikethrough, true, '刪除線'),
               ),
               RichToolbarTextButton(
                 label: '<>',
                 tooltip: '行內程式碼',
-                onPressed: () => wrapSelection('`', '`', 'code'),
+                active: widget.controller.selectionHasAttribute(
+                  RichNoteAttribute.inlineCode,
+                  value: true,
+                ),
+                onPressed: () => applyInline(
+                  RichNoteAttribute.inlineCode,
+                  true,
+                  'inline code',
+                ),
               ),
               RichToolbarTextButton(
                 label: 'X₂',
                 tooltip: '下標',
-                onPressed: () => wrapSelection('<sub>', '</sub>', '2'),
+                active: widget.controller.selectionHasAttribute(
+                  RichNoteAttribute.subscript,
+                  value: true,
+                ),
+                onPressed: () =>
+                    applyInline(RichNoteAttribute.subscript, true, 'sub'),
               ),
               RichToolbarTextButton(
                 label: 'X²',
                 tooltip: '上標',
-                onPressed: () => wrapSelection('<sup>', '</sup>', '2'),
+                active: widget.controller.selectionHasAttribute(
+                  RichNoteAttribute.superscript,
+                  value: true,
+                ),
+                onPressed: () =>
+                    applyInline(RichNoteAttribute.superscript, true, 'super'),
               ),
               const RichToolbarDivider(),
               RichToolbarMenuButton<int>(
@@ -8870,44 +9505,54 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
                 tooltip: '標題',
                 values: const [1, 2, 3],
                 labelBuilder: (value) => 'H$value',
-                onSelected: applyHeading,
+                onSelected: (value) =>
+                    applyLine(RichNoteAttribute.heading, value, '標題'),
               ),
               const RichToolbarDivider(),
               RichToolbarIconButton(
                 tooltip: '編號清單',
                 icon: Icons.format_list_numbered,
-                onPressed: applyOrderedList,
+                onPressed: widget.controller.applyOrderedList,
               ),
               RichToolbarIconButton(
                 tooltip: '項目清單',
                 icon: Icons.format_list_bulleted,
-                onPressed: () => prefixSelectedLines('- '),
+                onPressed: () => widget.controller.prefixSelectedLines('• '),
               ),
               RichToolbarIconButton(
                 tooltip: '待辦清單',
                 icon: Icons.check_box,
-                onPressed: () => prefixSelectedLines('- [ ] '),
+                onPressed: () => widget.controller.prefixSelectedLines('☐ '),
               ),
               RichToolbarTextButton(
                 label: '<>',
                 tooltip: '程式碼區塊',
-                onPressed: () => wrapSelection('```\n', '\n```', 'code'),
+                active: widget.controller.selectionHasAttribute(
+                  RichNoteAttribute.codeBlock,
+                  value: true,
+                ),
+                onPressed: () =>
+                    applyLine(RichNoteAttribute.codeBlock, true, 'code block'),
               ),
               const RichToolbarDivider(),
               RichToolbarIconButton(
                 tooltip: '引用',
                 icon: Icons.format_quote,
-                onPressed: () => prefixSelectedLines('> '),
+                active: widget.controller.selectionHasAttribute(
+                  RichNoteAttribute.quote,
+                  value: true,
+                ),
+                onPressed: () => applyLine(RichNoteAttribute.quote, true, '引用'),
               ),
               RichToolbarIconButton(
                 tooltip: '增加縮排',
                 icon: Icons.format_indent_increase,
-                onPressed: () => prefixSelectedLines('  '),
+                onPressed: () => widget.controller.prefixSelectedLines('  '),
               ),
               RichToolbarIconButton(
                 tooltip: '減少縮排',
                 icon: Icons.format_indent_decrease,
-                onPressed: outdentSelectedLines,
+                onPressed: widget.controller.outdentSelectedLines,
               ),
               const RichToolbarDivider(),
               RichToolbarIconButton(
@@ -8955,20 +9600,26 @@ class RichToolbarIconButton extends StatelessWidget {
     required this.icon,
     required this.onPressed,
     this.enabled = true,
+    this.active = false,
   });
 
   final String tooltip;
   final IconData icon;
   final VoidCallback onPressed;
   final bool enabled;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return IconButton(
       tooltip: tooltip,
       onPressed: enabled ? onPressed : null,
-      color: Colors.white,
-      disabledColor: Colors.white30,
+      color: active ? colorScheme.onPrimaryContainer : colorScheme.onSurface,
+      disabledColor: colorScheme.onSurface.withValues(alpha: 0.32),
+      style: IconButton.styleFrom(
+        backgroundColor: active ? colorScheme.primaryContainer : null,
+      ),
       iconSize: 22,
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints.tightFor(width: 42, height: 48),
@@ -8983,28 +9634,43 @@ class RichToolbarTextButton extends StatelessWidget {
     required this.label,
     required this.tooltip,
     required this.onPressed,
+    this.active = false,
   });
 
   final String label;
   final String tooltip;
   final VoidCallback onPressed;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Tooltip(
       message: tooltip,
-      child: InkWell(
-        onTap: onPressed,
-        child: SizedBox(
-          width: 42,
-          height: 48,
-          child: Center(
-            child: Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
-                fontSize: 17,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onPressed,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: active ? colorScheme.primaryContainer : Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: SizedBox(
+              width: 42,
+              height: 48,
+              child: Center(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: active
+                        ? colorScheme.onPrimaryContainer
+                        : colorScheme.onSurface,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 17,
+                  ),
+                ),
               ),
             ),
           ),
@@ -9032,10 +9698,11 @@ class RichToolbarMenuButton<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Tooltip(
       message: tooltip,
       child: PopupMenuButton<T>(
-        color: const Color(0xff1f252b),
+        color: colorScheme.surface,
         tooltip: tooltip,
         onSelected: onSelected,
         itemBuilder: (context) => [
@@ -9044,7 +9711,7 @@ class RichToolbarMenuButton<T> extends StatelessWidget {
               value: value,
               child: Text(
                 labelBuilder(value),
-                style: const TextStyle(color: Colors.white),
+                style: TextStyle(color: colorScheme.onSurface),
               ),
             ),
         ],
@@ -9056,13 +9723,17 @@ class RichToolbarMenuButton<T> extends StatelessWidget {
             children: [
               Text(
                 label,
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: colorScheme.onSurface,
                   fontWeight: FontWeight.w800,
                 ),
               ),
               const SizedBox(width: 2),
-              const Icon(Icons.arrow_drop_down, color: Colors.white, size: 20),
+              Icon(
+                Icons.arrow_drop_down,
+                color: colorScheme.onSurface,
+                size: 20,
+              ),
             ],
           ),
         ),
@@ -9080,7 +9751,7 @@ class RichToolbarDivider extends StatelessWidget {
       width: 1,
       height: 26,
       margin: const EdgeInsets.symmetric(horizontal: 6),
-      color: Colors.white.withValues(alpha: 0.12),
+      color: Theme.of(context).colorScheme.outlineVariant,
     );
   }
 }
@@ -9667,14 +10338,35 @@ class AmountBar extends StatelessWidget {
   }
 }
 
-TextStyle noteBodyTextStyle(Map<String, dynamic> style) {
+TextStyle noteBodyTextStyle(
+  Map<String, dynamic> style, {
+  BuildContext? context,
+}) {
   final family = readString(style['fontFamily'], fallback: 'System');
+  final colorValue = readString(style['color'], fallback: '#202522');
+  final usesDefaultColor =
+      colorValue.toUpperCase() == '#202522' || colorValue.trim().isEmpty;
   return TextStyle(
     fontFamily: family == 'System' ? null : family,
     fontSize: readDouble(style['fontSize'], fallback: 16),
-    color: colorFromHex(readString(style['color'], fallback: '#202522')),
+    color: usesDefaultColor && context != null
+        ? Theme.of(context).colorScheme.onSurface
+        : colorFromHex(colorValue),
     height: readDouble(style['lineHeight'], fallback: 1.45),
   );
+}
+
+Color effectiveNoteBackgroundColor(
+  BuildContext context,
+  Map<String, dynamic> background,
+) {
+  final colorValue = readString(background['color'], fallback: '#FFFFFF');
+  final usesDefaultColor =
+      colorValue.toUpperCase() == '#FFFFFF' || colorValue.trim().isEmpty;
+  if (usesDefaultColor) {
+    return Theme.of(context).colorScheme.surface;
+  }
+  return colorFromHex(colorValue);
 }
 
 Color colorFromHex(String value) {
