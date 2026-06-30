@@ -8572,6 +8572,22 @@ class RichNoteEditingSnapshot {
   final List<RichNoteMark> marks;
 }
 
+class RichNoteTextChange {
+  const RichNoteTextChange({
+    required this.oldStart,
+    required this.oldEnd,
+    required this.replacementLength,
+    required this.textLength,
+  });
+
+  final int oldStart;
+  final int oldEnd;
+  final int replacementLength;
+  final int textLength;
+
+  int get replacementEnd => oldStart + replacementLength;
+}
+
 class RichNoteSeed {
   const RichNoteSeed({required this.text, required this.marks});
 
@@ -8598,6 +8614,7 @@ class RichNoteTextController extends TextEditingController {
   String _lastText;
   TextEditingValue _lastValue;
   List<RichNoteMark> _lastMarks;
+  final Map<String, Object?> _typingAttributeOverrides = {};
   bool _applyingChange = false;
   final List<RichNoteEditingSnapshot> _undoStack = [];
 
@@ -8616,12 +8633,45 @@ class RichNoteTextController extends TextEditingController {
     if (_applyingChange || text == _lastText) {
       return;
     }
+    final change = richNoteTextChange(oldText: _lastText, newText: text);
     _pushUndo(_lastValue, _lastMarks);
-    _marks = adjustRichNoteMarksAfterTextChange(
+    _marks = adjustRichNoteMarksForReplacement(
       _marks,
-      oldText: _lastText,
-      newText: text,
+      oldStart: change.oldStart,
+      oldEnd: change.oldEnd,
+      replacementLength: change.replacementLength,
+      textLength: change.textLength,
     );
+    if (change.replacementLength > 0 && _typingAttributeOverrides.isNotEmpty) {
+      final insertedRange = TextRange(
+        start: change.oldStart,
+        end: change.replacementEnd,
+      );
+      for (final entry in _typingAttributeOverrides.entries) {
+        if (entry.value == false) {
+          _marks = removeRichNoteAttribute(
+            _marks,
+            insertedRange,
+            entry.key,
+            text.length,
+          );
+        }
+      }
+      final enabledAttributes = <String, dynamic>{
+        for (final entry in _typingAttributeOverrides.entries)
+          if (entry.value != false) entry.key: entry.value,
+      };
+      if (enabledAttributes.isNotEmpty) {
+        _marks.add(
+          RichNoteMark(
+            start: insertedRange.start,
+            end: insertedRange.end,
+            attributes: enabledAttributes,
+          ),
+        );
+      }
+      _marks = normalizeRichNoteMarks(_marks, text.length);
+    }
     _syncLastSnapshot();
   }
 
@@ -8713,14 +8763,10 @@ class RichNoteTextController extends TextEditingController {
     notifyListeners();
   }
 
-  void applyInlineAttribute(
-    String attribute,
-    Object value, {
-    required String placeholder,
-  }) {
+  void applyInlineAttribute(String attribute, Object value) {
     var range = normalizedSelectionRange();
     if (range.isCollapsed) {
-      replaceSelection(placeholder, attributes: {attribute: value});
+      toggleTypingAttribute(attribute, value);
       return;
     }
     _pushCurrentUndo();
@@ -8743,16 +8789,13 @@ class RichNoteTextController extends TextEditingController {
     notifyListeners();
   }
 
-  void applyLineAttribute(
-    String attribute,
-    Object value, {
-    required String placeholder,
-  }) {
-    var range = currentLineRange();
-    if (range.isCollapsed) {
-      replaceSelection(placeholder, attributes: {attribute: value});
+  void applyLineAttribute(String attribute, Object value) {
+    final selectionRange = normalizedSelectionRange();
+    if (selectionRange.isCollapsed) {
+      toggleTypingAttribute(attribute, value);
       return;
     }
+    var range = currentLineRange();
     _pushCurrentUndo();
     _applyingChange = true;
     if (rangeHasAttribute(range, attribute, value: value)) {
@@ -8770,6 +8813,18 @@ class RichNoteTextController extends TextEditingController {
     }
     _syncLastSnapshot();
     _applyingChange = false;
+    notifyListeners();
+  }
+
+  void toggleTypingAttribute(String attribute, Object value) {
+    final currentOverride = _typingAttributeOverrides[attribute];
+    if (currentOverride == value || currentOverride == false) {
+      _typingAttributeOverrides.remove(attribute);
+    } else if (selectionHasExistingAttribute(attribute, value: value)) {
+      _typingAttributeOverrides[attribute] = false;
+    } else {
+      _typingAttributeOverrides[attribute] = value;
+    }
     notifyListeners();
   }
 
@@ -8855,6 +8910,18 @@ class RichNoteTextController extends TextEditingController {
   }
 
   bool selectionHasAttribute(String attribute, {Object? value}) {
+    final range = normalizedSelectionRange();
+    if (range.isCollapsed) {
+      if (_typingAttributeOverrides.containsKey(attribute)) {
+        final override = _typingAttributeOverrides[attribute];
+        return override != false && (value == null || override == value);
+      }
+      return selectionHasExistingAttribute(attribute, value: value);
+    }
+    return rangeHasAttribute(range, attribute, value: value);
+  }
+
+  bool selectionHasExistingAttribute(String attribute, {Object? value}) {
     final range = normalizedSelectionRange();
     if (range.isCollapsed) {
       final position = range.start.clamp(0, text.length).toInt();
@@ -8974,6 +9041,20 @@ List<RichNoteMark> adjustRichNoteMarksAfterTextChange(
   required String oldText,
   required String newText,
 }) {
+  final change = richNoteTextChange(oldText: oldText, newText: newText);
+  return adjustRichNoteMarksForReplacement(
+    marks,
+    oldStart: change.oldStart,
+    oldEnd: change.oldEnd,
+    replacementLength: change.replacementLength,
+    textLength: change.textLength,
+  );
+}
+
+RichNoteTextChange richNoteTextChange({
+  required String oldText,
+  required String newText,
+}) {
   var prefix = 0;
   while (prefix < oldText.length &&
       prefix < newText.length &&
@@ -8987,8 +9068,7 @@ List<RichNoteMark> adjustRichNoteMarksAfterTextChange(
           newText.codeUnitAt(newText.length - 1 - suffix)) {
     suffix++;
   }
-  return adjustRichNoteMarksForReplacement(
-    marks,
+  return RichNoteTextChange(
     oldStart: prefix,
     oldEnd: oldText.length - suffix,
     replacementLength: newText.length - prefix - suffix,
@@ -9377,20 +9457,12 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
     }
   }
 
-  void applyInline(String attribute, Object value, String placeholder) {
-    widget.controller.applyInlineAttribute(
-      attribute,
-      value,
-      placeholder: placeholder,
-    );
+  void applyInline(String attribute, Object value) {
+    widget.controller.applyInlineAttribute(attribute, value);
   }
 
-  void applyLine(String attribute, Object value, String placeholder) {
-    widget.controller.applyLineAttribute(
-      attribute,
-      value,
-      placeholder: placeholder,
-    );
+  void applyLine(String attribute, Object value) {
+    widget.controller.applyLineAttribute(attribute, value);
   }
 
   @override
@@ -9433,8 +9505,7 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
                   RichNoteAttribute.bold,
                   value: true,
                 ),
-                onPressed: () =>
-                    applyInline(RichNoteAttribute.bold, true, '粗體'),
+                onPressed: () => applyInline(RichNoteAttribute.bold, true),
               ),
               RichToolbarIconButton(
                 tooltip: '斜體',
@@ -9443,8 +9514,7 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
                   RichNoteAttribute.italic,
                   value: true,
                 ),
-                onPressed: () =>
-                    applyInline(RichNoteAttribute.italic, true, '斜體'),
+                onPressed: () => applyInline(RichNoteAttribute.italic, true),
               ),
               RichToolbarIconButton(
                 tooltip: '底線',
@@ -9453,8 +9523,7 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
                   RichNoteAttribute.underline,
                   value: true,
                 ),
-                onPressed: () =>
-                    applyInline(RichNoteAttribute.underline, true, '底線'),
+                onPressed: () => applyInline(RichNoteAttribute.underline, true),
               ),
               RichToolbarIconButton(
                 tooltip: '刪除線',
@@ -9464,7 +9533,7 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
                   value: true,
                 ),
                 onPressed: () =>
-                    applyInline(RichNoteAttribute.strikethrough, true, '刪除線'),
+                    applyInline(RichNoteAttribute.strikethrough, true),
               ),
               RichToolbarTextButton(
                 label: '<>',
@@ -9473,11 +9542,8 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
                   RichNoteAttribute.inlineCode,
                   value: true,
                 ),
-                onPressed: () => applyInline(
-                  RichNoteAttribute.inlineCode,
-                  true,
-                  'inline code',
-                ),
+                onPressed: () =>
+                    applyInline(RichNoteAttribute.inlineCode, true),
               ),
               RichToolbarTextButton(
                 label: 'X₂',
@@ -9486,8 +9552,7 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
                   RichNoteAttribute.subscript,
                   value: true,
                 ),
-                onPressed: () =>
-                    applyInline(RichNoteAttribute.subscript, true, 'sub'),
+                onPressed: () => applyInline(RichNoteAttribute.subscript, true),
               ),
               RichToolbarTextButton(
                 label: 'X²',
@@ -9497,7 +9562,7 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
                   value: true,
                 ),
                 onPressed: () =>
-                    applyInline(RichNoteAttribute.superscript, true, 'super'),
+                    applyInline(RichNoteAttribute.superscript, true),
               ),
               const RichToolbarDivider(),
               RichToolbarMenuButton<int>(
@@ -9506,7 +9571,7 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
                 values: const [1, 2, 3],
                 labelBuilder: (value) => 'H$value',
                 onSelected: (value) =>
-                    applyLine(RichNoteAttribute.heading, value, '標題'),
+                    applyLine(RichNoteAttribute.heading, value),
               ),
               const RichToolbarDivider(),
               RichToolbarIconButton(
@@ -9531,8 +9596,7 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
                   RichNoteAttribute.codeBlock,
                   value: true,
                 ),
-                onPressed: () =>
-                    applyLine(RichNoteAttribute.codeBlock, true, 'code block'),
+                onPressed: () => applyLine(RichNoteAttribute.codeBlock, true),
               ),
               const RichToolbarDivider(),
               RichToolbarIconButton(
@@ -9542,7 +9606,7 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
                   RichNoteAttribute.quote,
                   value: true,
                 ),
-                onPressed: () => applyLine(RichNoteAttribute.quote, true, '引用'),
+                onPressed: () => applyLine(RichNoteAttribute.quote, true),
               ),
               RichToolbarIconButton(
                 tooltip: '增加縮排',
