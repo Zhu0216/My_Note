@@ -242,6 +242,8 @@ enum NoteBackgroundMode { fill, stretch, repeat }
 
 enum AppNavBarStyle { template6 }
 
+enum NoteEditorMenuAction { background, insertNote, export }
+
 class NoteItem {
   NoteItem({
     required this.id,
@@ -1464,6 +1466,12 @@ DateTime? readOptionalDate(Object? value) {
     return DateTime.tryParse(value);
   }
   return null;
+}
+
+void showToast(BuildContext context, String message) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text(message)));
 }
 
 TimeOfDay? readTimeOfDay(Object? value) {
@@ -7880,8 +7888,8 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   void initState() {
     super.initState();
     final note = widget.note;
-    title = TextEditingController(text: note?.title ?? '');
-    tags = TextEditingController(text: note?.tags.join(', ') ?? '');
+    title = TextEditingController(text: note?.title ?? '未命名筆記');
+    tags = TextEditingController(text: formatTagsForEditing(note?.tags ?? []));
     folder = note?.category ?? normalizeFolderPath(widget.initialFolder);
     templateType = note?.templateType ?? widget.initialTemplateType;
     templateData = Map<String, dynamic>.from(
@@ -7924,7 +7932,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     final nextTags = splitTags(tags.text);
     final nextTemplateData = currentNoteTemplateData();
     if (note == null) {
-      return nextTitle.isNotEmpty ||
+      return (nextTitle.isNotEmpty && nextTitle != '未命名筆記') ||
           nextBody.trim().isNotEmpty ||
           nextFolder.isNotEmpty ||
           nextTags.isNotEmpty ||
@@ -8017,28 +8025,20 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       Navigator.pop(context);
       return;
     }
-    if (!hasChanges) {
-      discardAndExit();
-      return;
-    }
-    final shouldSave = await confirmSaveChanges(
-      context,
-      title: '儲存筆記？',
-      message: '這份筆記有尚未儲存的變更。',
-    );
-    if (!mounted) {
-      return;
-    }
-    if (shouldSave) {
-      saveAndExit();
-    } else {
-      discardAndExit();
-    }
+    saveAndExit();
   }
 
   Future<void> deleteAndExit() async {
     final note = widget.note;
     if (note == null) {
+      final confirmed = await confirmDelete(
+        context,
+        title: '刪除筆記？',
+        message: '確定要放棄這份尚未儲存的筆記嗎？',
+      );
+      if (confirmed && mounted) {
+        discardAndExit();
+      }
       return;
     }
     final confirmed = await confirmDelete(
@@ -8083,10 +8083,21 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     setState(() {});
   }
 
-  void addImagePlaceholder() {
+  Future<void> addImagePlaceholder() async {
+    final file = await NoteFileService.pickImage();
+    if (!mounted || file == null) {
+      return;
+    }
+    final bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      showToast(context, '無法讀取圖片');
+      return;
+    }
     final image = {
-      'name': '圖片',
-      'source': '',
+      'id': DateTime.now().microsecondsSinceEpoch.toString(),
+      'name': file.name,
+      'bytesBase64': base64Encode(bytes),
+      'size': file.size,
       'alignment': NoteImageAlignment.left.name,
       'width': 240.0,
       'height': 160.0,
@@ -8094,13 +8105,27 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       'row': body.text.split('\n').length,
     };
     setState(() => noteImages.add(image));
-    insertBodyToken('[圖片:${image['name']}]\n');
   }
 
-  void addAttachmentPlaceholder() {
-    final attachment = {'name': '附件', 'mode': 'file', 'content': ''};
+  Future<void> addAttachmentPlaceholder() async {
+    final file = await NoteFileService.pickAttachment();
+    if (!mounted || file == null) {
+      return;
+    }
+    final bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      showToast(context, '無法讀取附件');
+      return;
+    }
+    final attachment = {
+      'id': DateTime.now().microsecondsSinceEpoch.toString(),
+      'name': file.name,
+      'mode': 'file',
+      'bytesBase64': base64Encode(bytes),
+      'size': file.size,
+      'content': '',
+    };
     setState(() => noteAttachments.add(attachment));
-    insertBodyToken('[附件:${attachment['name']}]\n');
   }
 
   Future<void> editBackground() async {
@@ -8212,6 +8237,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   Future<void> insertTodoReference() async {
     final store = AppStoreScope.of(context);
     if (store.todos.isEmpty) {
+      body.insertTodoCheckbox();
       return;
     }
     final todo = await showDialog<TodoItem>(
@@ -8228,7 +8254,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       ),
     );
     if (todo != null) {
-      insertBodyToken('[待辦:${todo.title}]');
+      body.insertTodoCheckbox(todo.title);
     }
   }
 
@@ -8255,6 +8281,20 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     }
   }
 
+  void handleEditorMenu(NoteEditorMenuAction action) {
+    switch (action) {
+      case NoteEditorMenuAction.background:
+        unawaited(editBackground());
+        return;
+      case NoteEditorMenuAction.insertNote:
+        unawaited(insertNoteReference());
+        return;
+      case NoteEditorMenuAction.export:
+        unawaited(showExportOptions());
+        return;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -8268,170 +8308,140 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       child: Scaffold(
         body: SafeArea(
           child: AppPage(
-            title: readOnly
-                ? '檢視筆記'
-                : widget.note == null
-                ? '新增筆記'
-                : '編輯筆記',
-            subtitle: noteTemplateLabel(templateType),
+            title: title.text.trim().isEmpty ? '未命名筆記' : title.text.trim(),
+            titleWidget: NoteEditorHeaderFields(
+              title: title,
+              tags: tags,
+              readOnly: readOnly,
+              onChanged: () => setState(() {}),
+            ),
             leading: PageBackButton(onPressed: requestExit),
             actions: [
-              if (!readOnly && widget.note != null)
+              if (!readOnly)
                 IconButton(
                   tooltip: '刪除筆記',
                   onPressed: deleteAndExit,
                   icon: const Icon(Icons.delete_outline),
                 ),
-            ],
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-              children: [
-                TextField(
-                  controller: title,
-                  readOnly: readOnly,
-                  decoration: const InputDecoration(
-                    labelText: '標題',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                NoteTemplateBadge(type: templateType),
-                const SizedBox(height: 12),
-                if (templateType != NoteTemplateType.general) ...[
-                  IgnorePointer(
-                    ignoring: readOnly,
-                    child: NoteTemplateFields(
-                      type: templateType,
-                      data: templateData,
-                      onChanged: (value) =>
-                          setState(() => templateData = value),
+              PopupMenuButton<NoteEditorMenuAction>(
+                tooltip: '更多',
+                icon: const Icon(Icons.more_vert),
+                onSelected: handleEditorMenu,
+                itemBuilder: (context) => [
+                  if (!readOnly)
+                    const PopupMenuItem(
+                      value: NoteEditorMenuAction.background,
+                      child: ListTile(
+                        leading: Icon(Icons.format_color_fill_outlined),
+                        title: Text('背景設定'),
+                      ),
+                    ),
+                  if (!readOnly)
+                    const PopupMenuItem(
+                      value: NoteEditorMenuAction.insertNote,
+                      child: ListTile(
+                        leading: Icon(Icons.link),
+                        title: Text('插入筆記'),
+                      ),
+                    ),
+                  const PopupMenuItem(
+                    value: NoteEditorMenuAction.export,
+                    child: ListTile(
+                      leading: Icon(Icons.save_alt_outlined),
+                      title: Text('另存為'),
                     ),
                   ),
-                  const SizedBox(height: 12),
                 ],
-                if (templateType == NoteTemplateType.general)
-                  GeneralRichTextEditorPanel(
-                    controller: body,
-                    readOnly: readOnly,
-                    style: noteStyle,
-                    imageCount: noteImages.length,
-                    attachmentCount: noteAttachments.length,
-                    background: noteBackground,
-                    onStyleChanged: (value) =>
-                        setState(() => noteStyle = value),
-                    onAddImage: addImagePlaceholder,
-                    onAddAttachment: addAttachmentPlaceholder,
-                    onBackground: editBackground,
-                    onExport: showExportOptions,
-                    onInsertTodo: insertTodoReference,
-                    onInsertNote: insertNoteReference,
-                  )
-                else ...[
-                  if (!readOnly) ...[
-                    NoteEditorToolbar(
+              ),
+            ],
+            child: templateType == NoteTemplateType.general
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                    child: GeneralRichTextEditorPanel(
+                      controller: body,
+                      readOnly: readOnly,
                       style: noteStyle,
-                      imageCount: noteImages.length,
-                      attachmentCount: noteAttachments.length,
+                      images: noteImages,
+                      attachments: noteAttachments,
+                      background: noteBackground,
                       onStyleChanged: (value) =>
                           setState(() => noteStyle = value),
                       onAddImage: addImagePlaceholder,
                       onAddAttachment: addAttachmentPlaceholder,
-                      onBackground: editBackground,
-                      onExport: showExportOptions,
                       onInsertTodo: insertTodoReference,
-                      onInsertNote: insertNoteReference,
+                      onImagesChanged: (value) =>
+                          setState(() => noteImages = value),
+                      onAttachmentsChanged: (value) =>
+                          setState(() => noteAttachments = value),
                     ),
-                    const SizedBox(height: 12),
-                  ],
-                  TextField(
-                    controller: body,
-                    readOnly: readOnly,
-                    minLines: 5,
-                    maxLines: 10,
-                    style: noteBodyTextStyle(noteStyle, context: context),
-                    decoration: InputDecoration(
-                      labelText: noteBodyLabel(templateType),
-                      alignLabelWithHint: true,
-                      filled: true,
-                      fillColor: effectiveNoteBackgroundColor(
-                        context,
-                        noteBackground,
+                  )
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                    children: [
+                      IgnorePointer(
+                        ignoring: readOnly,
+                        child: NoteTemplateFields(
+                          type: templateType,
+                          data: templateData,
+                          onChanged: (value) =>
+                              setState(() => templateData = value),
+                        ),
                       ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(18),
-                        borderSide: const BorderSide(color: Color(0xffdfe5f4)),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(18),
-                        borderSide: const BorderSide(color: Color(0xffdfe5f4)),
-                      ),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 12),
-                NoteAssetsSummary(
-                  images: noteImages,
-                  attachments: noteAttachments,
-                  background: noteBackground,
-                  readOnly: readOnly,
-                  onImagesChanged: (value) =>
-                      setState(() => noteImages = value),
-                  onAttachmentsChanged: (value) =>
-                      setState(() => noteAttachments = value),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: DropdownMenu<String>(
-                        key: ValueKey(folder),
-                        initialSelection: folder,
-                        label: const Text('資料夾'),
-                        enabled: !readOnly,
-                        expandedInsets: EdgeInsets.zero,
-                        dropdownMenuEntries: [
-                          const DropdownMenuEntry(value: '', label: '未選擇'),
-                          ...<String>{
-                            if (folder.trim().isNotEmpty) folder,
-                            ...AppStoreScope.of(context).folderPaths,
-                          }.map(
-                            (item) =>
-                                DropdownMenuEntry(value: item, label: item),
+                      const SizedBox(height: 12),
+                      if (!readOnly) ...[
+                        NoteEditorToolbar(
+                          style: noteStyle,
+                          imageCount: noteImages.length,
+                          attachmentCount: noteAttachments.length,
+                          onStyleChanged: (value) =>
+                              setState(() => noteStyle = value),
+                          onAddImage: addImagePlaceholder,
+                          onAddAttachment: addAttachmentPlaceholder,
+                          onInsertTodo: insertTodoReference,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      TextField(
+                        controller: body,
+                        readOnly: readOnly,
+                        minLines: 5,
+                        maxLines: 10,
+                        style: noteBodyTextStyle(noteStyle, context: context),
+                        decoration: InputDecoration(
+                          labelText: noteBodyLabel(templateType),
+                          alignLabelWithHint: true,
+                          filled: true,
+                          fillColor: effectiveNoteBackgroundColor(
+                            context,
+                            noteBackground,
                           ),
-                        ],
-                        onSelected: (value) =>
-                            setState(() => folder = value ?? folder),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: const BorderSide(
+                              color: Color(0xffdfe5f4),
+                            ),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: const BorderSide(
+                              color: Color(0xffdfe5f4),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                    if (!readOnly) ...[
-                      const SizedBox(width: 8),
-                      IconButton.filledTonal(
-                        tooltip: '新增資料夾',
-                        onPressed: createFolder,
-                        icon: const Icon(Icons.create_new_folder_outlined),
+                      const SizedBox(height: 16),
+                      NoteAssetsSummary(
+                        images: noteImages,
+                        attachments: noteAttachments,
+                        background: noteBackground,
+                        readOnly: readOnly,
+                        onImagesChanged: (value) =>
+                            setState(() => noteImages = value),
+                        onAttachmentsChanged: (value) =>
+                            setState(() => noteAttachments = value),
                       ),
                     ],
-                  ],
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: tags,
-                  readOnly: readOnly,
-                  decoration: const InputDecoration(
-                    labelText: '標籤',
-                    border: OutlineInputBorder(),
                   ),
-                ),
-                if (!readOnly) ...[
-                  const SizedBox(height: 16),
-                  EditorActionButtons(
-                    onCancel: discardAndExit,
-                    onSave: saveAndExit,
-                  ),
-                ],
-              ],
-            ),
           ),
         ),
       ),
@@ -8500,6 +8510,69 @@ class NoteTemplateBadge extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class NoteEditorHeaderFields extends StatelessWidget {
+  const NoteEditorHeaderFields({
+    super.key,
+    required this.title,
+    required this.tags,
+    required this.readOnly,
+    required this.onChanged,
+  });
+
+  final TextEditingController title;
+  final TextEditingController tags;
+  final bool readOnly;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: title,
+          readOnly: readOnly,
+          onChanged: (_) => onChanged(),
+          minLines: 1,
+          maxLines: 2,
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w900,
+            color: const Color(0xff171f2f),
+          ),
+          decoration: const InputDecoration(
+            hintText: '未命名筆記',
+            border: InputBorder.none,
+            enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            isDense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const SizedBox(height: 4),
+        TextField(
+          controller: tags,
+          readOnly: readOnly,
+          onChanged: (_) => onChanged(),
+          minLines: 1,
+          maxLines: 1,
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant),
+          decoration: const InputDecoration(
+            hintText: '#標籤',
+            border: InputBorder.none,
+            enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            isDense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -8588,6 +8661,20 @@ class RichNoteTextChange {
   int get replacementEnd => oldStart + replacementLength;
 }
 
+class RichNoteAutoEdit {
+  const RichNoteAutoEdit({
+    required this.start,
+    required this.end,
+    required this.replacement,
+    required this.cursorOffset,
+  });
+
+  final int start;
+  final int end;
+  final String replacement;
+  final int cursorOffset;
+}
+
 class RichNoteSeed {
   const RichNoteSeed({required this.text, required this.marks});
 
@@ -8671,6 +8758,14 @@ class RichNoteTextController extends TextEditingController {
         );
       }
       _marks = normalizeRichNoteMarks(_marks, text.length);
+    }
+    if (text.isEmpty && change.replacementLength == 0) {
+      _marks = [];
+      _typingAttributeOverrides.clear();
+    }
+    final autoEdit = richListContinuationEdit(text, change);
+    if (autoEdit != null) {
+      _applyInternalReplacement(autoEdit);
     }
     _syncLastSnapshot();
   }
@@ -8763,6 +8858,26 @@ class RichNoteTextController extends TextEditingController {
     notifyListeners();
   }
 
+  void _applyInternalReplacement(RichNoteAutoEdit edit) {
+    _applyingChange = true;
+    final nextText = text.replaceRange(edit.start, edit.end, edit.replacement);
+    _marks = adjustRichNoteMarksForReplacement(
+      _marks,
+      oldStart: edit.start,
+      oldEnd: edit.end,
+      replacementLength: edit.replacement.length,
+      textLength: nextText.length,
+    );
+    _marks = normalizeRichNoteMarks(_marks, nextText.length);
+    value = TextEditingValue(
+      text: nextText,
+      selection: TextSelection.collapsed(
+        offset: edit.cursorOffset.clamp(0, nextText.length).toInt(),
+      ),
+    );
+    _applyingChange = false;
+  }
+
   void applyInlineAttribute(String attribute, Object value) {
     var range = normalizedSelectionRange();
     if (range.isCollapsed) {
@@ -8775,6 +8890,10 @@ class RichNoteTextController extends TextEditingController {
       _marks = removeRichNoteAttribute(_marks, range, attribute, text.length);
     } else {
       _marks = removeRichNoteAttribute(_marks, range, attribute, text.length);
+      final opposite = oppositeScriptAttribute(attribute);
+      if (opposite != null) {
+        _marks = removeRichNoteAttribute(_marks, range, opposite, text.length);
+      }
       _marks.add(
         RichNoteMark(
           start: range.start,
@@ -8818,14 +8937,80 @@ class RichNoteTextController extends TextEditingController {
 
   void toggleTypingAttribute(String attribute, Object value) {
     final currentOverride = _typingAttributeOverrides[attribute];
-    if (currentOverride == value || currentOverride == false) {
+    if (currentOverride == value) {
       _typingAttributeOverrides.remove(attribute);
+    } else if (currentOverride == false) {
+      _typingAttributeOverrides[attribute] = value;
     } else if (selectionHasExistingAttribute(attribute, value: value)) {
       _typingAttributeOverrides[attribute] = false;
     } else {
       _typingAttributeOverrides[attribute] = value;
     }
+    final opposite = oppositeScriptAttribute(attribute);
+    if (opposite != null && _typingAttributeOverrides[attribute] == value) {
+      _typingAttributeOverrides[opposite] = false;
+      final range = normalizedSelectionRange();
+      if (!range.isCollapsed) {
+        _marks = removeRichNoteAttribute(_marks, range, opposite, text.length);
+      }
+    }
     notifyListeners();
+  }
+
+  void insertTodoCheckbox([String label = '']) {
+    final textBefore = text;
+    final range = normalizedSelectionRange();
+    final needsNewLine = range.start > 0 && textBefore[range.start - 1] != '\n';
+    final replacement = '${needsNewLine ? '\n' : ''}☐ ${label.trim()}';
+    replaceSelection(replacement);
+  }
+
+  bool toggleTodoCheckboxAtSelection() {
+    final currentText = text;
+    final selection = this.selection;
+    if (!selection.isValid || !selection.isCollapsed || currentText.isEmpty) {
+      return false;
+    }
+    final position = selection.extentOffset
+        .clamp(0, currentText.length)
+        .toInt();
+    final lineStart = position <= 0
+        ? 0
+        : currentText.lastIndexOf('\n', position - 1) + 1;
+    final lineEndRaw = currentText.indexOf('\n', lineStart);
+    final lineEnd = lineEndRaw == -1 ? currentText.length : lineEndRaw;
+    var markerIndex = lineStart;
+    while (markerIndex < lineEnd && currentText[markerIndex] == ' ') {
+      markerIndex++;
+    }
+    if (markerIndex >= lineEnd) {
+      return false;
+    }
+    final marker = currentText[markerIndex];
+    if (marker != '☐' && marker != '☑') {
+      return false;
+    }
+    final prefixEnd = math.min(markerIndex + 2, lineEnd);
+    if (position > prefixEnd) {
+      return false;
+    }
+
+    _pushCurrentUndo();
+    _applyingChange = true;
+    final replacement = marker == '☐' ? '☑' : '☐';
+    final nextText = currentText.replaceRange(
+      markerIndex,
+      markerIndex + 1,
+      replacement,
+    );
+    value = TextEditingValue(
+      text: nextText,
+      selection: TextSelection.collapsed(offset: position),
+    );
+    _syncLastSnapshot();
+    _applyingChange = false;
+    notifyListeners();
+    return true;
   }
 
   void prefixSelectedLines(String prefix) {
@@ -9076,6 +9261,100 @@ RichNoteTextChange richNoteTextChange({
   );
 }
 
+String? oppositeScriptAttribute(String attribute) {
+  return switch (attribute) {
+    RichNoteAttribute.subscript => RichNoteAttribute.superscript,
+    RichNoteAttribute.superscript => RichNoteAttribute.subscript,
+    _ => null,
+  };
+}
+
+RichNoteAutoEdit? richListContinuationEdit(
+  String currentText,
+  RichNoteTextChange change,
+) {
+  if (change.replacementLength < 1 ||
+      change.replacementEnd > currentText.length) {
+    return null;
+  }
+  final inserted = currentText.substring(
+    change.oldStart,
+    change.replacementEnd,
+  );
+  if (!inserted.startsWith('\n')) {
+    return null;
+  }
+  final lineStart = change.oldStart <= 0
+      ? 0
+      : currentText.lastIndexOf('\n', change.oldStart - 1) + 1;
+  final previousLine = currentText.substring(lineStart, change.oldStart);
+  final afterInsertedNewLine = change.oldStart + 1;
+
+  final emptyNumbered = RegExp(r'^(\s*)\d+\.\s*$').firstMatch(previousLine);
+  if (emptyNumbered != null) {
+    return RichNoteAutoEdit(
+      start: lineStart,
+      end: change.oldStart,
+      replacement: '',
+      cursorOffset: lineStart + inserted.length,
+    );
+  }
+  final numbered = RegExp(r'^(\s*)(\d+)\.\s+(.+)$').firstMatch(previousLine);
+  if (numbered != null) {
+    final indent = numbered.group(1) ?? '';
+    final nextNumber = (int.tryParse(numbered.group(2) ?? '') ?? 0) + 1;
+    final prefix = '$indent$nextNumber. ';
+    return RichNoteAutoEdit(
+      start: afterInsertedNewLine,
+      end: afterInsertedNewLine,
+      replacement: prefix,
+      cursorOffset: change.replacementEnd + prefix.length,
+    );
+  }
+
+  final emptyBullet = RegExp(r'^(\s*)•\s*$').firstMatch(previousLine);
+  if (emptyBullet != null) {
+    return RichNoteAutoEdit(
+      start: lineStart,
+      end: change.oldStart,
+      replacement: '',
+      cursorOffset: lineStart + inserted.length,
+    );
+  }
+  final bullet = RegExp(r'^(\s*)•\s+(.+)$').firstMatch(previousLine);
+  if (bullet != null) {
+    final prefix = '${bullet.group(1) ?? ''}• ';
+    return RichNoteAutoEdit(
+      start: afterInsertedNewLine,
+      end: afterInsertedNewLine,
+      replacement: prefix,
+      cursorOffset: change.replacementEnd + prefix.length,
+    );
+  }
+
+  final emptyTodo = RegExp(r'^(\s*)[☐☑]\s*$').firstMatch(previousLine);
+  if (emptyTodo != null) {
+    return RichNoteAutoEdit(
+      start: lineStart,
+      end: change.oldStart,
+      replacement: '',
+      cursorOffset: lineStart + inserted.length,
+    );
+  }
+  final todo = RegExp(r'^(\s*)[☐☑]\s+(.+)$').firstMatch(previousLine);
+  if (todo != null) {
+    final prefix = '${todo.group(1) ?? ''}☐ ';
+    return RichNoteAutoEdit(
+      start: afterInsertedNewLine,
+      end: afterInsertedNewLine,
+      replacement: prefix,
+      cursorOffset: change.replacementEnd + prefix.length,
+    );
+  }
+
+  return null;
+}
+
 List<RichNoteMark> adjustRichNoteMarksForReplacement(
   List<RichNoteMark> marks, {
   required int oldStart,
@@ -9255,13 +9534,17 @@ TextStyle richNoteTextStyleForAttributes(
   }
   if (attributes[RichNoteAttribute.subscript] == true) {
     style = style.copyWith(
-      fontSize: (style.fontSize ?? 16) * 0.78,
+      fontSize: (style.fontSize ?? 16) * 0.62,
+      fontWeight: FontWeight.w800,
+      color: colorScheme.primary,
       fontFeatures: const [FontFeature.subscripts()],
     );
   }
   if (attributes[RichNoteAttribute.superscript] == true) {
     style = style.copyWith(
-      fontSize: (style.fontSize ?? 16) * 0.78,
+      fontSize: (style.fontSize ?? 16) * 0.62,
+      fontWeight: FontWeight.w800,
+      color: colorScheme.primary,
       fontFeatures: const [FontFeature.superscripts()],
     );
   }
@@ -9290,112 +9573,260 @@ class GeneralRichTextEditorPanel extends StatelessWidget {
     required this.controller,
     required this.readOnly,
     required this.style,
-    required this.imageCount,
-    required this.attachmentCount,
+    required this.images,
+    required this.attachments,
     required this.background,
     required this.onStyleChanged,
     required this.onAddImage,
     required this.onAddAttachment,
-    required this.onBackground,
-    required this.onExport,
     required this.onInsertTodo,
-    required this.onInsertNote,
+    required this.onImagesChanged,
+    required this.onAttachmentsChanged,
   });
 
   final RichNoteTextController controller;
   final bool readOnly;
   final Map<String, dynamic> style;
-  final int imageCount;
-  final int attachmentCount;
+  final List<Map<String, dynamic>> images;
+  final List<Map<String, dynamic>> attachments;
   final Map<String, dynamic> background;
   final ValueChanged<Map<String, dynamic>> onStyleChanged;
   final VoidCallback onAddImage;
   final VoidCallback onAddAttachment;
-  final VoidCallback onBackground;
-  final VoidCallback onExport;
   final VoidCallback onInsertTodo;
-  final VoidCallback onInsertNote;
+  final ValueChanged<List<Map<String, dynamic>>> onImagesChanged;
+  final ValueChanged<List<Map<String, dynamic>>> onAttachmentsChanged;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final backgroundColor = effectiveNoteBackgroundColor(context, background);
-    return Material(
-      color: colorScheme.surface,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: colorScheme.outlineVariant),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-            color: colorScheme.surfaceContainerLowest,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (!readOnly) ...[
+          RichTextTemplateToolbar(
+            controller: controller,
+            style: style,
+            onStyleChanged: onStyleChanged,
+            onAddImage: onAddImage,
+            onAddAttachment: onAddAttachment,
+            onInsertTodo: onInsertTodo,
+          ),
+          const SizedBox(height: 10),
+        ],
+        Expanded(
+          child: Material(
+            color: backgroundColor,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(18),
+              ),
+              side: BorderSide(color: colorScheme.outlineVariant),
+            ),
+            clipBehavior: Clip.antiAlias,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    Icon(Icons.text_fields, color: colorScheme.primary),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Rich Text',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                    child: TextField(
+                      controller: controller,
+                      readOnly: readOnly,
+                      expands: true,
+                      minLines: null,
+                      maxLines: null,
+                      style: noteBodyTextStyle(style, context: context),
+                      onTap: readOnly
+                          ? null
+                          : () {
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                controller.toggleTodoCheckboxAtSelection();
+                              });
+                            },
+                      decoration: const InputDecoration(
+                        hintText: '開始輸入筆記內容',
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        filled: false,
+                        isCollapsed: true,
                       ),
                     ),
-                    const Spacer(),
-                    if (imageCount > 0 || attachmentCount > 0)
-                      Text(
-                        '圖片 $imageCount  附件 $attachmentCount',
-                        style: Theme.of(context).textTheme.labelMedium
-                            ?.copyWith(color: colorScheme.onSurfaceVariant),
-                      ),
-                  ],
-                ),
-                if (!readOnly) ...[
-                  const SizedBox(height: 12),
-                  RichTextTemplateToolbar(
-                    controller: controller,
-                    style: style,
-                    onStyleChanged: onStyleChanged,
-                    onAddImage: onAddImage,
-                    onAddAttachment: onAddAttachment,
-                    onBackground: onBackground,
-                    onExport: onExport,
-                    onInsertTodo: onInsertTodo,
-                    onInsertNote: onInsertNote,
                   ),
-                ],
+                ),
+                NoteInlineAssetsStrip(
+                  images: images,
+                  attachments: attachments,
+                  readOnly: readOnly,
+                  onImagesChanged: onImagesChanged,
+                  onAttachmentsChanged: onAttachmentsChanged,
+                ),
               ],
             ),
           ),
-          DecoratedBox(
-            decoration: BoxDecoration(color: backgroundColor),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-              child: TextField(
-                controller: controller,
+        ),
+      ],
+    );
+  }
+}
+
+class NoteInlineAssetsStrip extends StatelessWidget {
+  const NoteInlineAssetsStrip({
+    super.key,
+    required this.images,
+    required this.attachments,
+    required this.readOnly,
+    required this.onImagesChanged,
+    required this.onAttachmentsChanged,
+  });
+
+  final List<Map<String, dynamic>> images;
+  final List<Map<String, dynamic>> attachments;
+  final bool readOnly;
+  final ValueChanged<List<Map<String, dynamic>>> onImagesChanged;
+  final ValueChanged<List<Map<String, dynamic>>> onAttachmentsChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    if (images.isEmpty && attachments.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final colorScheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerLowest,
+        border: Border(top: BorderSide(color: colorScheme.outlineVariant)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+        child: Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            for (final image in images)
+              NoteInlineImageTile(
+                image: image,
                 readOnly: readOnly,
-                minLines: 14,
-                maxLines: 24,
-                style: noteBodyTextStyle(style, context: context),
-                decoration: const InputDecoration(
-                  hintText: '開始輸入筆記內容',
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  filled: false,
-                  isCollapsed: true,
-                ),
+                onDelete: () {
+                  final next = List<Map<String, dynamic>>.from(images)
+                    ..remove(image);
+                  onImagesChanged(next);
+                },
               ),
+            for (final attachment in attachments)
+              NoteInlineAttachmentTile(
+                attachment: attachment,
+                readOnly: readOnly,
+                onDelete: () {
+                  final next = List<Map<String, dynamic>>.from(attachments)
+                    ..remove(attachment);
+                  onAttachmentsChanged(next);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class NoteInlineImageTile extends StatelessWidget {
+  const NoteInlineImageTile({
+    super.key,
+    required this.image,
+    required this.readOnly,
+    required this.onDelete,
+  });
+
+  final Map<String, dynamic> image;
+  final bool readOnly;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final bytesText = readString(image['bytesBase64']);
+    final bytes = decodeBase64BytesOrNull(bytesText);
+    return SizedBox(
+      width: 180,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant,
             ),
           ),
-        ],
+          child: Stack(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  AspectRatio(
+                    aspectRatio: 4 / 3,
+                    child: bytes == null
+                        ? const Center(child: Icon(Icons.broken_image_outlined))
+                        : Image.memory(bytes, fit: BoxFit.cover),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Text(
+                      readString(image['name'], fallback: '圖片'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                  ),
+                ],
+              ),
+              if (!readOnly)
+                Positioned(
+                  right: 4,
+                  top: 4,
+                  child: IconButton.filledTonal(
+                    tooltip: '移除圖片',
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.close, size: 18),
+                    constraints: const BoxConstraints.tightFor(
+                      width: 34,
+                      height: 34,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
+    );
+  }
+}
+
+class NoteInlineAttachmentTile extends StatelessWidget {
+  const NoteInlineAttachmentTile({
+    super.key,
+    required this.attachment,
+    required this.readOnly,
+    required this.onDelete,
+  });
+
+  final Map<String, dynamic> attachment;
+  final bool readOnly;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = readInt(attachment['size']);
+    return InputChip(
+      avatar: const Icon(Icons.attach_file, size: 18),
+      label: Text(
+        '${readString(attachment['name'], fallback: '附件')}'
+        '${size > 0 ? ' · ${formatFileSize(size)}' : ''}',
+      ),
+      onDeleted: readOnly ? null : onDelete,
     );
   }
 }
@@ -9408,10 +9839,7 @@ class RichTextTemplateToolbar extends StatefulWidget {
     required this.onStyleChanged,
     required this.onAddImage,
     required this.onAddAttachment,
-    required this.onBackground,
-    required this.onExport,
     required this.onInsertTodo,
-    required this.onInsertNote,
   });
 
   final RichNoteTextController controller;
@@ -9419,10 +9847,7 @@ class RichTextTemplateToolbar extends StatefulWidget {
   final ValueChanged<Map<String, dynamic>> onStyleChanged;
   final VoidCallback onAddImage;
   final VoidCallback onAddAttachment;
-  final VoidCallback onBackground;
-  final VoidCallback onExport;
   final VoidCallback onInsertTodo;
-  final VoidCallback onInsertNote;
 
   @override
   State<RichTextTemplateToolbar> createState() =>
@@ -9430,10 +9855,15 @@ class RichTextTemplateToolbar extends StatefulWidget {
 }
 
 class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
+  final ScrollController toolbarScrollController = ScrollController();
+  bool canScrollLeft = false;
+  bool canScrollRight = false;
+
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(refresh);
+    toolbarScrollController.addListener(updateScrollButtons);
   }
 
   @override
@@ -9448,6 +9878,8 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
   @override
   void dispose() {
     widget.controller.removeListener(refresh);
+    toolbarScrollController.removeListener(updateScrollButtons);
+    toolbarScrollController.dispose();
     super.dispose();
   }
 
@@ -9465,10 +9897,51 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
     widget.controller.applyLineAttribute(attribute, value);
   }
 
+  void updateScrollButtons() {
+    if (!toolbarScrollController.hasClients) {
+      return;
+    }
+    final position = toolbarScrollController.position;
+    final nextLeft = position.pixels > 1;
+    final nextRight = position.pixels < position.maxScrollExtent - 1;
+    if (nextLeft != canScrollLeft || nextRight != canScrollRight) {
+      setState(() {
+        canScrollLeft = nextLeft;
+        canScrollRight = nextRight;
+      });
+    }
+  }
+
+  void scheduleScrollButtonUpdate() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        updateScrollButtons();
+      }
+    });
+  }
+
+  void scrollToolbar(double delta) {
+    if (!toolbarScrollController.hasClients) {
+      return;
+    }
+    final position = toolbarScrollController.position;
+    final target = (position.pixels + delta).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    toolbarScrollController.animateTo(
+      target.toDouble(),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    scheduleScrollButtonUpdate();
     final colorScheme = Theme.of(context).colorScheme;
     final fontSize = readDouble(widget.style['fontSize'], fallback: 16).round();
+    final lineHeight = readDouble(widget.style['lineHeight'], fallback: 1.45);
     return DecoratedBox(
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerHighest,
@@ -9477,180 +9950,193 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
       ),
       child: SizedBox(
         height: 48,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              RichToolbarIconButton(
-                tooltip: '復原',
-                icon: Icons.undo,
-                enabled: widget.controller.canUndoRichChange,
-                onPressed: widget.controller.undoRichChange,
+        child: Row(
+          children: [
+            if (canScrollLeft)
+              RichToolbarScrollButton(
+                tooltip: '向左',
+                icon: Icons.chevron_left,
+                onPressed: () => scrollToolbar(-260),
               ),
-              RichToolbarMenuButton<int>(
-                label: '$fontSize',
-                tooltip: '字級',
-                values: const [14, 16, 18, 22, 28],
-                labelBuilder: (value) => '$value',
-                onSelected: (value) => widget.onStyleChanged({
-                  ...widget.style,
-                  'fontSize': value.toDouble(),
-                }),
-              ),
-              RichToolbarTextButton(
-                label: 'B',
-                tooltip: '粗體',
-                active: widget.controller.selectionHasAttribute(
-                  RichNoteAttribute.bold,
-                  value: true,
+            Expanded(
+              child: SingleChildScrollView(
+                controller: toolbarScrollController,
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    RichToolbarIconButton(
+                      tooltip: '復原',
+                      icon: Icons.undo,
+                      enabled: widget.controller.canUndoRichChange,
+                      onPressed: widget.controller.undoRichChange,
+                    ),
+                    RichToolbarMenuButton<int>(
+                      label: '$fontSize',
+                      tooltip: '字級',
+                      values: const [14, 16, 18, 22, 28],
+                      labelBuilder: (value) => '$value',
+                      onSelected: (value) => widget.onStyleChanged({
+                        ...widget.style,
+                        'fontSize': value.toDouble(),
+                      }),
+                    ),
+                    RichToolbarTextButton(
+                      label: 'B',
+                      tooltip: '粗體',
+                      active: widget.controller.selectionHasAttribute(
+                        RichNoteAttribute.bold,
+                        value: true,
+                      ),
+                      onPressed: () =>
+                          applyInline(RichNoteAttribute.bold, true),
+                    ),
+                    RichToolbarIconButton(
+                      tooltip: '斜體',
+                      icon: Icons.format_italic,
+                      active: widget.controller.selectionHasAttribute(
+                        RichNoteAttribute.italic,
+                        value: true,
+                      ),
+                      onPressed: () =>
+                          applyInline(RichNoteAttribute.italic, true),
+                    ),
+                    RichToolbarIconButton(
+                      tooltip: '底線',
+                      icon: Icons.format_underlined,
+                      active: widget.controller.selectionHasAttribute(
+                        RichNoteAttribute.underline,
+                        value: true,
+                      ),
+                      onPressed: () =>
+                          applyInline(RichNoteAttribute.underline, true),
+                    ),
+                    RichToolbarIconButton(
+                      tooltip: '刪除線',
+                      icon: Icons.format_strikethrough,
+                      active: widget.controller.selectionHasAttribute(
+                        RichNoteAttribute.strikethrough,
+                        value: true,
+                      ),
+                      onPressed: () =>
+                          applyInline(RichNoteAttribute.strikethrough, true),
+                    ),
+                    RichToolbarTextButton(
+                      label: '<>',
+                      tooltip: '行內程式碼',
+                      active: widget.controller.selectionHasAttribute(
+                        RichNoteAttribute.inlineCode,
+                        value: true,
+                      ),
+                      onPressed: () =>
+                          applyInline(RichNoteAttribute.inlineCode, true),
+                    ),
+                    RichToolbarTextButton(
+                      label: 'X₂',
+                      tooltip: '下標',
+                      active: widget.controller.selectionHasAttribute(
+                        RichNoteAttribute.subscript,
+                        value: true,
+                      ),
+                      onPressed: () =>
+                          applyInline(RichNoteAttribute.subscript, true),
+                    ),
+                    RichToolbarTextButton(
+                      label: 'X²',
+                      tooltip: '上標',
+                      active: widget.controller.selectionHasAttribute(
+                        RichNoteAttribute.superscript,
+                        value: true,
+                      ),
+                      onPressed: () =>
+                          applyInline(RichNoteAttribute.superscript, true),
+                    ),
+                    const RichToolbarDivider(),
+                    RichToolbarMenuButton<double>(
+                      label: lineHeight.toStringAsFixed(2),
+                      tooltip: '行距',
+                      values: const [1.2, 1.45, 1.7, 2.0],
+                      labelBuilder: (value) => value.toStringAsFixed(2),
+                      onSelected: (value) => widget.onStyleChanged({
+                        ...widget.style,
+                        'lineHeight': value,
+                      }),
+                    ),
+                    const RichToolbarDivider(),
+                    RichToolbarIconButton(
+                      tooltip: '編號清單',
+                      icon: Icons.format_list_numbered,
+                      onPressed: widget.controller.applyOrderedList,
+                    ),
+                    RichToolbarIconButton(
+                      tooltip: '項目清單',
+                      icon: Icons.format_list_bulleted,
+                      onPressed: () =>
+                          widget.controller.prefixSelectedLines('• '),
+                    ),
+                    RichToolbarIconButton(
+                      tooltip: '待辦清單',
+                      icon: Icons.check_box,
+                      onPressed: widget.controller.insertTodoCheckbox,
+                    ),
+                    RichToolbarTextButton(
+                      label: '<>',
+                      tooltip: '程式碼區塊',
+                      active: widget.controller.selectionHasAttribute(
+                        RichNoteAttribute.codeBlock,
+                        value: true,
+                      ),
+                      onPressed: () =>
+                          applyLine(RichNoteAttribute.codeBlock, true),
+                    ),
+                    const RichToolbarDivider(),
+                    RichToolbarIconButton(
+                      tooltip: '引用',
+                      icon: Icons.format_quote,
+                      active: widget.controller.selectionHasAttribute(
+                        RichNoteAttribute.quote,
+                        value: true,
+                      ),
+                      onPressed: () => applyLine(RichNoteAttribute.quote, true),
+                    ),
+                    RichToolbarIconButton(
+                      tooltip: '增加縮排',
+                      icon: Icons.format_indent_increase,
+                      onPressed: () =>
+                          widget.controller.prefixSelectedLines('  '),
+                    ),
+                    RichToolbarIconButton(
+                      tooltip: '減少縮排',
+                      icon: Icons.format_indent_decrease,
+                      onPressed: widget.controller.outdentSelectedLines,
+                    ),
+                    const RichToolbarDivider(),
+                    RichToolbarIconButton(
+                      tooltip: '上傳圖片',
+                      icon: Icons.image_outlined,
+                      onPressed: widget.onAddImage,
+                    ),
+                    RichToolbarIconButton(
+                      tooltip: '上傳附件',
+                      icon: Icons.attach_file,
+                      onPressed: widget.onAddAttachment,
+                    ),
+                    RichToolbarIconButton(
+                      tooltip: '插入待辦',
+                      icon: Icons.add_task,
+                      onPressed: widget.onInsertTodo,
+                    ),
+                  ],
                 ),
-                onPressed: () => applyInline(RichNoteAttribute.bold, true),
               ),
-              RichToolbarIconButton(
-                tooltip: '斜體',
-                icon: Icons.format_italic,
-                active: widget.controller.selectionHasAttribute(
-                  RichNoteAttribute.italic,
-                  value: true,
-                ),
-                onPressed: () => applyInline(RichNoteAttribute.italic, true),
+            ),
+            if (canScrollRight)
+              RichToolbarScrollButton(
+                tooltip: '向右',
+                icon: Icons.chevron_right,
+                onPressed: () => scrollToolbar(260),
               ),
-              RichToolbarIconButton(
-                tooltip: '底線',
-                icon: Icons.format_underlined,
-                active: widget.controller.selectionHasAttribute(
-                  RichNoteAttribute.underline,
-                  value: true,
-                ),
-                onPressed: () => applyInline(RichNoteAttribute.underline, true),
-              ),
-              RichToolbarIconButton(
-                tooltip: '刪除線',
-                icon: Icons.format_strikethrough,
-                active: widget.controller.selectionHasAttribute(
-                  RichNoteAttribute.strikethrough,
-                  value: true,
-                ),
-                onPressed: () =>
-                    applyInline(RichNoteAttribute.strikethrough, true),
-              ),
-              RichToolbarTextButton(
-                label: '<>',
-                tooltip: '行內程式碼',
-                active: widget.controller.selectionHasAttribute(
-                  RichNoteAttribute.inlineCode,
-                  value: true,
-                ),
-                onPressed: () =>
-                    applyInline(RichNoteAttribute.inlineCode, true),
-              ),
-              RichToolbarTextButton(
-                label: 'X₂',
-                tooltip: '下標',
-                active: widget.controller.selectionHasAttribute(
-                  RichNoteAttribute.subscript,
-                  value: true,
-                ),
-                onPressed: () => applyInline(RichNoteAttribute.subscript, true),
-              ),
-              RichToolbarTextButton(
-                label: 'X²',
-                tooltip: '上標',
-                active: widget.controller.selectionHasAttribute(
-                  RichNoteAttribute.superscript,
-                  value: true,
-                ),
-                onPressed: () =>
-                    applyInline(RichNoteAttribute.superscript, true),
-              ),
-              const RichToolbarDivider(),
-              RichToolbarMenuButton<int>(
-                label: '1',
-                tooltip: '標題',
-                values: const [1, 2, 3],
-                labelBuilder: (value) => 'H$value',
-                onSelected: (value) =>
-                    applyLine(RichNoteAttribute.heading, value),
-              ),
-              const RichToolbarDivider(),
-              RichToolbarIconButton(
-                tooltip: '編號清單',
-                icon: Icons.format_list_numbered,
-                onPressed: widget.controller.applyOrderedList,
-              ),
-              RichToolbarIconButton(
-                tooltip: '項目清單',
-                icon: Icons.format_list_bulleted,
-                onPressed: () => widget.controller.prefixSelectedLines('• '),
-              ),
-              RichToolbarIconButton(
-                tooltip: '待辦清單',
-                icon: Icons.check_box,
-                onPressed: () => widget.controller.prefixSelectedLines('☐ '),
-              ),
-              RichToolbarTextButton(
-                label: '<>',
-                tooltip: '程式碼區塊',
-                active: widget.controller.selectionHasAttribute(
-                  RichNoteAttribute.codeBlock,
-                  value: true,
-                ),
-                onPressed: () => applyLine(RichNoteAttribute.codeBlock, true),
-              ),
-              const RichToolbarDivider(),
-              RichToolbarIconButton(
-                tooltip: '引用',
-                icon: Icons.format_quote,
-                active: widget.controller.selectionHasAttribute(
-                  RichNoteAttribute.quote,
-                  value: true,
-                ),
-                onPressed: () => applyLine(RichNoteAttribute.quote, true),
-              ),
-              RichToolbarIconButton(
-                tooltip: '增加縮排',
-                icon: Icons.format_indent_increase,
-                onPressed: () => widget.controller.prefixSelectedLines('  '),
-              ),
-              RichToolbarIconButton(
-                tooltip: '減少縮排',
-                icon: Icons.format_indent_decrease,
-                onPressed: widget.controller.outdentSelectedLines,
-              ),
-              const RichToolbarDivider(),
-              RichToolbarIconButton(
-                tooltip: '上傳圖片',
-                icon: Icons.image_outlined,
-                onPressed: widget.onAddImage,
-              ),
-              RichToolbarIconButton(
-                tooltip: '上傳附件',
-                icon: Icons.attach_file,
-                onPressed: widget.onAddAttachment,
-              ),
-              RichToolbarIconButton(
-                tooltip: '背景設定',
-                icon: Icons.format_color_fill_outlined,
-                onPressed: widget.onBackground,
-              ),
-              RichToolbarIconButton(
-                tooltip: '插入待辦',
-                icon: Icons.add_task,
-                onPressed: widget.onInsertTodo,
-              ),
-              RichToolbarIconButton(
-                tooltip: '插入筆記連結',
-                icon: Icons.link,
-                onPressed: widget.onInsertNote,
-              ),
-              RichToolbarIconButton(
-                tooltip: '另存為',
-                icon: Icons.save_alt_outlined,
-                onPressed: widget.onExport,
-              ),
-            ],
-          ),
+          ],
         ),
       ),
     );
@@ -9744,6 +10230,33 @@ class RichToolbarTextButton extends StatelessWidget {
   }
 }
 
+class RichToolbarScrollButton extends StatelessWidget {
+  const RichToolbarScrollButton({
+    super.key,
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      color: colorScheme.primary,
+      iconSize: 24,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 34, height: 48),
+      icon: Icon(icon),
+    );
+  }
+}
+
 class RichToolbarMenuButton<T> extends StatelessWidget {
   const RichToolbarMenuButton({
     super.key,
@@ -9829,10 +10342,7 @@ class NoteEditorToolbar extends StatelessWidget {
     required this.onStyleChanged,
     required this.onAddImage,
     required this.onAddAttachment,
-    required this.onBackground,
-    required this.onExport,
     required this.onInsertTodo,
-    required this.onInsertNote,
   });
 
   final Map<String, dynamic> style;
@@ -9841,10 +10351,7 @@ class NoteEditorToolbar extends StatelessWidget {
   final ValueChanged<Map<String, dynamic>> onStyleChanged;
   final VoidCallback onAddImage;
   final VoidCallback onAddAttachment;
-  final VoidCallback onBackground;
-  final VoidCallback onExport;
   final VoidCallback onInsertTodo;
-  final VoidCallback onInsertNote;
 
   @override
   Widget build(BuildContext context) {
@@ -9960,24 +10467,9 @@ class NoteEditorToolbar extends StatelessWidget {
                 icon: const Icon(Icons.attach_file),
               ),
               IconButton.filledTonal(
-                tooltip: '背景設定',
-                onPressed: onBackground,
-                icon: const Icon(Icons.format_color_fill_outlined),
-              ),
-              IconButton.filledTonal(
                 tooltip: '插入待辦',
                 onPressed: onInsertTodo,
                 icon: const Icon(Icons.check_box_outlined),
-              ),
-              IconButton.filledTonal(
-                tooltip: '插入筆記連結',
-                onPressed: onInsertNote,
-                icon: const Icon(Icons.link),
-              ),
-              IconButton.filledTonal(
-                tooltip: '另存為',
-                onPressed: onExport,
-                icon: const Icon(Icons.save_alt_outlined),
               ),
             ],
           ),
@@ -10537,6 +11029,30 @@ String safeExportFileName(String value) {
       .replaceAll(RegExp(r'[\\/:*?"<>|]+'), '_')
       .replaceAll(RegExp(r'\s+'), '_');
   return clean.isEmpty ? 'my_note' : clean;
+}
+
+Uint8List? decodeBase64BytesOrNull(String value) {
+  if (value.trim().isEmpty) {
+    return null;
+  }
+  try {
+    return base64Decode(value);
+  } catch (_) {
+    return null;
+  }
+}
+
+String formatFileSize(int bytes) {
+  if (bytes <= 0) {
+    return '0 B';
+  }
+  if (bytes < 1024) {
+    return '$bytes B';
+  }
+  if (bytes < 1024 * 1024) {
+    return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  }
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 }
 
 Map<String, dynamic> parseMindMapNodeLine(String line) {
@@ -11254,7 +11770,9 @@ Future<void> showNoteEditorSheet(BuildContext context, {NoteItem? note}) async {
   final title = TextEditingController(text: note?.title ?? '');
   final body = TextEditingController(text: note?.body ?? '');
   final category = TextEditingController(text: note?.category ?? '');
-  final tags = TextEditingController(text: note?.tags.join(', ') ?? '');
+  final tags = TextEditingController(
+    text: formatTagsForEditing(note?.tags ?? []),
+  );
   var pinned = note?.isPinned ?? false;
 
   await showModalBottomSheet<void>(
@@ -11310,7 +11828,7 @@ Future<void> showNoteEditorSheet(BuildContext context, {NoteItem? note}) async {
                 TextField(
                   controller: tags,
                   decoration: const InputDecoration(
-                    labelText: '標籤',
+                    labelText: '#標籤',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -12569,11 +13087,33 @@ String formatTodoReminderTime(BuildContext context, TimeOfDay time) {
 }
 
 List<String> splitTags(String value) {
-  return value
-      .split(',')
-      .map((tag) => tag.trim())
+  final hashTags = RegExp(r'#([^\s#]+)')
+      .allMatches(value)
+      .map((match) => match.group(1)?.trim() ?? '')
       .where((tag) => tag.isNotEmpty)
       .toList();
+  final rawTags = hashTags.isNotEmpty
+      ? hashTags
+      : value
+            .split(RegExp(r'\s+'))
+            .map((tag) => tag.trim().replaceFirst(RegExp(r'^#+'), ''))
+            .where((tag) => tag.isNotEmpty)
+            .toList();
+  final uniqueTags = <String>[];
+  for (final tag in rawTags) {
+    if (!uniqueTags.contains(tag)) {
+      uniqueTags.add(tag);
+    }
+  }
+  return uniqueTags;
+}
+
+String formatTagsForEditing(List<String> tags) {
+  return tags
+      .map((tag) => tag.trim().replaceFirst(RegExp(r'^#+'), ''))
+      .where((tag) => tag.isNotEmpty)
+      .map((tag) => '#$tag')
+      .join(' ');
 }
 
 bool stringListsEqual(List<String> left, List<String> right) {
