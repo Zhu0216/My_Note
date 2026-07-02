@@ -22,7 +22,9 @@ This document tracks FlutterFlow UI templates referenced by the project and how 
 - Checkbox markers inside note content can be tapped to toggle between unchecked and checked states.
 - Checkbox markers are rendered as real Flutter `Checkbox` widgets in the editor instead of text-only symbols, and line-start checkbox markers keep that rendering after typing text.
 - Images and attachments are inserted into the editable note surface through rich-text embed placeholders, so they appear at the insertion position instead of in a separate attachment strip.
-- Inline images are inserted as independent lines with a trailing editable line, allowing their height to reserve editor space instead of overlapping text or the caret.
+- Inline images are inserted as independent full-width editor lines with transparent layout space, while the visible border hugs the actual fitted image size.
+- Rich image placeholders are normalized after edits so text cannot remain on the same logical line as an image; text is forced above or below the image line.
+- Existing inline images without stored natural dimensions are hydrated from their base64 bytes when a note opens, so old images also use aspect-ratio-fitted borders.
 - Selecting an inline image switches the toolbar to image controls for crop, drag resize, border width/color, alignment, and delete; the border color picker uses visible color swatches rather than raw hex labels.
 - Image cropping uses themed cropper UI with visible crop grid and confirm/cancel controls where the platform exposes them.
 - Selecting an inline attachment switches the toolbar to open, download, and delete controls.

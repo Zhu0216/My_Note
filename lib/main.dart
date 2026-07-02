@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:file_picker/file_picker.dart';
@@ -8187,7 +8188,9 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     );
     if (templateType == NoteTemplateType.general) {
       migrateLegacyInlineAssets();
+      body.isolateEmbedBlocks();
       templateData = richTextTemplateData(templateData, body);
+      unawaited(hydrateInlineImageDimensions());
     }
     initialEditorBody = body.text;
     initialEditorTemplateData = cloneJsonMap(templateData);
@@ -8367,6 +8370,36 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     }
   }
 
+  Future<void> hydrateInlineImageDimensions() async {
+    var changed = false;
+    final nextImages = <Map<String, dynamic>>[];
+    for (final image in noteImages) {
+      final naturalWidth = readDouble(image['naturalWidth']);
+      final naturalHeight = readDouble(image['naturalHeight']);
+      if (naturalWidth > 0 && naturalHeight > 0) {
+        nextImages.add(image);
+        continue;
+      }
+      final bytes = decodeBase64BytesOrNull(readString(image['bytesBase64']));
+      final dimensions = bytes == null
+          ? null
+          : await decodeImageDimensions(bytes);
+      if (dimensions == null) {
+        nextImages.add(image);
+        continue;
+      }
+      nextImages.add({
+        ...image,
+        'naturalWidth': dimensions.width,
+        'naturalHeight': dimensions.height,
+      });
+      changed = true;
+    }
+    if (changed && mounted) {
+      setState(() => noteImages = nextImages);
+    }
+  }
+
   void insertBodyToken(String token) {
     final selection = body.selection;
     final text = body.text;
@@ -8387,14 +8420,26 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       showToast(context, '無法讀取圖片');
       return;
     }
+    final dimensions = await decodeImageDimensions(bytes);
+    final naturalWidth = math.max(1.0, dimensions?.width ?? 240.0);
+    final naturalHeight = math.max(1.0, dimensions?.height ?? 160.0);
+    final initialWidth = math
+        .min(280.0, naturalWidth)
+        .clamp(80.0, 320.0)
+        .toDouble();
+    final initialHeight = (initialWidth * naturalHeight / naturalWidth)
+        .clamp(60.0, 320.0)
+        .toDouble();
     final image = {
       'id': DateTime.now().microsecondsSinceEpoch.toString(),
       'name': file.name,
       'bytesBase64': base64Encode(bytes),
       'size': file.size,
       'alignment': NoteImageAlignment.left.name,
-      'width': 240.0,
-      'height': 160.0,
+      'width': initialWidth,
+      'height': initialHeight,
+      'naturalWidth': naturalWidth,
+      'naturalHeight': naturalHeight,
       'crop': '',
       'path': file.path ?? '',
       'row': body.text.split('\n').length,
@@ -9189,6 +9234,7 @@ class RichNoteTextController extends TextEditingController {
     if (autoEdit != null) {
       _applyInternalReplacement(autoEdit);
     }
+    _isolateEmbedBlocks();
     _syncLastSnapshot();
   }
 
@@ -9332,6 +9378,55 @@ class RichNoteTextController extends TextEditingController {
       ),
     );
     _applyingChange = false;
+  }
+
+  void isolateEmbedBlocks() {
+    _isolateEmbedBlocks();
+    _syncLastSnapshot();
+  }
+
+  void _isolateEmbedBlocks() {
+    var guard = 0;
+    while (guard < text.length + 8) {
+      guard++;
+      final currentText = text;
+      var applied = false;
+      for (var index = 0; index < currentText.length; index++) {
+        if (currentText[index] != richNoteEmbedObject) {
+          continue;
+        }
+        if (index > 0 && currentText[index - 1] != '\n') {
+          _insertInternalLineBreak(index);
+          applied = true;
+          break;
+        }
+        final after = index + 1;
+        if (after >= currentText.length || currentText[after] != '\n') {
+          _insertInternalLineBreak(after);
+          applied = true;
+          break;
+        }
+      }
+      if (!applied) {
+        return;
+      }
+    }
+  }
+
+  void _insertInternalLineBreak(int offset) {
+    final currentSelection = selection;
+    final selectionOffset = currentSelection.isValid
+        ? currentSelection.extentOffset
+        : text.length;
+    final nextCursor = selectionOffset + (offset <= selectionOffset ? 1 : 0);
+    _applyInternalReplacement(
+      RichNoteAutoEdit(
+        start: offset,
+        end: offset,
+        replacement: '\n',
+        cursorOffset: nextCursor,
+      ),
+    );
   }
 
   void applyInlineAttribute(String attribute, Object value) {
@@ -10646,13 +10741,26 @@ class InlineRichImageBlock extends StatelessWidget {
           image['height'],
           fallback: 160,
         ).clamp(60.0, 520.0).toDouble();
+        final naturalWidth = readDouble(image['naturalWidth'], fallback: width);
+        final naturalHeight = readDouble(
+          image['naturalHeight'],
+          fallback: height,
+        );
+        final fittedSize = fittedImageDisplaySize(
+          boxWidth: width,
+          boxHeight: height,
+          naturalWidth: naturalWidth,
+          naturalHeight: naturalHeight,
+        );
+        final visualWidth = fittedSize.width;
+        final visualHeight = fittedSize.height;
         final borderWidth = readDouble(image['borderWidth']);
         final borderColor = colorFromHex(
           readString(image['borderColor'], fallback: '#5967D8'),
         );
         final freeX = readDouble(
           image['offsetX'],
-        ).clamp(0.0, math.max(0, availableWidth - width)).toDouble();
+        ).clamp(0.0, math.max(0, availableWidth - visualWidth)).toDouble();
         final freeY = readDouble(image['offsetY']).clamp(0.0, 80.0).toDouble();
         final align = switch (alignment) {
           NoteImageAlignment.center => Alignment.center,
@@ -10675,7 +10783,7 @@ class InlineRichImageBlock extends StatelessWidget {
                     final next = Map<String, dynamic>.from(image);
                     next['alignment'] = NoteImageAlignment.free.name;
                     next['offsetX'] = (freeX + details.delta.dx)
-                        .clamp(0.0, math.max(0, availableWidth - width))
+                        .clamp(0.0, math.max(0, availableWidth - visualWidth))
                         .toDouble();
                     next['offsetY'] = (freeY + details.delta.dy)
                         .clamp(0.0, 80.0)
@@ -10683,8 +10791,8 @@ class InlineRichImageBlock extends StatelessWidget {
                     onChanged(next);
                   },
             child: Container(
-              width: width,
-              height: height,
+              width: visualWidth,
+              height: visualHeight,
               decoration: BoxDecoration(
                 color: colorScheme.surface,
                 borderRadius: BorderRadius.circular(8),
@@ -10705,7 +10813,7 @@ class InlineRichImageBlock extends StatelessWidget {
               clipBehavior: Clip.antiAlias,
               child: bytes == null
                   ? const Center(child: Icon(Icons.broken_image_outlined))
-                  : Image.memory(bytes, fit: BoxFit.contain),
+                  : Image.memory(bytes, fit: BoxFit.fill),
             ),
           ),
         );
@@ -10715,10 +10823,10 @@ class InlineRichImageBlock extends StatelessWidget {
                   Positioned(left: freeX, top: freeY, child: imageBox),
                   if (selected && !readOnly)
                     Positioned(
-                      left: (freeX + width - 22)
+                      left: (freeX + visualWidth - 22)
                           .clamp(0.0, availableWidth - 22)
                           .toDouble(),
-                      top: freeY + height - 22,
+                      top: freeY + visualHeight - 22,
                       child: _ImageResizeHandle(
                         onPanUpdate: (details) {
                           final nextWidth = (width + details.delta.dx)
@@ -10743,8 +10851,8 @@ class InlineRichImageBlock extends StatelessWidget {
           child: SizedBox(
             width: availableWidth,
             height: alignment == NoteImageAlignment.free
-                ? height + freeY + (selected ? 18 : 0)
-                : height + (selected ? 18 : 0),
+                ? visualHeight + freeY + (selected ? 18 : 0)
+                : visualHeight + (selected ? 18 : 0),
             child: Stack(
               children: [
                 positionedImage,
@@ -10754,11 +10862,11 @@ class InlineRichImageBlock extends StatelessWidget {
                   Positioned(
                     left: switch (alignment) {
                       NoteImageAlignment.center =>
-                        (availableWidth - width) / 2 + width - 22,
+                        (availableWidth - visualWidth) / 2 + visualWidth - 22,
                       NoteImageAlignment.right => availableWidth - 22,
-                      _ => width - 22,
+                      _ => visualWidth - 22,
                     },
-                    top: height - 22,
+                    top: visualHeight - 22,
                     child: _ImageResizeHandle(
                       onPanUpdate: (details) {
                         final nextWidth = (width + details.delta.dx)
@@ -12368,6 +12476,50 @@ Uint8List? decodeBase64BytesOrNull(String value) {
   } catch (_) {
     return null;
   }
+}
+
+Future<Size?> decodeImageDimensions(Uint8List bytes) async {
+  if (bytes.isEmpty) {
+    return null;
+  }
+  final completer = Completer<Size?>();
+  try {
+    ui.decodeImageFromList(bytes, (image) {
+      final size = Size(image.width.toDouble(), image.height.toDouble());
+      image.dispose();
+      if (!completer.isCompleted) {
+        completer.complete(size);
+      }
+    });
+  } catch (_) {
+    if (!completer.isCompleted) {
+      completer.complete(null);
+    }
+  }
+  return completer.future.timeout(
+    const Duration(seconds: 2),
+    onTimeout: () => null,
+  );
+}
+
+Size fittedImageDisplaySize({
+  required double boxWidth,
+  required double boxHeight,
+  required double naturalWidth,
+  required double naturalHeight,
+}) {
+  if (boxWidth <= 0 ||
+      boxHeight <= 0 ||
+      naturalWidth <= 0 ||
+      naturalHeight <= 0) {
+    return Size(boxWidth, boxHeight);
+  }
+  final naturalRatio = naturalWidth / naturalHeight;
+  final boxRatio = boxWidth / boxHeight;
+  if (boxRatio > naturalRatio) {
+    return Size(boxHeight * naturalRatio, boxHeight);
+  }
+  return Size(boxWidth, boxWidth / naturalRatio);
 }
 
 Map<String, dynamic> firstMapById(List<Map<String, dynamic>> items, String id) {
