@@ -3980,9 +3980,6 @@ class _NotesPageState extends State<NotesPage>
     if (showingTrash) {
       return '垃圾桶';
     }
-    if (batchMode) {
-      return '所有筆記';
-    }
     if (folder == '所有筆記') {
       return '所有筆記';
     }
@@ -4036,7 +4033,7 @@ class _NotesPageState extends State<NotesPage>
       );
     }
 
-    if (batchMode || showingTrash) {
+    if (showingTrash) {
       return Text(currentDirectoryTitle, style: titleStyle);
     }
     if (folder == '所有筆記') {
@@ -4171,145 +4168,166 @@ class _NotesPageState extends State<NotesPage>
             onPressed: () => setState(() => showFilters = !showFilters),
             icon: Icon(showFilters ? Icons.search_off : Icons.search),
           ),
-          IconButton(
-            tooltip: '更多選項',
-            onPressed: () => showNotesOptions(context),
-            icon: const Icon(Icons.more_vert),
-          ),
+          if (showingTrash)
+            IconButton(
+              tooltip: '清空垃圾桶',
+              onPressed: clearTrashNotes,
+              icon: const Icon(Icons.delete_sweep_outlined),
+            )
+          else
+            IconButton(
+              tooltip: '建立資料夾',
+              onPressed: createFolder,
+              icon: const Icon(Icons.create_new_folder_outlined),
+            ),
         ],
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+        child: Column(
           children: [
-            if (showFilters) ...[
-              TextField(
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search),
-                  hintText: '搜尋標題、內文、標籤',
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: (value) => setState(() => query = value),
+            if (batchMode)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: showingTrash
+                    ? TrashBatchActionBar(
+                        selectedCount: selectedNoteIds.length,
+                        onRestore: selectedNoteIds.isEmpty
+                            ? null
+                            : () => restoreSelectedTrashNotes(store),
+                        onDelete: selectedNoteIds.isEmpty
+                            ? null
+                            : () => permanentlyDeleteSelectedTrashNotes(store),
+                        onDone: exitBatchMode,
+                      )
+                    : BatchActionBar(
+                        selectedCount: selectedNoteIds.length,
+                        canRename: selectedNoteIds.length == 1,
+                        onDelete: selectedNoteIds.isEmpty
+                            ? null
+                            : () => deleteSelectedNotes(store),
+                        onMove: selectedNoteIds.isEmpty
+                            ? null
+                            : () => moveSelectedNotes(store),
+                        onRename: selectedNoteIds.length == 1
+                            ? () => renameSelectedNote(store)
+                            : null,
+                        onDone: exitBatchMode,
+                      ),
               ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
                 children: [
-                  DropdownMenu<String>(
-                    initialSelection: folder,
-                    label: const Text('資料夾'),
-                    dropdownMenuEntries: folders
-                        .map(
-                          (item) => DropdownMenuEntry(
-                            value: item,
-                            label: item.isEmpty ? '未分類' : item,
-                          ),
-                        )
-                        .toList(),
-                    onSelected: (value) =>
-                        setState(() => folder = value ?? '所有筆記'),
-                  ),
-                  DropdownMenu<NotesDateFilter>(
-                    initialSelection: dateFilter,
-                    label: const Text('日期篩選'),
-                    dropdownMenuEntries: NotesDateFilter.values
-                        .map(
-                          (item) => DropdownMenuEntry(
-                            value: item,
-                            label: noteDateFilterLabel(item),
-                          ),
-                        )
-                        .toList(),
-                    onSelected: (value) => setState(
-                      () => dateFilter = value ?? NotesDateFilter.all,
+                  if (showFilters) ...[
+                    TextField(
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.search),
+                        hintText: '搜尋標題、內文、標籤',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (value) => setState(() => query = value),
                     ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        DropdownMenu<String>(
+                          initialSelection: folder,
+                          label: const Text('資料夾'),
+                          dropdownMenuEntries: folders
+                              .map(
+                                (item) => DropdownMenuEntry(
+                                  value: item,
+                                  label: item.isEmpty ? '未分類' : item,
+                                ),
+                              )
+                              .toList(),
+                          onSelected: (value) =>
+                              setState(() => folder = value ?? '所有筆記'),
+                        ),
+                        DropdownMenu<NotesDateFilter>(
+                          initialSelection: dateFilter,
+                          label: const Text('日期篩選'),
+                          dropdownMenuEntries: NotesDateFilter.values
+                              .map(
+                                (item) => DropdownMenuEntry(
+                                  value: item,
+                                  label: noteDateFilterLabel(item),
+                                ),
+                              )
+                              .toList(),
+                          onSelected: (value) => setState(
+                            () => dateFilter = value ?? NotesDateFilter.all,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  NotesSortSummary(
+                    sortField: sortField,
+                    sortDirection: sortDirection,
+                    viewMode: viewMode,
+                    selectedTemplates: templateFilters,
+                    onSortChanged: (field, direction) {
+                      setState(() {
+                        sortField = field;
+                        sortDirection = direction;
+                      });
+                    },
+                    onViewModeChanged: (mode) =>
+                        setState(() => viewMode = mode),
+                    onTemplateToggled: (type) {
+                      setState(() {
+                        if (!templateFilters.add(type)) {
+                          templateFilters.remove(type);
+                        }
+                      });
+                    },
                   ),
+                  const SizedBox(height: 16),
+                  if (notes.isEmpty && childFolders.isEmpty)
+                    EmptyState(
+                      icon: Icons.note_alt_outlined,
+                      text: showingTrash ? '垃圾桶沒有筆記' : '還沒有筆記',
+                    )
+                  else ...[
+                    if (childFolders.isNotEmpty)
+                      NotesFolderGrid(
+                        folders: childFolders,
+                        onTap: openNotesFolder,
+                      ),
+                    if (pinnedNotes.isNotEmpty)
+                      NotesGroupContainer(
+                        notes: pinnedNotes,
+                        mode: viewMode,
+                        batchMode: batchMode,
+                        selectedNoteIds: selectedNoteIds,
+                        onSelectionChanged: toggleSelected,
+                        onTap: handleNoteTap,
+                        onLongPress: enterBatchModeWith,
+                        readOnly: showingTrash,
+                        onDelete: showingTrash
+                            ? null
+                            : (note) => store.deleteNote(note),
+                      ),
+                    if (regularNotes.isNotEmpty)
+                      NotesGroupContainer(
+                        notes: regularNotes,
+                        mode: viewMode,
+                        batchMode: batchMode,
+                        selectedNoteIds: selectedNoteIds,
+                        onSelectionChanged: toggleSelected,
+                        onTap: handleNoteTap,
+                        onLongPress: enterBatchModeWith,
+                        readOnly: showingTrash,
+                        onDelete: showingTrash
+                            ? null
+                            : (note) => store.deleteNote(note),
+                      ),
+                  ],
                 ],
               ),
-              const SizedBox(height: 16),
-            ],
-            if (batchMode) ...[
-              if (showingTrash)
-                TrashBatchActionBar(
-                  selectedCount: selectedNoteIds.length,
-                  onRestore: selectedNoteIds.isEmpty
-                      ? null
-                      : () => restoreSelectedTrashNotes(store),
-                  onDelete: selectedNoteIds.isEmpty
-                      ? null
-                      : () => permanentlyDeleteSelectedTrashNotes(store),
-                  onDone: () => setState(() {
-                    batchMode = false;
-                    selectedNoteIds.clear();
-                  }),
-                )
-              else
-                BatchActionBar(
-                  selectedCount: selectedNoteIds.length,
-                  canRename: selectedNoteIds.length == 1,
-                  onDelete: selectedNoteIds.isEmpty
-                      ? null
-                      : () => deleteSelectedNotes(store),
-                  onMove: selectedNoteIds.isEmpty
-                      ? null
-                      : () => moveSelectedNotes(store),
-                  onRename: selectedNoteIds.length == 1
-                      ? () => renameSelectedNote(store)
-                      : null,
-                  onDone: () => setState(() {
-                    batchMode = false;
-                    selectedNoteIds.clear();
-                  }),
-                ),
-              const SizedBox(height: 12),
-            ],
-            NotesSortSummary(
-              label:
-                  '${notesSortFieldLabel(sortField)}'
-                  ' ${sortDirectionSymbol(sortDirection)}',
-              viewLabel: notesViewModeLabel(viewMode),
-              selectedTemplates: templateFilters,
-              onTemplateToggled: (type) {
-                setState(() {
-                  if (!templateFilters.add(type)) {
-                    templateFilters.remove(type);
-                  }
-                });
-              },
             ),
-            const SizedBox(height: 16),
-            if (notes.isEmpty && childFolders.isEmpty)
-              EmptyState(
-                icon: Icons.note_alt_outlined,
-                text: showingTrash ? '垃圾桶沒有筆記' : '還沒有筆記',
-              )
-            else ...[
-              if (childFolders.isNotEmpty)
-                NotesFolderGrid(folders: childFolders, onTap: openNotesFolder),
-              if (pinnedNotes.isNotEmpty)
-                NotesGroupContainer(
-                  notes: pinnedNotes,
-                  mode: viewMode,
-                  batchMode: batchMode,
-                  selectedNoteIds: selectedNoteIds,
-                  onSelectionChanged: toggleSelected,
-                  onTap: handleNoteTap,
-                  readOnly: showingTrash,
-                  onDelete: (note) => store.deleteNote(note),
-                ),
-              if (regularNotes.isNotEmpty)
-                NotesGroupContainer(
-                  notes: regularNotes,
-                  mode: viewMode,
-                  batchMode: batchMode,
-                  selectedNoteIds: selectedNoteIds,
-                  onSelectionChanged: toggleSelected,
-                  onTap: handleNoteTap,
-                  readOnly: showingTrash,
-                  onDelete: showingTrash
-                      ? null
-                      : (note) => store.deleteNote(note),
-                ),
-            ],
           ],
         ),
       ),
@@ -4317,8 +4335,13 @@ class _NotesPageState extends State<NotesPage>
   }
 
   List<String> directChildFolders(List<String> folders) {
-    if (showingTrash || folder == '所有筆記' || folder.isEmpty) {
+    if (showingTrash || folder.isEmpty) {
       return [];
+    }
+    if (folder == '所有筆記') {
+      return folders
+          .where((item) => folderParentPath(item).isEmpty)
+          .toList(growable: false);
     }
     final current = normalizeFolderPath(folder);
     return folders
@@ -4370,6 +4393,23 @@ class _NotesPageState extends State<NotesPage>
       return;
     }
     showNoteEditor(context, note: note, readOnly: showingTrash);
+  }
+
+  void enterBatchModeWith(NoteItem note) {
+    setState(() {
+      if (!batchMode) {
+        selectedNoteIds.clear();
+      }
+      batchMode = true;
+      selectedNoteIds.add(note.id);
+    });
+  }
+
+  void exitBatchMode() {
+    setState(() {
+      batchMode = false;
+      selectedNoteIds.clear();
+    });
   }
 
   void toggleSelected(NoteItem note) {
@@ -4655,6 +4695,7 @@ class NotesGroupContainer extends StatelessWidget {
     required this.selectedNoteIds,
     required this.onSelectionChanged,
     required this.onTap,
+    required this.onLongPress,
     this.readOnly = false,
     this.onDelete,
   });
@@ -4665,6 +4706,7 @@ class NotesGroupContainer extends StatelessWidget {
   final Set<String> selectedNoteIds;
   final ValueChanged<NoteItem> onSelectionChanged;
   final ValueChanged<NoteItem> onTap;
+  final ValueChanged<NoteItem> onLongPress;
   final bool readOnly;
   final ValueChanged<NoteItem>? onDelete;
 
@@ -4729,6 +4771,7 @@ class NotesGroupContainer extends StatelessWidget {
       selected: selectedNoteIds.contains(note.id),
       onSelectionChanged: () => onSelectionChanged(note),
       onTap: () => onTap(note),
+      onLongPress: () => onLongPress(note),
       readOnly: readOnly,
       onDelete: onDelete == null ? null : () => onDelete!(note),
     );
@@ -6414,6 +6457,7 @@ class NoteTile extends StatelessWidget {
     super.key,
     required this.note,
     required this.onTap,
+    this.onLongPress,
     this.mode = NotesViewMode.list,
     this.selectable = false,
     this.selected = false,
@@ -6424,6 +6468,7 @@ class NoteTile extends StatelessWidget {
 
   final NoteItem note;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final NotesViewMode mode;
   final bool selectable;
   final bool selected;
@@ -6446,6 +6491,7 @@ class NoteTile extends StatelessWidget {
       ),
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         borderRadius: BorderRadius.circular(8),
         child: switch (mode) {
           NotesViewMode.grid => NoteGridContent(
@@ -6860,33 +6906,95 @@ class TrashBatchActionBar extends StatelessWidget {
   }
 }
 
+class NotesSortOption {
+  const NotesSortOption(this.field, this.direction);
+
+  final NotesSortField field;
+  final SortDirection direction;
+}
+
 class NotesSortSummary extends StatelessWidget {
   const NotesSortSummary({
     super.key,
-    required this.label,
-    required this.viewLabel,
+    required this.sortField,
+    required this.sortDirection,
+    required this.viewMode,
     required this.selectedTemplates,
+    required this.onSortChanged,
+    required this.onViewModeChanged,
     required this.onTemplateToggled,
   });
 
-  final String label;
-  final String viewLabel;
+  final NotesSortField sortField;
+  final SortDirection sortDirection;
+  final NotesViewMode viewMode;
   final Set<NoteTemplateType> selectedTemplates;
+  final void Function(NotesSortField field, SortDirection direction)
+  onSortChanged;
+  final ValueChanged<NotesViewMode> onViewModeChanged;
   final ValueChanged<NoteTemplateType> onTemplateToggled;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textStyle = Theme.of(context).textTheme.labelMedium;
+    final currentSortLabel =
+        '${notesSortFieldLabel(sortField)} ${sortDirectionSymbol(sortDirection)}';
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        const Icon(Icons.sort, size: 18, color: Colors.black54),
-        Text(label, style: const TextStyle(color: Colors.black54)),
-        const Icon(Icons.visibility_outlined, size: 18, color: Colors.black54),
-        Text(viewLabel, style: const TextStyle(color: Colors.black54)),
+        PopupMenuButton<NotesSortOption>(
+          tooltip: '排序',
+          onSelected: (option) => onSortChanged(option.field, option.direction),
+          itemBuilder: (context) => [
+            for (final field in NotesSortField.values)
+              for (final direction in SortDirection.values)
+                PopupMenuItem(
+                  value: NotesSortOption(field, direction),
+                  child: Row(
+                    children: [
+                      Icon(notesSortFieldIcon(field), size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '${notesSortFieldLabel(field)} ${sortDirectionSymbol(direction)}',
+                        ),
+                      ),
+                      if (sortField == field && sortDirection == direction)
+                        const Icon(Icons.check, size: 18),
+                    ],
+                  ),
+                ),
+          ],
+          child: NotesToolbarDropdownChip(
+            icon: notesSortFieldIcon(sortField),
+            label: '排序：$currentSortLabel',
+          ),
+        ),
+        PopupMenuButton<NotesViewMode>(
+          tooltip: '檢視',
+          onSelected: onViewModeChanged,
+          itemBuilder: (context) => [
+            for (final mode in NotesViewMode.values)
+              PopupMenuItem(
+                value: mode,
+                child: Row(
+                  children: [
+                    Icon(notesViewModeIcon(mode), size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(child: Text(notesViewModeLabel(mode))),
+                    if (viewMode == mode) const Icon(Icons.check, size: 18),
+                  ],
+                ),
+              ),
+          ],
+          child: NotesToolbarDropdownChip(
+            icon: notesViewModeIcon(viewMode),
+            label: '檢視：${notesViewModeLabel(viewMode)}',
+          ),
+        ),
         const SizedBox(width: 2),
         for (final type in NoteTemplateType.values)
           InkWell(
@@ -6914,6 +7022,52 @@ class NotesSortSummary extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+class NotesToolbarDropdownChip extends StatelessWidget {
+  const NotesToolbarDropdownChip({
+    super.key,
+    required this.icon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: colorScheme.onSurfaceVariant),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: colorScheme.onSurface,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 2),
+            Icon(
+              Icons.arrow_drop_down,
+              size: 18,
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
