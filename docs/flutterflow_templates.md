@@ -24,6 +24,8 @@ This document tracks FlutterFlow UI templates referenced by the project and how 
 - Images and attachments are inserted into the editable note surface through rich-text embed placeholders, so they appear at the insertion position instead of in a separate attachment strip.
 - Inline images are inserted as independent full-width editor lines with transparent layout space, while the visible border hugs the actual fitted image size.
 - Rich image placeholders are normalized after edits so text cannot remain on the same logical line as an image; text is forced above or below the image line.
+- If an image or attachment embed is deleted with the keyboard, the editor removes the matching stored asset record to prevent ghost images from reappearing later.
+- Free-move images expose a full-line transparent interaction layer, so the image can be selected or dragged again even after it has been moved away from its original position.
 - Existing inline images without stored natural dimensions are hydrated from their base64 bytes when a note opens, so old images also use aspect-ratio-fitted borders.
 - Selecting an inline image switches the toolbar to image controls for crop, drag resize, border width/color, alignment, and delete; the border color picker uses visible color swatches rather than raw hex labels.
 - Image cropping uses themed cropper UI with visible crop grid and confirm/cancel controls where the platform exposes them.

@@ -9068,6 +9068,7 @@ class RichNoteTextController extends TextEditingController {
   void Function(String type, String id)? _onEmbedSelected;
   ValueChanged<Map<String, dynamic>>? _onInlineImageChanged;
   ValueChanged<Map<String, dynamic>>? _onInlineAttachmentChanged;
+  void Function(String type, String id)? _onEmbedDeleted;
 
   bool get canUndoRichChange => _undoStack.isNotEmpty;
   bool get canRedoRichChange => _redoStack.isNotEmpty;
@@ -9090,6 +9091,7 @@ class RichNoteTextController extends TextEditingController {
     required void Function(String type, String id) onEmbedSelected,
     required ValueChanged<Map<String, dynamic>> onImageChanged,
     required ValueChanged<Map<String, dynamic>> onAttachmentChanged,
+    required void Function(String type, String id) onEmbedDeleted,
   }) {
     _renderImages = images;
     _renderAttachments = attachments;
@@ -9099,6 +9101,7 @@ class RichNoteTextController extends TextEditingController {
     _onEmbedSelected = onEmbedSelected;
     _onInlineImageChanged = onImageChanged;
     _onInlineAttachmentChanged = onAttachmentChanged;
+    _onEmbedDeleted = onEmbedDeleted;
   }
 
   void insertEmbedBlock({required String type, required String id}) {
@@ -9187,6 +9190,7 @@ class RichNoteTextController extends TextEditingController {
     if (_applyingChange || text == _lastText) {
       return;
     }
+    final previousEmbeds = embedKeysFromRichNoteMarks(_lastMarks);
     final change = richNoteTextChange(oldText: _lastText, newText: text);
     _pushUndo(_lastValue, _lastMarks);
     _marks = adjustRichNoteMarksForReplacement(
@@ -9235,7 +9239,25 @@ class RichNoteTextController extends TextEditingController {
       _applyInternalReplacement(autoEdit);
     }
     _isolateEmbedBlocks();
+    _notifyDeletedEmbeds(previousEmbeds);
     _syncLastSnapshot();
+  }
+
+  void _notifyDeletedEmbeds(Set<String> previousEmbeds) {
+    if (previousEmbeds.isEmpty || _onEmbedDeleted == null) {
+      return;
+    }
+    final currentEmbeds = embedKeysFromRichNoteMarks(_marks);
+    for (final key in previousEmbeds.difference(currentEmbeds)) {
+      final separator = key.indexOf('\n');
+      if (separator <= 0 || separator >= key.length - 1) {
+        continue;
+      }
+      _onEmbedDeleted?.call(
+        key.substring(0, separator),
+        key.substring(separator + 1),
+      );
+    }
   }
 
   void _syncLastSnapshot() {
@@ -9874,6 +9896,18 @@ List<RichNoteMark> normalizeRichNoteMarks(
   return normalized;
 }
 
+Set<String> embedKeysFromRichNoteMarks(List<RichNoteMark> marks) {
+  final keys = <String>{};
+  for (final mark in marks) {
+    final type = readString(mark.attributes[RichNoteAttribute.embedType]);
+    final id = readString(mark.attributes[RichNoteAttribute.embedId]);
+    if (type.isNotEmpty && id.isNotEmpty) {
+      keys.add('$type\n$id');
+    }
+  }
+  return keys;
+}
+
 List<RichNoteMark> adjustRichNoteMarksAfterTextChange(
   List<RichNoteMark> marks, {
   required String oldText,
@@ -10337,6 +10371,23 @@ class _GeneralRichTextEditorPanelState
     clearEmbedSelection();
   }
 
+  void removeKeyboardDeletedEmbed(String type, String id) {
+    if (type == richNoteEmbedTypeImage) {
+      widget.onImagesChanged(
+        widget.images.where((item) => readString(item['id']) != id).toList(),
+      );
+    } else if (type == richNoteEmbedTypeAttachment) {
+      widget.onAttachmentsChanged(
+        widget.attachments
+            .where((item) => readString(item['id']) != id)
+            .toList(),
+      );
+    }
+    if (selectedEmbedType == type && selectedEmbedId == id) {
+      clearEmbedSelection();
+    }
+  }
+
   Future<void> cropSelectedImage() async {
     final image = selectedImage;
     if (image == null) {
@@ -10431,6 +10482,7 @@ class _GeneralRichTextEditorPanelState
       onEmbedSelected: selectEmbed,
       onImageChanged: updateImage,
       onAttachmentChanged: updateAttachment,
+      onEmbedDeleted: removeKeyboardDeletedEmbed,
     );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -10479,7 +10531,7 @@ class _GeneralRichTextEditorPanelState
               children: [
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
                     child: TextField(
                       controller: widget.controller,
                       readOnly: widget.readOnly,
@@ -10767,6 +10819,21 @@ class InlineRichImageBlock extends StatelessWidget {
           NoteImageAlignment.right => Alignment.centerRight,
           _ => Alignment.centerLeft,
         };
+        void moveFreeImage(DragUpdateDetails details) {
+          if (readOnly) {
+            return;
+          }
+          final next = Map<String, dynamic>.from(image);
+          next['alignment'] = NoteImageAlignment.free.name;
+          next['offsetX'] = (freeX + details.delta.dx)
+              .clamp(0.0, math.max(0, availableWidth - visualWidth))
+              .toDouble();
+          next['offsetY'] = (freeY + details.delta.dy)
+              .clamp(0.0, 80.0)
+              .toDouble();
+          onChanged(next);
+        }
+
         final imageBox = MouseRegion(
           cursor: readOnly
               ? SystemMouseCursors.click
@@ -10777,19 +10844,7 @@ class InlineRichImageBlock extends StatelessWidget {
             behavior: HitTestBehavior.opaque,
             onTap: onSelect,
             onPanStart: (_) => onSelect(),
-            onPanUpdate: readOnly
-                ? null
-                : (details) {
-                    final next = Map<String, dynamic>.from(image);
-                    next['alignment'] = NoteImageAlignment.free.name;
-                    next['offsetX'] = (freeX + details.delta.dx)
-                        .clamp(0.0, math.max(0, availableWidth - visualWidth))
-                        .toDouble();
-                    next['offsetY'] = (freeY + details.delta.dy)
-                        .clamp(0.0, 80.0)
-                        .toDouble();
-                    onChanged(next);
-                  },
+            onPanUpdate: readOnly ? null : moveFreeImage,
             child: Container(
               width: visualWidth,
               height: visualHeight,
@@ -10820,6 +10875,19 @@ class InlineRichImageBlock extends StatelessWidget {
         final positionedImage = alignment == NoteImageAlignment.free
             ? Stack(
                 children: [
+                  Positioned.fill(
+                    child: MouseRegion(
+                      cursor: readOnly
+                          ? SystemMouseCursors.click
+                          : SystemMouseCursors.move,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onTap: onSelect,
+                        onPanStart: (_) => onSelect(),
+                        onPanUpdate: readOnly ? null : moveFreeImage,
+                      ),
+                    ),
+                  ),
                   Positioned(left: freeX, top: freeY, child: imageBox),
                   if (selected && !readOnly)
                     Positioned(
