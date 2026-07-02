@@ -399,6 +399,7 @@ class AppStore extends ChangeNotifier {
     required this.homeSectionStyles,
   }) {
     _syncNoteFolders();
+    _removeLegacySeedTodos();
     _cleanupCompletedTodos();
     _normalizeTodoOrder();
     _nextId = _calculateNextId();
@@ -413,120 +414,13 @@ class AppStore extends ChangeNotifier {
       hiddenHomeSections: <HomeSectionId>{},
       hiddenUpcomingItems: <String>{},
       homeSectionStyles: defaultHomeSectionStyles(),
-      notes: [
-        NoteItem(
-          id: 'n1',
-          title: '產品發想：All-in-one 個人管理筆記本',
-          body: '第一版先完成地端功能，後續接 Firebase Auth、Firestore、Storage、FCM。',
-          category: '專案',
-          tags: ['flutter', 'firebase', 'roadmap'],
-          createdAt: DateTime.now().subtract(const Duration(days: 2)),
-          updatedAt: DateTime.now().subtract(const Duration(hours: 4)),
-          isPinned: true,
-        ),
-        NoteItem(
-          id: 'n2',
-          title: '專案規劃',
-          body: '建立筆記、行程、訂閱與記帳的第一版資料模型。',
-          category: '專案',
-          tags: ['shopping'],
-          createdAt: DateTime.now().subtract(const Duration(days: 1)),
-          updatedAt: DateTime.now().subtract(const Duration(days: 1)),
-        ),
-      ],
-      schedules: [
-        ScheduleItem(
-          id: 's1',
-          title: '團隊會議',
-          start: DateTime.now().add(const Duration(hours: 2)),
-          end: DateTime.now().add(const Duration(hours: 3)),
-          location: '會議室',
-          notes: '',
-          remindBeforeMinutes: 30,
-        ),
-        ScheduleItem(
-          id: 's2',
-          title: '週末採買',
-          start: DateTime.now().add(const Duration(days: 3, hours: 1)),
-          end: DateTime.now().add(const Duration(days: 3, hours: 2)),
-          location: '',
-          notes: '',
-          remindBeforeMinutes: 60,
-        ),
-      ],
-      subscriptions: [
-        SubscriptionItem(
-          id: 'sub1',
-          name: 'ChatGPT',
-          amount: 20,
-          cycle: SubscriptionCycle.monthly,
-          nextPaymentDate: DateTime.now().add(const Duration(days: 5)),
-          paymentMethod: '信用卡',
-          category: '專案',
-          reminderDays: 3,
-        ),
-        SubscriptionItem(
-          id: 'sub2',
-          name: 'Spotify',
-          amount: 149,
-          cycle: SubscriptionCycle.monthly,
-          nextPaymentDate: DateTime.now().add(const Duration(days: 11)),
-          paymentMethod: '信用卡',
-          category: '專案',
-          reminderDays: 5,
-        ),
-      ],
-      financeEntries: [
-        FinanceEntry(
-          id: 'f1',
-          type: EntryType.expense,
-          title: '午餐',
-          amount: 145,
-          category: '食物',
-          account: '現金',
-          date: DateTime.now(),
-          note: '',
-        ),
-        FinanceEntry(
-          id: 'f2',
-          type: EntryType.expense,
-          title: '咖啡',
-          amount: 1200,
-          category: '專案',
-          account: '信用卡',
-          date: DateTime.now().subtract(const Duration(days: 4)),
-          note: 'Flutter',
-        ),
-        FinanceEntry(
-          id: 'f3',
-          type: EntryType.income,
-          title: '專案收入',
-          amount: 56000,
-          category: '專案',
-          account: '銀行',
-          date: DateTime.now().subtract(const Duration(days: 8)),
-          note: '',
-        ),
-      ],
-      savingsAccounts: [
-        SavingsAccount(id: 'sa1', name: '銀行', amount: 42000),
-        SavingsAccount(id: 'sa2', name: '現金', amount: 3800),
-      ],
-      todos: [
-        TodoItem(
-          id: 't1',
-          title: '完成筆記模板整理',
-          dueDate: DateTime.now().add(const Duration(days: 2)),
-          reminderEnabled: true,
-          reminderTime: const TimeOfDay(hour: 9, minute: 0),
-        ),
-        TodoItem(
-          id: 't2',
-          title: '設定 Firebase 專案',
-          dueDate: DateTime.now().add(const Duration(days: 5)),
-        ),
-      ],
-      noteFolders: ['專案', '學習'],
+      notes: [],
+      schedules: [],
+      subscriptions: [],
+      financeEntries: [],
+      savingsAccounts: [],
+      todos: [],
+      noteFolders: [],
     );
   }
 
@@ -539,6 +433,15 @@ class AppStore extends ChangeNotifier {
   }
 
   static const String _storageKey = 'my_note_local_v1';
+
+  void _removeLegacySeedTodos() {
+    const legacySeedTodoTitles = {'讀書計畫', '完成筆記模板整理', '設定 Firebase 專案'};
+    todos.removeWhere(
+      (todo) =>
+          (todo.id == 't1' || todo.id == 't2') &&
+          legacySeedTodoTitles.contains(todo.title),
+    );
+  }
 
   static Future<AppStore> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -10969,7 +10872,7 @@ class InlineRichImageBlock extends StatelessWidget {
         final freeX = readDouble(
           image['offsetX'],
         ).clamp(0.0, math.max(0, availableWidth - visualWidth)).toDouble();
-        final freeY = readDouble(image['offsetY']).clamp(0.0, 80.0).toDouble();
+        final freeY = readDouble(image['offsetY']).clamp(0.0, 520.0).toDouble();
         final fixedLeft = switch (alignment) {
           NoteImageAlignment.center => (availableWidth - visualWidth) / 2,
           NoteImageAlignment.right => availableWidth - visualWidth,
@@ -10979,8 +10882,16 @@ class InlineRichImageBlock extends StatelessWidget {
             ? freeX
             : fixedLeft.clamp(0.0, math.max(0, availableWidth - visualWidth));
         final imageTop = alignment == NoteImageAlignment.free ? freeY : 0.0;
-        final blockHeight = imageTop + visualHeight + (selected ? 18 : 0);
-        final clampingHeight = math.max(blockHeight, 80.0);
+        final textTheme = Theme.of(context).textTheme;
+        final lineHeight =
+            ((textTheme.bodyMedium?.fontSize ?? 16) *
+                    (textTheme.bodyMedium?.height ?? 1.5))
+                .clamp(24.0, 42.0)
+                .toDouble();
+        final blockHeight = imageTop + visualHeight + (selected ? 26 : 0);
+        final reservedLines = math.max(1, (blockHeight / lineHeight).ceil());
+        final reservedHeight = reservedLines * lineHeight;
+        final clampingHeight = math.max(reservedHeight, 80.0);
 
         Widget buildImageBox(Size size) {
           return MouseRegion(
@@ -11033,7 +10944,7 @@ class InlineRichImageBlock extends StatelessWidget {
                   0,
                   0,
                   availableWidth,
-                  math.max(520, clampingHeight),
+                  clampingHeight,
                 ),
                 constraints: BoxConstraints(
                   minWidth: 80,
@@ -11058,7 +10969,9 @@ class InlineRichImageBlock extends StatelessWidget {
                     next['offsetX'] = rect.left
                         .clamp(0.0, math.max(0, availableWidth - rect.width))
                         .toDouble();
-                    next['offsetY'] = rect.top.clamp(0.0, 520.0).toDouble();
+                    next['offsetY'] = rect.top
+                        .clamp(0.0, math.max(0, clampingHeight - rect.height))
+                        .toDouble();
                   }
                   onChanged(next);
                 },
@@ -11076,14 +10989,27 @@ class InlineRichImageBlock extends StatelessWidget {
                   child: buildImageBox(imageRect.size),
                 ),
               );
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: SizedBox(
-            width: availableWidth,
-            height: blockHeight,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [transformableImage],
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: onSelect,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: SizedBox(
+              width: availableWidth,
+              height: reservedHeight,
+              child: Stack(
+                clipBehavior: Clip.hardEdge,
+                children: [
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: const BoxDecoration(
+                        color: Colors.transparent,
+                      ),
+                    ),
+                  ),
+                  transformableImage,
+                ],
+              ),
             ),
           ),
         );
@@ -11335,10 +11261,12 @@ class _RichAssetToolbarShell extends StatelessWidget {
         border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: SizedBox(
-        height: 48,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(mainAxisSize: MainAxisSize.min, children: children),
+        height: 56,
+        child: Center(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(mainAxisSize: MainAxisSize.min, children: children),
+          ),
         ),
       ),
     );
@@ -11886,7 +11814,7 @@ class RichToolbarMenuButton<T> extends StatelessWidget {
             ),
         ],
         child: SizedBox(
-          width: 60,
+          width: 78,
           height: 48,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
