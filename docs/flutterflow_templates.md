@@ -8,6 +8,8 @@ This document tracks FlutterFlow UI templates referenced by the project and how 
 | --- | --- | --- | --- |
 | Rich Text | https://app.flutterflow.io/project/rich-text-ikif5z | General note content editor | Applied as `GeneralRichTextEditorPanel`, `RichTextTemplateToolbar`, and `RichNoteTextController` in `lib/main.dart`. The toolbar follows the user-provided template screenshot while adapting controls for this app: undo, redo, font size, bold, italic, underline, strike, code, sub/superscript, line height, lists, checkbox, quote, indent, image, attachment, and todo insertion. |
 | Nav Bars | https://app.flutterflow.io/project/nav-bars-a113t9 | Bottom navigation, style 6 | Applied as `AppNavBarStyle.template6` in `lib/main.dart`, with page-specific icons for Notes, Calendar, Home, Finance, and Settings. |
+| AppFlowy Editor | https://pub.dev/packages/appflowy_editor | Future general note editor engine | Added as `appflowy_editor 6.2.0` dependency. Because its runtime currently fails Flutter 3.44 Web compilation on `TextInputClient.onFocusReceived`, the app now writes an AppFlowy-compatible document mirror at `templateData.appflowy` without importing the runtime widget. |
+| Box Transform | https://pub.dev/packages/flutter_box_transform | Inline image drag/resize behavior | Added as `flutter_box_transform 0.4.7`. Selected note images now use `TransformableBox` for resize/move interaction instead of the previous custom resize handle. |
 
 ## Local Integration Notes
 
@@ -23,6 +25,9 @@ This document tracks FlutterFlow UI templates referenced by the project and how 
 - Checkbox markers are rendered as real Flutter `Checkbox` widgets in the editor instead of text-only symbols, and line-start checkbox markers keep that rendering after typing text.
 - Images and attachments are inserted into the editable note surface through rich-text embed placeholders, so they appear at the insertion position instead of in a separate attachment strip.
 - Inline images are inserted as independent full-width editor lines with transparent layout space, while the visible border hugs the actual fitted image size.
+- Inline image placeholders now use top `WidgetSpan` alignment, so insertion is aligned by the image top edge instead of the vertical center.
+- Selected inline images now use `flutter_box_transform` handles; fixed left/center/right images resize from the lower-right handle, while free-positioned images can be dragged and resized inside the note block.
+- General notes now keep an AppFlowy-compatible mirror under `templateData.appflowy`; images are mirrored as AppFlowy image block JSON so the next editor migration can move away from inline placeholder characters.
 - Rich image placeholders are normalized after edits so text cannot remain on the same logical line as an image; text is forced above or below the image line.
 - If an image or attachment embed is deleted with the keyboard, the editor removes the matching stored asset record to prevent ghost images from reappearing later.
 - Free-move images expose a full-line transparent interaction layer, so the image can be selected or dragged again even after it has been moved away from its original position.

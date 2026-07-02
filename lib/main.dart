@@ -8,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_box_transform/flutter_box_transform.dart' as fbt;
 import 'package:image_cropper/image_cropper.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -1652,6 +1653,7 @@ Map<String, dynamic> defaultNoteTemplateData(NoteTemplateType type) {
           'plainText': '',
           'spans': <Map<String, dynamic>>[],
         },
+        'appflowy': blankAppFlowyMirrorJson(),
       };
     case NoteTemplateType.plan:
       return {
@@ -8189,7 +8191,12 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     if (templateType == NoteTemplateType.general) {
       migrateLegacyInlineAssets();
       body.isolateEmbedBlocks();
-      templateData = richTextTemplateData(templateData, body);
+      templateData = generalNoteTemplateData(
+        templateData,
+        body,
+        noteImages,
+        noteAttachments,
+      );
       unawaited(hydrateInlineImageDimensions());
     }
     initialEditorBody = body.text;
@@ -8238,7 +8245,12 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
 
   Map<String, dynamic> currentNoteTemplateData() {
     if (templateType == NoteTemplateType.general) {
-      return richTextTemplateData(templateData, body);
+      return generalNoteTemplateData(
+        templateData,
+        body,
+        noteImages,
+        noteAttachments,
+      );
     }
     return templateData;
   }
@@ -8927,6 +8939,7 @@ class NoteEditorHeaderFields extends StatelessWidget {
 }
 
 const richTextFormatVersion = 'my_note.rich_text.v1';
+const appFlowyMirrorFormatVersion = 'my_note.appflowy.v1';
 const richNoteEmbedObject = '\uFFFC';
 const richNoteEmbedTypeImage = 'image';
 const richNoteEmbedTypeAttachment = 'attachment';
@@ -9831,7 +9844,7 @@ class RichNoteTextController extends TextEditingController {
           final image = firstMapById(_renderImages, id);
           children.add(
             WidgetSpan(
-              alignment: PlaceholderAlignment.middle,
+              alignment: PlaceholderAlignment.top,
               child: InlineRichImageBlock(
                 image: image,
                 selected: selected,
@@ -10186,6 +10199,149 @@ Map<String, dynamic> richTextTemplateData(
   next['schema'] = 'general.v2';
   next['richText'] = controller.toRichTextJson();
   return next;
+}
+
+Map<String, dynamic> generalNoteTemplateData(
+  Map<String, dynamic> current,
+  RichNoteTextController controller,
+  List<Map<String, dynamic>> images,
+  List<Map<String, dynamic>> attachments,
+) {
+  final next = richTextTemplateData(current, controller);
+  next['appflowy'] = appFlowyMirrorJson(
+    controller: controller,
+    images: images,
+    attachments: attachments,
+  );
+  return next;
+}
+
+Map<String, dynamic> blankAppFlowyMirrorJson() {
+  return {
+    'format': appFlowyMirrorFormatVersion,
+    'document': appFlowyDocumentJson([appFlowyParagraphNodeJson('')]),
+    'migration': 'blank',
+  };
+}
+
+Map<String, dynamic> appFlowyMirrorJson({
+  required RichNoteTextController controller,
+  required List<Map<String, dynamic>> images,
+  required List<Map<String, dynamic>> attachments,
+}) {
+  final nodes = <Map<String, dynamic>>[];
+  final text = controller.text;
+  final marks = controller.marks;
+  final buffer = StringBuffer();
+
+  void flushParagraph({bool force = false}) {
+    if (!force && buffer.isEmpty) {
+      return;
+    }
+    nodes.add(appFlowyParagraphNodeJson(buffer.toString()));
+    buffer.clear();
+  }
+
+  for (var index = 0; index < text.length; index++) {
+    final character = text[index];
+    if (character == richNoteEmbedObject) {
+      flushParagraph();
+      final mark = firstRichNoteMarkAtOffset(marks, index);
+      final type = readString(mark?.attributes[RichNoteAttribute.embedType]);
+      final id = readString(mark?.attributes[RichNoteAttribute.embedId]);
+      if (type == richNoteEmbedTypeImage) {
+        final image = nullableMapById(images, id);
+        if (image != null) {
+          nodes.add(appFlowyImageNodeFromNoteImage(image));
+        }
+      } else if (type == richNoteEmbedTypeAttachment) {
+        final attachment = nullableMapById(attachments, id);
+        if (attachment != null) {
+          nodes.add(
+            afe.paragraphNode(
+              text: '附件：${readString(attachment['name'], fallback: '未命名附件')}',
+            ),
+          );
+        }
+      }
+      continue;
+    }
+    if (character == '\n') {
+      flushParagraph(force: true);
+      continue;
+    }
+    buffer.write(character);
+  }
+  flushParagraph(force: nodes.isEmpty);
+  return {
+    'format': appFlowyMirrorFormatVersion,
+    'document': appFlowyDocumentJson(nodes),
+    'imageBlockCount': images.length,
+    'attachmentParagraphCount': attachments.length,
+    'migration': 'richTextMirror',
+  };
+}
+
+Map<String, dynamic> appFlowyDocumentJson(List<Map<String, dynamic>> nodes) {
+  return {
+    'document': {'type': 'page', if (nodes.isNotEmpty) 'children': nodes},
+  };
+}
+
+Map<String, dynamic> appFlowyParagraphNodeJson(String text) {
+  return {
+    'type': 'paragraph',
+    'data': {
+      'delta': [
+        {'insert': text},
+      ],
+    },
+  };
+}
+
+final afe = _AppFlowyJsonCompat();
+
+class _AppFlowyJsonCompat {
+  Map<String, dynamic> paragraphNode({String? text}) =>
+      appFlowyParagraphNodeJson(text ?? '');
+}
+
+RichNoteMark? firstRichNoteMarkAtOffset(List<RichNoteMark> marks, int offset) {
+  for (final mark in marks) {
+    if (mark.start <= offset && mark.end > offset) {
+      return mark;
+    }
+  }
+  return null;
+}
+
+Map<String, dynamic> appFlowyImageNodeFromNoteImage(
+  Map<String, dynamic> image,
+) {
+  final bytesBase64 = readString(image['bytesBase64']);
+  final name = readString(image['name'], fallback: 'image');
+  final url = bytesBase64.isNotEmpty
+      ? 'data:image/*;base64,$bytesBase64'
+      : readString(image['path'], fallback: name);
+  final alignment = readEnum(
+    NoteImageAlignment.values,
+    image['alignment'],
+    NoteImageAlignment.left,
+  );
+  final align = switch (alignment) {
+    NoteImageAlignment.center => 'center',
+    NoteImageAlignment.right => 'right',
+    _ => 'left',
+  };
+  return {
+    'type': 'image',
+    'data': {
+      'url': url,
+      'align': align,
+      'width': readDouble(image['width'], fallback: 240),
+      'height': readDouble(image['height'], fallback: 160),
+    },
+  };
 }
 
 TextStyle richNoteTextStyleForAttributes(
@@ -10814,40 +10970,28 @@ class InlineRichImageBlock extends StatelessWidget {
           image['offsetX'],
         ).clamp(0.0, math.max(0, availableWidth - visualWidth)).toDouble();
         final freeY = readDouble(image['offsetY']).clamp(0.0, 80.0).toDouble();
-        final align = switch (alignment) {
-          NoteImageAlignment.center => Alignment.center,
-          NoteImageAlignment.right => Alignment.centerRight,
-          _ => Alignment.centerLeft,
+        final fixedLeft = switch (alignment) {
+          NoteImageAlignment.center => (availableWidth - visualWidth) / 2,
+          NoteImageAlignment.right => availableWidth - visualWidth,
+          _ => 0.0,
         };
-        void moveFreeImage(DragUpdateDetails details) {
-          if (readOnly) {
-            return;
-          }
-          final next = Map<String, dynamic>.from(image);
-          next['alignment'] = NoteImageAlignment.free.name;
-          next['offsetX'] = (freeX + details.delta.dx)
-              .clamp(0.0, math.max(0, availableWidth - visualWidth))
-              .toDouble();
-          next['offsetY'] = (freeY + details.delta.dy)
-              .clamp(0.0, 80.0)
-              .toDouble();
-          onChanged(next);
-        }
+        final imageLeft = alignment == NoteImageAlignment.free
+            ? freeX
+            : fixedLeft.clamp(0.0, math.max(0, availableWidth - visualWidth));
+        final imageTop = alignment == NoteImageAlignment.free ? freeY : 0.0;
+        final blockHeight = imageTop + visualHeight + (selected ? 18 : 0);
+        final clampingHeight = math.max(blockHeight, 80.0);
 
-        final imageBox = MouseRegion(
-          cursor: readOnly
-              ? SystemMouseCursors.click
-              : selected
-              ? SystemMouseCursors.move
-              : SystemMouseCursors.click,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: onSelect,
-            onPanStart: (_) => onSelect(),
-            onPanUpdate: readOnly ? null : moveFreeImage,
+        Widget buildImageBox(Size size) {
+          return MouseRegion(
+            cursor: readOnly
+                ? SystemMouseCursors.click
+                : alignment == NoteImageAlignment.free
+                ? SystemMouseCursors.move
+                : SystemMouseCursors.click,
             child: Container(
-              width: visualWidth,
-              height: visualHeight,
+              width: size.width,
+              height: size.height,
               decoration: BoxDecoration(
                 color: colorScheme.surface,
                 borderRadius: BorderRadius.circular(8),
@@ -10870,88 +11014,76 @@ class InlineRichImageBlock extends StatelessWidget {
                   ? const Center(child: Icon(Icons.broken_image_outlined))
                   : Image.memory(bytes, fit: BoxFit.fill),
             ),
-          ),
+          );
+        }
+
+        final imageRect = Rect.fromLTWH(
+          imageLeft.toDouble(),
+          imageTop,
+          visualWidth,
+          visualHeight,
         );
-        final positionedImage = alignment == NoteImageAlignment.free
-            ? Stack(
-                children: [
-                  Positioned.fill(
-                    child: MouseRegion(
-                      cursor: readOnly
-                          ? SystemMouseCursors.click
-                          : SystemMouseCursors.move,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTap: onSelect,
-                        onPanStart: (_) => onSelect(),
-                        onPanUpdate: readOnly ? null : moveFreeImage,
-                      ),
-                    ),
-                  ),
-                  Positioned(left: freeX, top: freeY, child: imageBox),
-                  if (selected && !readOnly)
-                    Positioned(
-                      left: (freeX + visualWidth - 22)
-                          .clamp(0.0, availableWidth - 22)
-                          .toDouble(),
-                      top: freeY + visualHeight - 22,
-                      child: _ImageResizeHandle(
-                        onPanUpdate: (details) {
-                          final nextWidth = (width + details.delta.dx)
-                              .clamp(80.0, availableWidth)
-                              .toDouble();
-                          final nextHeight = (height + details.delta.dy)
-                              .clamp(60.0, 520.0)
-                              .toDouble();
-                          onChanged({
-                            ...image,
-                            'width': nextWidth,
-                            'height': nextHeight,
-                          });
-                        },
-                      ),
-                    ),
-                ],
+        final handleSet = alignment == NoteImageAlignment.free
+            ? {...fbt.HandlePosition.values}
+            : {fbt.HandlePosition.bottomRight};
+        final transformableImage = selected && !readOnly
+            ? fbt.TransformableBox(
+                rect: imageRect,
+                clampingRect: Rect.fromLTWH(
+                  0,
+                  0,
+                  availableWidth,
+                  math.max(520, clampingHeight),
+                ),
+                constraints: BoxConstraints(
+                  minWidth: 80,
+                  minHeight: 60,
+                  maxWidth: availableWidth,
+                  maxHeight: 520,
+                ),
+                draggable: alignment == NoteImageAlignment.free,
+                resizable: true,
+                allowFlippingWhileResizing: false,
+                enabledHandles: handleSet,
+                visibleHandles: handleSet,
+                onTap: onSelect,
+                onChanged: (result, event) {
+                  final rect = result.rect;
+                  final next = <String, dynamic>{
+                    ...image,
+                    'width': rect.width.clamp(80.0, availableWidth).toDouble(),
+                    'height': rect.height.clamp(60.0, 520.0).toDouble(),
+                  };
+                  if (alignment == NoteImageAlignment.free) {
+                    next['offsetX'] = rect.left
+                        .clamp(0.0, math.max(0, availableWidth - rect.width))
+                        .toDouble();
+                    next['offsetY'] = rect.top.clamp(0.0, 520.0).toDouble();
+                  }
+                  onChanged(next);
+                },
+                cornerHandleBuilder: richImageTransformHandle,
+                sideHandleBuilder: richImageTransformHandle,
+                contentBuilder: (context, rect, flip) =>
+                    buildImageBox(rect.size),
               )
-            : Align(alignment: align, child: imageBox);
+            : Positioned(
+                left: imageRect.left,
+                top: imageRect.top,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onSelect,
+                  child: buildImageBox(imageRect.size),
+                ),
+              );
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: SizedBox(
             width: availableWidth,
-            height: alignment == NoteImageAlignment.free
-                ? visualHeight + freeY + (selected ? 18 : 0)
-                : visualHeight + (selected ? 18 : 0),
+            height: blockHeight,
             child: Stack(
-              children: [
-                positionedImage,
-                if (selected &&
-                    !readOnly &&
-                    alignment != NoteImageAlignment.free)
-                  Positioned(
-                    left: switch (alignment) {
-                      NoteImageAlignment.center =>
-                        (availableWidth - visualWidth) / 2 + visualWidth - 22,
-                      NoteImageAlignment.right => availableWidth - 22,
-                      _ => visualWidth - 22,
-                    },
-                    top: visualHeight - 22,
-                    child: _ImageResizeHandle(
-                      onPanUpdate: (details) {
-                        final nextWidth = (width + details.delta.dx)
-                            .clamp(80.0, availableWidth)
-                            .toDouble();
-                        final nextHeight = (height + details.delta.dy)
-                            .clamp(60.0, 520.0)
-                            .toDouble();
-                        onChanged({
-                          ...image,
-                          'width': nextWidth,
-                          'height': nextHeight,
-                        });
-                      },
-                    ),
-                  ),
-              ],
+              clipBehavior: Clip.none,
+              children: [transformableImage],
             ),
           ),
         );
@@ -10960,32 +11092,27 @@ class InlineRichImageBlock extends StatelessWidget {
   }
 }
 
-class _ImageResizeHandle extends StatelessWidget {
-  const _ImageResizeHandle({required this.onPanUpdate});
-
-  final GestureDragUpdateCallback onPanUpdate;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.resizeDownRight,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onPanUpdate: onPanUpdate,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary,
-            borderRadius: BorderRadius.circular(6),
+Widget richImageTransformHandle(
+  BuildContext context,
+  fbt.HandlePosition handle,
+) {
+  return Center(
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary,
+        border: Border.all(color: Theme.of(context).colorScheme.surface),
+        borderRadius: BorderRadius.circular(6),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.16),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
           ),
-          child: const SizedBox(
-            width: 22,
-            height: 22,
-            child: Icon(Icons.open_in_full, size: 13, color: Colors.white),
-          ),
-        ),
+        ],
       ),
-    );
-  }
+      child: const SizedBox(width: 14, height: 14),
+    ),
+  );
 }
 
 class InlineRichAttachmentBlock extends StatelessWidget {
@@ -12411,7 +12538,7 @@ class NoteFileService {
   const NoteFileService._();
 
   static Future<PlatformFile?> pickAttachment() async {
-    final result = await FilePicker.pickFiles(
+    final result = await FilePicker.platform.pickFiles(
       allowMultiple: false,
       withData: true,
       type: FileType.any,
@@ -12420,7 +12547,7 @@ class NoteFileService {
   }
 
   static Future<PlatformFile?> pickImage() async {
-    final result = await FilePicker.pickFiles(
+    final result = await FilePicker.platform.pickFiles(
       allowMultiple: false,
       withData: true,
       type: FileType.image,
@@ -12468,7 +12595,7 @@ class NoteFileService {
     required String fileName,
     required Uint8List bytes,
   }) {
-    return FilePicker.saveFile(
+    return FilePicker.platform.saveFile(
       dialogTitle: '儲存附件',
       fileName: fileName,
       bytes: bytes,
