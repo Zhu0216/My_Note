@@ -5937,8 +5937,13 @@ class FloatingActionMenu extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      for (final item in items) ...[
-                        FloatingActionMenuPill(item: item),
+                      for (var index = 0; index < items.length; index++) ...[
+                        FloatingActionMenuPill(
+                          key: ValueKey(items[index].value),
+                          item: items[index],
+                          index: index,
+                          totalCount: items.length,
+                        ),
                         const SizedBox(height: 10),
                       ],
                     ],
@@ -5957,39 +5962,85 @@ class FloatingActionMenu extends StatelessWidget {
   }
 }
 
-class FloatingActionMenuPill extends StatelessWidget {
-  const FloatingActionMenuPill({super.key, required this.item});
+class FloatingActionMenuPill extends StatefulWidget {
+  const FloatingActionMenuPill({
+    super.key,
+    required this.item,
+    required this.index,
+    required this.totalCount,
+  });
 
   final FloatingActionMenuItem item;
+  final int index;
+  final int totalCount;
+
+  @override
+  State<FloatingActionMenuPill> createState() => _FloatingActionMenuPillState();
+}
+
+class _FloatingActionMenuPillState extends State<FloatingActionMenuPill> {
+  bool visible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final delayIndex = widget.totalCount - widget.index - 1;
+    Future<void>.delayed(Duration(milliseconds: delayIndex * 100), () {
+      if (mounted) {
+        setState(() => visible = true);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      color: colorScheme.surface,
       elevation: 7,
       shadowColor: Colors.black.withValues(alpha: 0.16),
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () => item.onSelected(item.value),
-        child: Container(
-          width: 156,
-          constraints: const BoxConstraints(minHeight: 38),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(item.icon, size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  item.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+      borderRadius: BorderRadius.circular(18),
+      child: AnimatedOpacity(
+        opacity: visible ? 1 : 0.5,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+        child: AnimatedSlide(
+          offset: Offset(visible ? 0 : 0.26, 0),
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: () => widget.item.onSelected(widget.item.value),
+            child: Container(
+              width: 190,
+              constraints: const BoxConstraints(minHeight: 50),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: colorScheme.primary.withValues(alpha: 0.72),
+                  width: 1.4,
                 ),
               ),
-            ],
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(widget.item.icon, size: 22, color: colorScheme.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      widget.item.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -8962,6 +9013,8 @@ class RichNoteTextController extends TextEditingController {
   final Map<String, Object?> _typingAttributeOverrides = {};
   bool _applyingChange = false;
   final List<RichNoteEditingSnapshot> _undoStack = [];
+  final List<RichNoteEditingSnapshot> _redoStack = [];
+  TextSelection? _lastValidSelection;
   List<Map<String, dynamic>> _renderImages = const [];
   List<Map<String, dynamic>> _renderAttachments = const [];
   bool _renderReadOnly = false;
@@ -8972,6 +9025,7 @@ class RichNoteTextController extends TextEditingController {
   ValueChanged<Map<String, dynamic>>? _onInlineAttachmentChanged;
 
   bool get canUndoRichChange => _undoStack.isNotEmpty;
+  bool get canRedoRichChange => _redoStack.isNotEmpty;
 
   List<RichNoteMark> get marks =>
       _marks.map((mark) => mark.copyWith()).toList();
@@ -9003,31 +9057,63 @@ class RichNoteTextController extends TextEditingController {
   }
 
   void insertEmbedBlock({required String type, required String id}) {
-    replaceSelection(
-      richNoteEmbedObject,
-      attributes: {
-        RichNoteAttribute.embedType: type,
-        RichNoteAttribute.embedId: id,
-      },
+    final range = normalizedSelectionRange();
+    final currentText = text;
+    final needsLeadingNewLine =
+        range.start > 0 && currentText[range.start - 1] != '\n';
+    final needsTrailingNewLine =
+        range.end < currentText.length && currentText[range.end] != '\n';
+    final leading = needsLeadingNewLine ? '\n' : '';
+    final trailing = needsTrailingNewLine || range.end == currentText.length
+        ? '\n'
+        : '';
+    final replacement = '$leading$richNoteEmbedObject$trailing';
+    final embedStart = range.start + leading.length;
+    _pushCurrentUndo();
+    _applyingChange = true;
+    final nextText = currentText.replaceRange(
+      range.start,
+      range.end,
+      replacement,
     );
+    _marks = adjustRichNoteMarksForReplacement(
+      _marks,
+      oldStart: range.start,
+      oldEnd: range.end,
+      replacementLength: replacement.length,
+      textLength: nextText.length,
+    );
+    _marks.add(
+      RichNoteMark(
+        start: embedStart,
+        end: embedStart + 1,
+        attributes: {
+          RichNoteAttribute.embedType: type,
+          RichNoteAttribute.embedId: id,
+        },
+      ),
+    );
+    _marks = normalizeRichNoteMarks(_marks, nextText.length);
+    value = TextEditingValue(
+      text: nextText,
+      selection: TextSelection.collapsed(
+        offset: (embedStart + 1 + trailing.length)
+            .clamp(0, nextText.length)
+            .toInt(),
+      ),
+    );
+    _rememberSelection();
+    _syncLastSnapshot();
+    _applyingChange = false;
+    notifyListeners();
   }
 
   void appendEmbedBlock({required String type, required String id}) {
-    final needsNewLine = text.isNotEmpty && !text.endsWith('\n');
     value = TextEditingValue(
       text: text,
       selection: TextSelection.collapsed(offset: text.length),
     );
-    if (needsNewLine) {
-      replaceSelection('\n');
-    }
-    replaceSelection(
-      richNoteEmbedObject,
-      attributes: {
-        RichNoteAttribute.embedType: type,
-        RichNoteAttribute.embedId: id,
-      },
-    );
+    insertEmbedBlock(type: type, id: id);
   }
 
   bool hasEmbedBlock({required String type, required String id}) {
@@ -9052,6 +9138,7 @@ class RichNoteTextController extends TextEditingController {
   }
 
   void _handleUserTextChange() {
+    _rememberSelection();
     if (_applyingChange || text == _lastText) {
       return;
     }
@@ -9109,9 +9196,25 @@ class RichNoteTextController extends TextEditingController {
     _lastText = text;
     _lastValue = value;
     _lastMarks = marks;
+    _rememberSelection();
   }
 
-  void _pushUndo(TextEditingValue value, List<RichNoteMark> marks) {
+  void _rememberSelection() {
+    final currentSelection = selection;
+    if (currentSelection.isValid) {
+      _lastValidSelection = currentSelection;
+    }
+  }
+
+  void rememberSelection() {
+    _rememberSelection();
+  }
+
+  void _pushUndo(
+    TextEditingValue value,
+    List<RichNoteMark> marks, {
+    bool clearRedo = true,
+  }) {
     _undoStack.add(
       RichNoteEditingSnapshot(
         value,
@@ -9121,6 +9224,21 @@ class RichNoteTextController extends TextEditingController {
     if (_undoStack.length > 50) {
       _undoStack.removeAt(0);
     }
+    if (clearRedo) {
+      _redoStack.clear();
+    }
+  }
+
+  void _pushRedo(TextEditingValue value, List<RichNoteMark> marks) {
+    _redoStack.add(
+      RichNoteEditingSnapshot(
+        value,
+        marks.map((mark) => mark.copyWith()).toList(),
+      ),
+    );
+    if (_redoStack.length > 50) {
+      _redoStack.removeAt(0);
+    }
   }
 
   void _pushCurrentUndo() {
@@ -9129,7 +9247,10 @@ class RichNoteTextController extends TextEditingController {
 
   TextRange normalizedSelectionRange() {
     final currentText = text;
-    final selection = this.selection;
+    var selection = this.selection;
+    if (!selection.isValid && _lastValidSelection != null) {
+      selection = _lastValidSelection!;
+    }
     if (!selection.isValid) {
       return TextRange.collapsed(currentText.length);
     }
@@ -9492,9 +9613,24 @@ class RichNoteTextController extends TextEditingController {
       return;
     }
     _applyingChange = true;
+    _pushRedo(value, marks);
     final previous = _undoStack.removeLast();
     _marks = previous.marks.map((mark) => mark.copyWith()).toList();
     value = previous.value;
+    _syncLastSnapshot();
+    _applyingChange = false;
+    notifyListeners();
+  }
+
+  void redoRichChange() {
+    if (_redoStack.isEmpty) {
+      return;
+    }
+    _applyingChange = true;
+    _pushUndo(value, marks, clearRedo: false);
+    final next = _redoStack.removeLast();
+    _marks = next.marks.map((mark) => mark.copyWith()).toList();
+    value = next.value;
     _syncLastSnapshot();
     _applyingChange = false;
     notifyListeners();
@@ -9528,7 +9664,7 @@ class RichNoteTextController extends TextEditingController {
           return false;
         }
       }
-      return index + 1 == currentText.length || currentText[index + 1] == ' ';
+      return true;
     }
 
     final boundaries = <int>{0, currentText.length};
@@ -10259,8 +10395,10 @@ class _GeneralRichTextEditorPanelState
                       onTap: widget.readOnly
                           ? null
                           : () {
+                              widget.controller.rememberSelection();
                               clearEmbedSelection();
                               WidgetsBinding.instance.addPostFrameCallback((_) {
+                                widget.controller.rememberSelection();
                                 widget.controller
                                     .toggleTodoCheckboxAtSelection();
                               });
@@ -10521,47 +10659,54 @@ class InlineRichImageBlock extends StatelessWidget {
           NoteImageAlignment.right => Alignment.centerRight,
           _ => Alignment.centerLeft,
         };
-        final imageBox = GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onSelect,
-          onPanStart: (_) => onSelect(),
-          onPanUpdate: readOnly
-              ? null
-              : (details) {
-                  final next = Map<String, dynamic>.from(image);
-                  next['alignment'] = NoteImageAlignment.free.name;
-                  next['offsetX'] = (freeX + details.delta.dx)
-                      .clamp(0.0, math.max(0, availableWidth - width))
-                      .toDouble();
-                  next['offsetY'] = (freeY + details.delta.dy)
-                      .clamp(0.0, 80.0)
-                      .toDouble();
-                  onChanged(next);
-                },
-          child: Container(
-            width: width,
-            height: height,
-            decoration: BoxDecoration(
-              color: colorScheme.surface,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: selected ? colorScheme.primary : borderColor,
-                width: selected ? math.max(2, borderWidth) : borderWidth,
+        final imageBox = MouseRegion(
+          cursor: readOnly
+              ? SystemMouseCursors.click
+              : selected
+              ? SystemMouseCursors.move
+              : SystemMouseCursors.click,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onSelect,
+            onPanStart: (_) => onSelect(),
+            onPanUpdate: readOnly
+                ? null
+                : (details) {
+                    final next = Map<String, dynamic>.from(image);
+                    next['alignment'] = NoteImageAlignment.free.name;
+                    next['offsetX'] = (freeX + details.delta.dx)
+                        .clamp(0.0, math.max(0, availableWidth - width))
+                        .toDouble();
+                    next['offsetY'] = (freeY + details.delta.dy)
+                        .clamp(0.0, 80.0)
+                        .toDouble();
+                    onChanged(next);
+                  },
+            child: Container(
+              width: width,
+              height: height,
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: selected ? colorScheme.primary : borderColor,
+                  width: selected ? math.max(2, borderWidth) : borderWidth,
+                ),
+                boxShadow: selected
+                    ? [
+                        BoxShadow(
+                          color: colorScheme.primary.withValues(alpha: 0.18),
+                          blurRadius: 14,
+                          offset: const Offset(0, 6),
+                        ),
+                      ]
+                    : null,
               ),
-              boxShadow: selected
-                  ? [
-                      BoxShadow(
-                        color: colorScheme.primary.withValues(alpha: 0.18),
-                        blurRadius: 14,
-                        offset: const Offset(0, 6),
-                      ),
-                    ]
-                  : null,
+              clipBehavior: Clip.antiAlias,
+              child: bytes == null
+                  ? const Center(child: Icon(Icons.broken_image_outlined))
+                  : Image.memory(bytes, fit: BoxFit.contain),
             ),
-            clipBehavior: Clip.antiAlias,
-            child: bytes == null
-                ? const Center(child: Icon(Icons.broken_image_outlined))
-                : Image.memory(bytes, fit: BoxFit.contain),
           ),
         );
         final positionedImage = alignment == NoteImageAlignment.free
@@ -10646,18 +10791,21 @@ class _ImageResizeHandle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onPanUpdate: onPanUpdate,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.primary,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: const SizedBox(
-          width: 22,
-          height: 22,
-          child: Icon(Icons.open_in_full, size: 13, color: Colors.white),
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeDownRight,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanUpdate: onPanUpdate,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primary,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: const SizedBox(
+            width: 22,
+            height: 22,
+            child: Icon(Icons.open_in_full, size: 13, color: Colors.white),
+          ),
         ),
       ),
     );
@@ -10778,11 +10926,10 @@ class RichImageEditToolbar extends StatelessWidget {
           labelBuilder: (value) => value.toStringAsFixed(0),
           onSelected: (value) => setValue('borderWidth', value),
         ),
-        RichToolbarMenuButton<String>(
-          label: '顏色',
+        RichToolbarColorButton(
           tooltip: '框線顏色',
+          selectedColor: readString(image['borderColor'], fallback: '#5967D8'),
           values: const ['#5967D8', '#202522', '#D92D20', '#16803C'],
-          labelBuilder: (value) => value,
           onSelected: (value) => setValue('borderColor', value),
         ),
         RichToolbarIconButton(
@@ -11034,6 +11181,12 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
                       icon: Icons.undo,
                       enabled: widget.controller.canUndoRichChange,
                       onPressed: widget.controller.undoRichChange,
+                    ),
+                    RichToolbarIconButton(
+                      tooltip: '再製',
+                      icon: Icons.redo,
+                      enabled: widget.controller.canRedoRichChange,
+                      onPressed: widget.controller.redoRichChange,
                     ),
                     RichToolbarMenuButton<int>(
                       label: '$fontSize',
@@ -11317,6 +11470,79 @@ class RichToolbarScrollButton extends StatelessWidget {
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints.tightFor(width: 34, height: 48),
       icon: Icon(icon),
+    );
+  }
+}
+
+class RichToolbarColorButton extends StatelessWidget {
+  const RichToolbarColorButton({
+    super.key,
+    required this.tooltip,
+    required this.selectedColor,
+    required this.values,
+    required this.onSelected,
+  });
+
+  final String tooltip;
+  final String selectedColor;
+  final List<String> values;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = selectedColor.toUpperCase();
+    return PopupMenuButton<String>(
+      tooltip: tooltip,
+      onSelected: onSelected,
+      itemBuilder: (context) => [
+        for (final value in values)
+          PopupMenuItem<String>(
+            value: value,
+            child: Row(
+              children: [
+                _ColorSwatch(
+                  value: value,
+                  selected: selected == value.toUpperCase(),
+                ),
+                const SizedBox(width: 10),
+                Text(colorLabel(value)),
+              ],
+            ),
+          ),
+      ],
+      child: SizedBox(
+        width: 42,
+        height: 48,
+        child: Center(
+          child: _ColorSwatch(value: selectedColor, selected: true),
+        ),
+      ),
+    );
+  }
+}
+
+class _ColorSwatch extends StatelessWidget {
+  const _ColorSwatch({required this.value, required this.selected});
+
+  final String value;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = colorFromHex(value);
+    return Container(
+      width: 24,
+      height: 24,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: selected
+              ? Theme.of(context).colorScheme.primary
+              : Theme.of(context).colorScheme.outlineVariant,
+          width: selected ? 3 : 1,
+        ),
+      ),
     );
   }
 }
@@ -11995,6 +12221,16 @@ Color colorFromHex(String value) {
   return Color(parsed ?? 0xff202522);
 }
 
+String colorLabel(String value) {
+  return switch (value.toUpperCase()) {
+    '#5967D8' => '主題藍',
+    '#202522' => '深灰',
+    '#D92D20' => '紅色',
+    '#16803C' => '綠色',
+    _ => '自訂色',
+  };
+}
+
 class NoteFileService {
   const NoteFileService._();
 
@@ -12027,10 +12263,27 @@ class NoteFileService {
           toolbarTitle: '裁切圖片',
           toolbarColor: const Color(0xff5967d8),
           toolbarWidgetColor: Colors.white,
+          backgroundColor: Colors.white,
+          activeControlsWidgetColor: const Color(0xff5967d8),
+          cropFrameColor: const Color(0xff5967d8),
+          cropGridColor: const Color(0x665967d8),
+          cropFrameStrokeWidth: 3,
+          cropGridStrokeWidth: 1,
+          showCropGrid: true,
+          hideBottomControls: false,
           lockAspectRatio: false,
+          initAspectRatio: CropAspectRatioPreset.original,
         ),
-        IOSUiSettings(title: '裁切圖片'),
-        WebUiSettings(context: context),
+        IOSUiSettings(
+          title: '裁切圖片',
+          doneButtonTitle: '✓',
+          cancelButtonTitle: '✕',
+        ),
+        WebUiSettings(
+          context: context,
+          size: const CropperSize(width: 420, height: 420),
+          presentStyle: WebPresentStyle.dialog,
+        ),
       ],
     );
   }
