@@ -4295,6 +4295,7 @@ class _NotesPageState extends State<NotesPage>
                       NotesFolderGrid(
                         folders: childFolders,
                         onTap: openNotesFolder,
+                        onLongPress: showFolderActions,
                       ),
                     if (pinnedNotes.isNotEmpty)
                       NotesGroupContainer(
@@ -4612,6 +4613,73 @@ class _NotesPageState extends State<NotesPage>
     });
   }
 
+  Future<void> showFolderActions(String targetFolder) async {
+    final store = AppStoreScope.of(context);
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          children: [
+            ListTile(
+              leading: const Icon(Icons.drive_file_rename_outline),
+              title: const Text('重新命名'),
+              onTap: () async {
+                Navigator.pop(context);
+                final name = await promptForText(
+                  this.context,
+                  title: '重新命名',
+                  label: '名稱',
+                  initialValue: folderBaseName(targetFolder),
+                );
+                if (name != null && name.trim().isNotEmpty) {
+                  store.renameNoteFolder(targetFolder, name);
+                  setState(() {});
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.drive_file_move_outline),
+              title: const Text('移動'),
+              onTap: () async {
+                Navigator.pop(context);
+                final target = await chooseFolder(
+                  this.context,
+                  store,
+                  title: '移動',
+                  excludedFolder: targetFolder,
+                  rootLabel: '根目錄',
+                );
+                if (target != null) {
+                  store.moveNoteFolder(targetFolder, target);
+                  setState(() {});
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('刪除'),
+              onTap: () async {
+                Navigator.pop(context);
+                final confirmed = await confirmDelete(
+                  this.context,
+                  title: '刪除資料夾？',
+                  message: '確定要刪除這個資料夾嗎？',
+                );
+                if (confirmed) {
+                  store.deleteNoteFolder(targetFolder);
+                  setState(() {});
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> deleteSelectedNotes(AppStore store) async {
     final confirmed = await confirmDelete(
       context,
@@ -4783,10 +4851,12 @@ class NotesFolderGrid extends StatelessWidget {
     super.key,
     required this.folders,
     required this.onTap,
+    required this.onLongPress,
   });
 
   final List<String> folders;
   final ValueChanged<String> onTap;
+  final ValueChanged<String> onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -4811,6 +4881,7 @@ class NotesFolderGrid extends StatelessWidget {
                 child: InkWell(
                   borderRadius: BorderRadius.circular(8),
                   onTap: () => onTap(folder),
+                  onLongPress: () => onLongPress(folder),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 4,
@@ -8053,11 +8124,6 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         ? richNoteSeedFromTemplateData(note?.body ?? '', templateData)
         : RichNoteSeed(text: note?.body ?? '', marks: const []);
     body = RichNoteTextController(text: richSeed.text, marks: richSeed.marks);
-    if (templateType == NoteTemplateType.general) {
-      templateData = richTextTemplateData(templateData, body);
-    }
-    initialEditorBody = body.text;
-    initialEditorTemplateData = cloneJsonMap(templateData);
     noteStyle = Map<String, dynamic>.from(note?.style ?? defaultNoteStyle());
     noteImages = List<Map<String, dynamic>>.from(
       note?.images ?? <Map<String, dynamic>>[],
@@ -8068,6 +8134,12 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     noteBackground = Map<String, dynamic>.from(
       note?.background ?? defaultNoteBackground(),
     );
+    if (templateType == NoteTemplateType.general) {
+      migrateLegacyInlineAssets();
+      templateData = richTextTemplateData(templateData, body);
+    }
+    initialEditorBody = body.text;
+    initialEditorTemplateData = cloneJsonMap(templateData);
   }
 
   @override
@@ -8227,6 +8299,23 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     });
   }
 
+  void migrateLegacyInlineAssets() {
+    for (final image in noteImages) {
+      final id = readString(image['id']);
+      if (id.isNotEmpty &&
+          !body.hasEmbedBlock(type: richNoteEmbedTypeImage, id: id)) {
+        body.appendEmbedBlock(type: richNoteEmbedTypeImage, id: id);
+      }
+    }
+    for (final attachment in noteAttachments) {
+      final id = readString(attachment['id']);
+      if (id.isNotEmpty &&
+          !body.hasEmbedBlock(type: richNoteEmbedTypeAttachment, id: id)) {
+        body.appendEmbedBlock(type: richNoteEmbedTypeAttachment, id: id);
+      }
+    }
+  }
+
   void insertBodyToken(String token) {
     final selection = body.selection;
     final text = body.text;
@@ -8256,8 +8345,13 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       'width': 240.0,
       'height': 160.0,
       'crop': '',
+      'path': file.path ?? '',
       'row': body.text.split('\n').length,
     };
+    body.insertEmbedBlock(
+      type: richNoteEmbedTypeImage,
+      id: readString(image['id']),
+    );
     setState(() => noteImages.add(image));
   }
 
@@ -8278,7 +8372,12 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       'bytesBase64': base64Encode(bytes),
       'size': file.size,
       'content': '',
+      'path': file.path ?? '',
     };
+    body.insertEmbedBlock(
+      type: richNoteEmbedTypeAttachment,
+      id: readString(attachment['id']),
+    );
     setState(() => noteAttachments.add(attachment));
   }
 
@@ -8732,6 +8831,9 @@ class NoteEditorHeaderFields extends StatelessWidget {
 }
 
 const richTextFormatVersion = 'my_note.rich_text.v1';
+const richNoteEmbedObject = '\uFFFC';
+const richNoteEmbedTypeImage = 'image';
+const richNoteEmbedTypeAttachment = 'attachment';
 
 class RichNoteAttribute {
   const RichNoteAttribute._();
@@ -8746,6 +8848,8 @@ class RichNoteAttribute {
   static const superscript = 'superscript';
   static const heading = 'heading';
   static const quote = 'quote';
+  static const embedType = 'embedType';
+  static const embedId = 'embedId';
 }
 
 class RichNoteMark {
@@ -8858,6 +8962,14 @@ class RichNoteTextController extends TextEditingController {
   final Map<String, Object?> _typingAttributeOverrides = {};
   bool _applyingChange = false;
   final List<RichNoteEditingSnapshot> _undoStack = [];
+  List<Map<String, dynamic>> _renderImages = const [];
+  List<Map<String, dynamic>> _renderAttachments = const [];
+  bool _renderReadOnly = false;
+  String? _selectedEmbedType;
+  String? _selectedEmbedId;
+  void Function(String type, String id)? _onEmbedSelected;
+  ValueChanged<Map<String, dynamic>>? _onInlineImageChanged;
+  ValueChanged<Map<String, dynamic>>? _onInlineAttachmentChanged;
 
   bool get canUndoRichChange => _undoStack.isNotEmpty;
 
@@ -8869,6 +8981,75 @@ class RichNoteTextController extends TextEditingController {
     'plainText': text,
     'spans': _marks.map((mark) => mark.toJson()).toList(),
   };
+
+  void configureInlineContent({
+    required List<Map<String, dynamic>> images,
+    required List<Map<String, dynamic>> attachments,
+    required bool readOnly,
+    required String? selectedType,
+    required String? selectedId,
+    required void Function(String type, String id) onEmbedSelected,
+    required ValueChanged<Map<String, dynamic>> onImageChanged,
+    required ValueChanged<Map<String, dynamic>> onAttachmentChanged,
+  }) {
+    _renderImages = images;
+    _renderAttachments = attachments;
+    _renderReadOnly = readOnly;
+    _selectedEmbedType = selectedType;
+    _selectedEmbedId = selectedId;
+    _onEmbedSelected = onEmbedSelected;
+    _onInlineImageChanged = onImageChanged;
+    _onInlineAttachmentChanged = onAttachmentChanged;
+  }
+
+  void insertEmbedBlock({required String type, required String id}) {
+    replaceSelection(
+      richNoteEmbedObject,
+      attributes: {
+        RichNoteAttribute.embedType: type,
+        RichNoteAttribute.embedId: id,
+      },
+    );
+  }
+
+  void appendEmbedBlock({required String type, required String id}) {
+    final needsNewLine = text.isNotEmpty && !text.endsWith('\n');
+    value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    if (needsNewLine) {
+      replaceSelection('\n');
+    }
+    replaceSelection(
+      richNoteEmbedObject,
+      attributes: {
+        RichNoteAttribute.embedType: type,
+        RichNoteAttribute.embedId: id,
+      },
+    );
+  }
+
+  bool hasEmbedBlock({required String type, required String id}) {
+    return _marks.any(
+      (mark) =>
+          mark.attributes[RichNoteAttribute.embedType] == type &&
+          mark.attributes[RichNoteAttribute.embedId] == id,
+    );
+  }
+
+  void removeEmbedBlock({required String type, required String id}) {
+    final index = _marks.indexWhere(
+      (mark) =>
+          mark.attributes[RichNoteAttribute.embedType] == type &&
+          mark.attributes[RichNoteAttribute.embedId] == id,
+    );
+    if (index < 0) {
+      return;
+    }
+    final mark = _marks[index];
+    replaceTextRange(mark.start, mark.end, '');
+  }
 
   void _handleUserTextChange() {
     if (_applyingChange || text == _lastText) {
@@ -9119,6 +9300,33 @@ class RichNoteTextController extends TextEditingController {
     replaceSelection(replacement);
   }
 
+  bool toggleTodoCheckboxAtOffset(int markerIndex) {
+    final currentText = text;
+    if (markerIndex < 0 || markerIndex >= currentText.length) {
+      return false;
+    }
+    final marker = currentText[markerIndex];
+    if (marker != '☐' && marker != '☑') {
+      return false;
+    }
+    _pushCurrentUndo();
+    _applyingChange = true;
+    final replacement = marker == '☐' ? '☑' : '☐';
+    final nextText = currentText.replaceRange(
+      markerIndex,
+      markerIndex + 1,
+      replacement,
+    );
+    value = TextEditingValue(
+      text: nextText,
+      selection: TextSelection.collapsed(offset: markerIndex + 1),
+    );
+    _syncLastSnapshot();
+    _applyingChange = false;
+    notifyListeners();
+    return true;
+  }
+
   bool toggleTodoCheckboxAtSelection() {
     final currentText = text;
     final selection = this.selection;
@@ -9148,23 +9356,7 @@ class RichNoteTextController extends TextEditingController {
     if (position > prefixEnd) {
       return false;
     }
-
-    _pushCurrentUndo();
-    _applyingChange = true;
-    final replacement = marker == '☐' ? '☑' : '☐';
-    final nextText = currentText.replaceRange(
-      markerIndex,
-      markerIndex + 1,
-      replacement,
-    );
-    value = TextEditingValue(
-      text: nextText,
-      selection: TextSelection.collapsed(offset: position),
-    );
-    _syncLastSnapshot();
-    _applyingChange = false;
-    notifyListeners();
-    return true;
+    return toggleTodoCheckboxAtOffset(markerIndex);
   }
 
   void prefixSelectedLines(String prefix) {
@@ -9320,10 +9512,35 @@ class RichNoteTextController extends TextEditingController {
       return TextSpan(style: baseStyle, text: '');
     }
 
+    bool isTodoMarkerAt(int index) {
+      if (index < 0 || index >= currentText.length) {
+        return false;
+      }
+      final marker = currentText[index];
+      if (marker != '☐' && marker != '☑') {
+        return false;
+      }
+      final lineStart = index <= 0
+          ? 0
+          : currentText.lastIndexOf('\n', index - 1) + 1;
+      for (var i = lineStart; i < index; i++) {
+        if (currentText[i] != ' ') {
+          return false;
+        }
+      }
+      return index + 1 == currentText.length || currentText[index + 1] == ' ';
+    }
+
     final boundaries = <int>{0, currentText.length};
     for (final mark in _marks) {
       boundaries.add(mark.start.clamp(0, currentText.length).toInt());
       boundaries.add(mark.end.clamp(0, currentText.length).toInt());
+    }
+    for (var index = 0; index < currentText.length; index++) {
+      if (currentText[index] == richNoteEmbedObject || isTodoMarkerAt(index)) {
+        boundaries.add(index);
+        boundaries.add(index + 1);
+      }
     }
     final ordered = boundaries.toList()..sort();
     final children = <InlineSpan>[];
@@ -9337,6 +9554,57 @@ class RichNoteTextController extends TextEditingController {
       for (final mark in _marks) {
         if (mark.start <= start && mark.end >= end) {
           attributes.addAll(mark.attributes);
+        }
+      }
+      if (end == start + 1 && isTodoMarkerAt(start)) {
+        final checked = currentText[start] == '☑';
+        children.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: InlineRichTodoCheckbox(
+              checked: checked,
+              readOnly: _renderReadOnly,
+              onChanged: () => toggleTodoCheckboxAtOffset(start),
+            ),
+          ),
+        );
+        continue;
+      }
+      if (end == start + 1 && currentText[start] == richNoteEmbedObject) {
+        final type = readString(attributes[RichNoteAttribute.embedType]);
+        final id = readString(attributes[RichNoteAttribute.embedId]);
+        final selected = _selectedEmbedType == type && _selectedEmbedId == id;
+        if (type == richNoteEmbedTypeImage) {
+          final image = firstMapById(_renderImages, id);
+          children.add(
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: InlineRichImageBlock(
+                image: image,
+                selected: selected,
+                readOnly: _renderReadOnly,
+                onSelect: () => _onEmbedSelected?.call(type, id),
+                onChanged: (value) => _onInlineImageChanged?.call(value),
+              ),
+            ),
+          );
+          continue;
+        }
+        if (type == richNoteEmbedTypeAttachment) {
+          final attachment = firstMapById(_renderAttachments, id);
+          children.add(
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: InlineRichAttachmentBlock(
+                attachment: attachment,
+                selected: selected,
+                readOnly: _renderReadOnly,
+                onSelect: () => _onEmbedSelected?.call(type, id),
+                onChanged: (value) => _onInlineAttachmentChanged?.call(value),
+              ),
+            ),
+          );
+          continue;
         }
       }
       children.add(
@@ -9575,7 +9843,10 @@ RichNoteSeed richNoteSeedFromTemplateData(
   Map<String, dynamic> templateData,
 ) {
   final richText = readStringMap(templateData['richText']);
-  final plainText = readString(richText['plainText'], fallback: body);
+  final storedPlainText = readString(richText['plainText']);
+  final plainText = storedPlainText.isEmpty && body.trim().isNotEmpty
+      ? body
+      : storedPlainText;
   final spans = readMapList(richText['spans'])
       .map((item) => RichNoteMark.fromJson(item, plainText.length))
       .whereType<RichNoteMark>()
@@ -9721,7 +9992,7 @@ TextStyle richNoteTextStyleForAttributes(
   return style;
 }
 
-class GeneralRichTextEditorPanel extends StatelessWidget {
+class GeneralRichTextEditorPanel extends StatefulWidget {
   const GeneralRichTextEditorPanel({
     super.key,
     required this.controller,
@@ -9752,21 +10023,213 @@ class GeneralRichTextEditorPanel extends StatelessWidget {
   final ValueChanged<List<Map<String, dynamic>>> onAttachmentsChanged;
 
   @override
+  State<GeneralRichTextEditorPanel> createState() =>
+      _GeneralRichTextEditorPanelState();
+}
+
+class _GeneralRichTextEditorPanelState
+    extends State<GeneralRichTextEditorPanel> {
+  String? selectedEmbedType;
+  String? selectedEmbedId;
+
+  Map<String, dynamic>? get selectedImage =>
+      selectedEmbedType == richNoteEmbedTypeImage
+      ? nullableMapById(widget.images, selectedEmbedId ?? '')
+      : null;
+
+  Map<String, dynamic>? get selectedAttachment =>
+      selectedEmbedType == richNoteEmbedTypeAttachment
+      ? nullableMapById(widget.attachments, selectedEmbedId ?? '')
+      : null;
+
+  void selectEmbed(String type, String id) {
+    if (widget.readOnly) {
+      return;
+    }
+    setState(() {
+      selectedEmbedType = type;
+      selectedEmbedId = id;
+    });
+  }
+
+  void clearEmbedSelection() {
+    if (selectedEmbedType != null || selectedEmbedId != null) {
+      setState(() {
+        selectedEmbedType = null;
+        selectedEmbedId = null;
+      });
+    }
+  }
+
+  void updateImage(Map<String, dynamic> image) {
+    final id = readString(image['id']);
+    final next = widget.images
+        .map((item) => readString(item['id']) == id ? image : item)
+        .toList(growable: false);
+    widget.onImagesChanged(next);
+  }
+
+  void updateAttachment(Map<String, dynamic> attachment) {
+    final id = readString(attachment['id']);
+    final next = widget.attachments
+        .map((item) => readString(item['id']) == id ? attachment : item)
+        .toList(growable: false);
+    widget.onAttachmentsChanged(next);
+  }
+
+  void deleteSelectedImage() {
+    final image = selectedImage;
+    if (image == null) {
+      return;
+    }
+    final id = readString(image['id']);
+    widget.controller.removeEmbedBlock(type: richNoteEmbedTypeImage, id: id);
+    widget.onImagesChanged(
+      widget.images.where((item) => readString(item['id']) != id).toList(),
+    );
+    clearEmbedSelection();
+  }
+
+  void deleteSelectedAttachment() {
+    final attachment = selectedAttachment;
+    if (attachment == null) {
+      return;
+    }
+    final id = readString(attachment['id']);
+    widget.controller.removeEmbedBlock(
+      type: richNoteEmbedTypeAttachment,
+      id: id,
+    );
+    widget.onAttachmentsChanged(
+      widget.attachments.where((item) => readString(item['id']) != id).toList(),
+    );
+    clearEmbedSelection();
+  }
+
+  Future<void> cropSelectedImage() async {
+    final image = selectedImage;
+    if (image == null) {
+      return;
+    }
+    final sourcePath = readString(image['path']);
+    if (sourcePath.isEmpty) {
+      showToast(context, '目前平台無法取得圖片路徑，請重新插入圖片後再裁切');
+      return;
+    }
+    final cropped = await NoteFileService.cropImage(context, sourcePath);
+    if (!mounted || cropped == null) {
+      return;
+    }
+    final bytes = await cropped.readAsBytes();
+    updateImage({
+      ...image,
+      'bytesBase64': base64Encode(bytes),
+      'size': bytes.length,
+      'path': cropped.path,
+    });
+  }
+
+  Future<void> openSelectedAttachment() async {
+    final attachment = selectedAttachment;
+    if (attachment == null) {
+      return;
+    }
+    final bytes = decodeBase64BytesOrNull(
+      readString(attachment['bytesBase64']),
+    );
+    final preview = bytes == null
+        ? ''
+        : utf8.decode(bytes.take(4096).toList(), allowMalformed: true);
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(readString(attachment['name'], fallback: '附件')),
+        content: SizedBox(
+          width: 420,
+          child: SingleChildScrollView(
+            child: Text(
+              preview.trim().isEmpty ? '此附件已插入筆記，可下載後使用其他 App 開啟。' : preview,
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('關閉'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> downloadSelectedAttachment() async {
+    final attachment = selectedAttachment;
+    if (attachment == null) {
+      return;
+    }
+    final bytes = decodeBase64BytesOrNull(
+      readString(attachment['bytesBase64']),
+    );
+    if (bytes == null || bytes.isEmpty) {
+      showToast(context, '附件內容無法下載');
+      return;
+    }
+    final savedPath = await NoteFileService.saveBytes(
+      fileName: readString(attachment['name'], fallback: 'attachment'),
+      bytes: bytes,
+    );
+    if (!mounted) {
+      return;
+    }
+    showToast(context, savedPath == null ? '已取消下載' : '附件已儲存');
+  }
+
+  @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final backgroundColor = effectiveNoteBackgroundColor(context, background);
+    final backgroundColor = effectiveNoteBackgroundColor(
+      context,
+      widget.background,
+    );
+    widget.controller.configureInlineContent(
+      images: widget.images,
+      attachments: widget.attachments,
+      readOnly: widget.readOnly,
+      selectedType: selectedEmbedType,
+      selectedId: selectedEmbedId,
+      onEmbedSelected: selectEmbed,
+      onImageChanged: updateImage,
+      onAttachmentChanged: updateAttachment,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (!readOnly) ...[
-          RichTextTemplateToolbar(
-            controller: controller,
-            style: style,
-            onStyleChanged: onStyleChanged,
-            onAddImage: onAddImage,
-            onAddAttachment: onAddAttachment,
-            onInsertTodo: onInsertTodo,
-          ),
+        if (!widget.readOnly) ...[
+          if (selectedImage != null)
+            RichImageEditToolbar(
+              image: selectedImage!,
+              onImageChanged: updateImage,
+              onCrop: cropSelectedImage,
+              onDelete: deleteSelectedImage,
+              onDone: clearEmbedSelection,
+            )
+          else if (selectedAttachment != null)
+            RichAttachmentEditToolbar(
+              attachment: selectedAttachment!,
+              onOpen: openSelectedAttachment,
+              onDownload: downloadSelectedAttachment,
+              onDelete: deleteSelectedAttachment,
+              onDone: clearEmbedSelection,
+            )
+          else
+            RichTextTemplateToolbar(
+              controller: widget.controller,
+              style: widget.style,
+              onStyleChanged: widget.onStyleChanged,
+              onAddImage: widget.onAddImage,
+              onAddAttachment: widget.onAddAttachment,
+              onInsertTodo: widget.onInsertTodo,
+            ),
           const SizedBox(height: 10),
         ],
         Expanded(
@@ -9787,17 +10250,19 @@ class GeneralRichTextEditorPanel extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
                     child: TextField(
-                      controller: controller,
-                      readOnly: readOnly,
+                      controller: widget.controller,
+                      readOnly: widget.readOnly,
                       expands: true,
                       minLines: null,
                       maxLines: null,
-                      style: noteBodyTextStyle(style, context: context),
-                      onTap: readOnly
+                      style: noteBodyTextStyle(widget.style, context: context),
+                      onTap: widget.readOnly
                           ? null
                           : () {
+                              clearEmbedSelection();
                               WidgetsBinding.instance.addPostFrameCallback((_) {
-                                controller.toggleTodoCheckboxAtSelection();
+                                widget.controller
+                                    .toggleTodoCheckboxAtSelection();
                               });
                             },
                       decoration: const InputDecoration(
@@ -9810,13 +10275,6 @@ class GeneralRichTextEditorPanel extends StatelessWidget {
                       ),
                     ),
                   ),
-                ),
-                NoteInlineAssetsStrip(
-                  images: images,
-                  attachments: attachments,
-                  readOnly: readOnly,
-                  onImagesChanged: onImagesChanged,
-                  onAttachmentsChanged: onAttachmentsChanged,
                 ),
               ],
             ),
@@ -9981,6 +10439,458 @@ class NoteInlineAttachmentTile extends StatelessWidget {
         '${size > 0 ? ' · ${formatFileSize(size)}' : ''}',
       ),
       onDeleted: readOnly ? null : onDelete,
+    );
+  }
+}
+
+class InlineRichTodoCheckbox extends StatelessWidget {
+  const InlineRichTodoCheckbox({
+    super.key,
+    required this.checked,
+    required this.readOnly,
+    required this.onChanged,
+  });
+
+  final bool checked;
+  final bool readOnly;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 28,
+      height: 26,
+      child: Checkbox(
+        value: checked,
+        visualDensity: VisualDensity.compact,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        onChanged: readOnly ? null : (_) => onChanged(),
+      ),
+    );
+  }
+}
+
+class InlineRichImageBlock extends StatelessWidget {
+  const InlineRichImageBlock({
+    super.key,
+    required this.image,
+    required this.selected,
+    required this.readOnly,
+    required this.onSelect,
+    required this.onChanged,
+  });
+
+  final Map<String, dynamic> image;
+  final bool selected;
+  final bool readOnly;
+  final VoidCallback onSelect;
+  final ValueChanged<Map<String, dynamic>> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final bytes = decodeBase64BytesOrNull(readString(image['bytesBase64']));
+    final alignment = readEnum(
+      NoteImageAlignment.values,
+      image['alignment'],
+      NoteImageAlignment.left,
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth.clamp(160.0, 680.0).toDouble()
+            : 420.0;
+        final width = readDouble(
+          image['width'],
+          fallback: 240,
+        ).clamp(80.0, availableWidth).toDouble();
+        final height = readDouble(
+          image['height'],
+          fallback: 160,
+        ).clamp(60.0, 520.0).toDouble();
+        final borderWidth = readDouble(image['borderWidth']);
+        final borderColor = colorFromHex(
+          readString(image['borderColor'], fallback: '#5967D8'),
+        );
+        final freeX = readDouble(
+          image['offsetX'],
+        ).clamp(0.0, math.max(0, availableWidth - width)).toDouble();
+        final freeY = readDouble(image['offsetY']).clamp(0.0, 80.0).toDouble();
+        final align = switch (alignment) {
+          NoteImageAlignment.center => Alignment.center,
+          NoteImageAlignment.right => Alignment.centerRight,
+          _ => Alignment.centerLeft,
+        };
+        final imageBox = GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onSelect,
+          onPanStart: (_) => onSelect(),
+          onPanUpdate: readOnly
+              ? null
+              : (details) {
+                  final next = Map<String, dynamic>.from(image);
+                  next['alignment'] = NoteImageAlignment.free.name;
+                  next['offsetX'] = (freeX + details.delta.dx)
+                      .clamp(0.0, math.max(0, availableWidth - width))
+                      .toDouble();
+                  next['offsetY'] = (freeY + details.delta.dy)
+                      .clamp(0.0, 80.0)
+                      .toDouble();
+                  onChanged(next);
+                },
+          child: Container(
+            width: width,
+            height: height,
+            decoration: BoxDecoration(
+              color: colorScheme.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: selected ? colorScheme.primary : borderColor,
+                width: selected ? math.max(2, borderWidth) : borderWidth,
+              ),
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: colorScheme.primary.withValues(alpha: 0.18),
+                        blurRadius: 14,
+                        offset: const Offset(0, 6),
+                      ),
+                    ]
+                  : null,
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: bytes == null
+                ? const Center(child: Icon(Icons.broken_image_outlined))
+                : Image.memory(bytes, fit: BoxFit.contain),
+          ),
+        );
+        final positionedImage = alignment == NoteImageAlignment.free
+            ? Stack(
+                children: [
+                  Positioned(left: freeX, top: freeY, child: imageBox),
+                  if (selected && !readOnly)
+                    Positioned(
+                      left: (freeX + width - 22)
+                          .clamp(0.0, availableWidth - 22)
+                          .toDouble(),
+                      top: freeY + height - 22,
+                      child: _ImageResizeHandle(
+                        onPanUpdate: (details) {
+                          final nextWidth = (width + details.delta.dx)
+                              .clamp(80.0, availableWidth)
+                              .toDouble();
+                          final nextHeight = (height + details.delta.dy)
+                              .clamp(60.0, 520.0)
+                              .toDouble();
+                          onChanged({
+                            ...image,
+                            'width': nextWidth,
+                            'height': nextHeight,
+                          });
+                        },
+                      ),
+                    ),
+                ],
+              )
+            : Align(alignment: align, child: imageBox);
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: SizedBox(
+            width: availableWidth,
+            height: alignment == NoteImageAlignment.free
+                ? height + freeY + (selected ? 18 : 0)
+                : height + (selected ? 18 : 0),
+            child: Stack(
+              children: [
+                positionedImage,
+                if (selected &&
+                    !readOnly &&
+                    alignment != NoteImageAlignment.free)
+                  Positioned(
+                    left: switch (alignment) {
+                      NoteImageAlignment.center =>
+                        (availableWidth - width) / 2 + width - 22,
+                      NoteImageAlignment.right => availableWidth - 22,
+                      _ => width - 22,
+                    },
+                    top: height - 22,
+                    child: _ImageResizeHandle(
+                      onPanUpdate: (details) {
+                        final nextWidth = (width + details.delta.dx)
+                            .clamp(80.0, availableWidth)
+                            .toDouble();
+                        final nextHeight = (height + details.delta.dy)
+                            .clamp(60.0, 520.0)
+                            .toDouble();
+                        onChanged({
+                          ...image,
+                          'width': nextWidth,
+                          'height': nextHeight,
+                        });
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ImageResizeHandle extends StatelessWidget {
+  const _ImageResizeHandle({required this.onPanUpdate});
+
+  final GestureDragUpdateCallback onPanUpdate;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onPanUpdate: onPanUpdate,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primary,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: const SizedBox(
+          width: 22,
+          height: 22,
+          child: Icon(Icons.open_in_full, size: 13, color: Colors.white),
+        ),
+      ),
+    );
+  }
+}
+
+class InlineRichAttachmentBlock extends StatelessWidget {
+  const InlineRichAttachmentBlock({
+    super.key,
+    required this.attachment,
+    required this.selected,
+    required this.readOnly,
+    required this.onSelect,
+    required this.onChanged,
+  });
+
+  final Map<String, dynamic> attachment;
+  final bool selected;
+  final bool readOnly;
+  final VoidCallback onSelect;
+  final ValueChanged<Map<String, dynamic>> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final size = readInt(attachment['size']);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: ActionChip(
+        avatar: Icon(
+          Icons.attach_file,
+          color: selected ? colorScheme.onPrimaryContainer : null,
+        ),
+        label: Text(
+          '${readString(attachment['name'], fallback: '附件')}'
+          '${size > 0 ? ' · ${formatFileSize(size)}' : ''}',
+        ),
+        onPressed: onSelect,
+        side: BorderSide(
+          color: selected ? colorScheme.primary : colorScheme.outlineVariant,
+          width: selected ? 2 : 1,
+        ),
+        backgroundColor: selected
+            ? colorScheme.primaryContainer
+            : colorScheme.surfaceContainerLowest,
+      ),
+    );
+  }
+}
+
+class RichImageEditToolbar extends StatelessWidget {
+  const RichImageEditToolbar({
+    super.key,
+    required this.image,
+    required this.onImageChanged,
+    required this.onCrop,
+    required this.onDelete,
+    required this.onDone,
+  });
+
+  final Map<String, dynamic> image;
+  final ValueChanged<Map<String, dynamic>> onImageChanged;
+  final VoidCallback onCrop;
+  final VoidCallback onDelete;
+  final VoidCallback onDone;
+
+  void setValue(String key, Object value) {
+    onImageChanged({...image, key: value});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final borderWidth = readDouble(image['borderWidth']);
+    final alignment = readEnum(
+      NoteImageAlignment.values,
+      image['alignment'],
+      NoteImageAlignment.left,
+    );
+    return _RichAssetToolbarShell(
+      children: [
+        RichToolbarIconButton(
+          tooltip: '裁切',
+          icon: Icons.crop,
+          onPressed: onCrop,
+        ),
+        RichToolbarIconButton(
+          tooltip: '縮小',
+          icon: Icons.remove,
+          onPressed: () {
+            onImageChanged({
+              ...image,
+              'width': math.max(
+                80,
+                readDouble(image['width'], fallback: 240) - 24,
+              ),
+              'height': math.max(
+                60,
+                readDouble(image['height'], fallback: 160) - 16,
+              ),
+            });
+          },
+        ),
+        RichToolbarIconButton(
+          tooltip: '放大',
+          icon: Icons.add,
+          onPressed: () {
+            onImageChanged({
+              ...image,
+              'width': readDouble(image['width'], fallback: 240) + 24,
+              'height': readDouble(image['height'], fallback: 160) + 16,
+            });
+          },
+        ),
+        RichToolbarMenuButton<double>(
+          label: '框 $borderWidth',
+          tooltip: '框線線徑',
+          values: const [0, 1, 2, 4],
+          labelBuilder: (value) => value.toStringAsFixed(0),
+          onSelected: (value) => setValue('borderWidth', value),
+        ),
+        RichToolbarMenuButton<String>(
+          label: '顏色',
+          tooltip: '框線顏色',
+          values: const ['#5967D8', '#202522', '#D92D20', '#16803C'],
+          labelBuilder: (value) => value,
+          onSelected: (value) => setValue('borderColor', value),
+        ),
+        RichToolbarIconButton(
+          tooltip: '靠左',
+          icon: Icons.format_align_left,
+          active: alignment == NoteImageAlignment.left,
+          onPressed: () => setValue('alignment', NoteImageAlignment.left.name),
+        ),
+        RichToolbarIconButton(
+          tooltip: '置中',
+          icon: Icons.format_align_center,
+          active: alignment == NoteImageAlignment.center,
+          onPressed: () =>
+              setValue('alignment', NoteImageAlignment.center.name),
+        ),
+        RichToolbarIconButton(
+          tooltip: '靠右',
+          icon: Icons.format_align_right,
+          active: alignment == NoteImageAlignment.right,
+          onPressed: () => setValue('alignment', NoteImageAlignment.right.name),
+        ),
+        RichToolbarIconButton(
+          tooltip: '自由移動',
+          icon: Icons.open_with,
+          active: alignment == NoteImageAlignment.free,
+          onPressed: () => setValue('alignment', NoteImageAlignment.free.name),
+        ),
+        RichToolbarIconButton(
+          tooltip: '刪除圖片',
+          icon: Icons.delete_outline,
+          onPressed: onDelete,
+        ),
+        RichToolbarIconButton(
+          tooltip: '完成',
+          icon: Icons.check,
+          onPressed: onDone,
+        ),
+      ],
+    );
+  }
+}
+
+class RichAttachmentEditToolbar extends StatelessWidget {
+  const RichAttachmentEditToolbar({
+    super.key,
+    required this.attachment,
+    required this.onOpen,
+    required this.onDownload,
+    required this.onDelete,
+    required this.onDone,
+  });
+
+  final Map<String, dynamic> attachment;
+  final VoidCallback onOpen;
+  final VoidCallback onDownload;
+  final VoidCallback onDelete;
+  final VoidCallback onDone;
+
+  @override
+  Widget build(BuildContext context) {
+    return _RichAssetToolbarShell(
+      children: [
+        RichToolbarIconButton(
+          tooltip: '開啟',
+          icon: Icons.open_in_new,
+          onPressed: onOpen,
+        ),
+        RichToolbarIconButton(
+          tooltip: '下載',
+          icon: Icons.download_outlined,
+          onPressed: onDownload,
+        ),
+        RichToolbarIconButton(
+          tooltip: '刪除附件',
+          icon: Icons.delete_outline,
+          onPressed: onDelete,
+        ),
+        RichToolbarIconButton(
+          tooltip: '完成',
+          icon: Icons.check,
+          onPressed: onDone,
+        ),
+      ],
+    );
+  }
+}
+
+class _RichAssetToolbarShell extends StatelessWidget {
+  const _RichAssetToolbarShell({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: SizedBox(
+        height: 48,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(mainAxisSize: MainAxisSize.min, children: children),
+        ),
+      ),
     );
   }
 }
@@ -11125,6 +12035,17 @@ class NoteFileService {
     );
   }
 
+  static Future<String?> saveBytes({
+    required String fileName,
+    required Uint8List bytes,
+  }) {
+    return FilePicker.saveFile(
+      dialogTitle: '儲存附件',
+      fileName: fileName,
+      bytes: bytes,
+    );
+  }
+
   static Future<Uint8List> buildNotePdf({
     required String title,
     required String body,
@@ -11194,6 +12115,22 @@ Uint8List? decodeBase64BytesOrNull(String value) {
   } catch (_) {
     return null;
   }
+}
+
+Map<String, dynamic> firstMapById(List<Map<String, dynamic>> items, String id) {
+  return nullableMapById(items, id) ?? <String, dynamic>{'id': id};
+}
+
+Map<String, dynamic>? nullableMapById(
+  List<Map<String, dynamic>> items,
+  String id,
+) {
+  for (final item in items) {
+    if (readString(item['id']) == id) {
+      return Map<String, dynamic>.from(item);
+    }
+  }
+  return null;
 }
 
 String formatFileSize(int bytes) {

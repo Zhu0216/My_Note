@@ -19,6 +19,9 @@ This document tracks FlutterFlow UI templates referenced by the project and how 
 - Subscript and superscript typing modes are mutually exclusive and switch directly when the opposite mode is tapped.
 - Numbered, bullet, and checkbox todo lines continue automatically on newline; pressing enter on an empty marker line removes the marker and exits the list.
 - Checkbox markers inside note content can be tapped to toggle between unchecked and checked states.
+- Checkbox markers are rendered as real Flutter `Checkbox` widgets in the editor instead of text-only symbols.
+- Images and attachments are inserted into the editable note surface through rich-text embed placeholders, so they appear at the insertion position instead of in a separate attachment strip.
+- Selecting an inline image switches the toolbar to image controls for crop, drag resize, border width/color, alignment, and delete; selecting an inline attachment switches the toolbar to open, download, and delete controls.
 - Note tags are edited in `#tag #tag2` format instead of comma-separated text.
 - Image and attachment uploads use the platform file picker and render inside the rich editor area without adding placeholder text to the note body.
 - The note editor header is now the editable note title and tags area; back saves and closes directly.
