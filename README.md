@@ -1,38 +1,44 @@
 # My Note
 
-All-in-one 個人管理筆記本。第一版先以 Flutter 完成 Android 與 Web 的地端功能，Firebase 連線配置已預留，後續再接 Auth、Firestore、Storage、FCM、Hosting 與背景同步。
+All-in-one 個人管理筆記本，使用 Flutter 開發，目標支援 Android 手機與 Flutter Web。第一版以本機功能完整為主，後續逐步接上 Firebase Auth、Cloud Firestore、Storage、FCM、Hosting。
 
 ## 目前功能
 
-- Home 首頁：今日/近期資訊、即將到來、月結算、最近筆記、待辦事項、可調整區塊順序/顯示/樣式。
-- Notes 筆記：資料夾/巢狀資料夾、未分類、垃圾桶、搜尋/篩選、排序、格線/清單/簡易清單、批量編輯、置頂分區、四種模板入口。
-- 一般筆記編輯：富文字 toolbar、標題/標籤直接編輯、圖片/附件/待辦插入、返回自動儲存、刪除確認。
-- 圖片編輯：圖片以獨立區塊佔位，文字只能在圖片上下方；支援裁切、縮放、自由移動、左/中/右對齊、框線顏色與線寬。
-- Calendar 行程：日曆點選日期、當日行程、時間排序、新增/編輯/刪除、返回自動儲存。
-- Finance 記帳：收入/支出、存餘帳戶、預算輸入、金流顯示/隱藏、支出/收入圖表、近期紀錄、訂閱管理與左滑刪除。
-- Todo 待辦：同一 block 多行編輯、完成/未完成分區、期限、提醒、長按管理。
-- Settings 設定：Firebase 狀態與後續雲端配置入口。
+- Home 首頁：月結算、今日行程、即將到來、待辦事項、最近筆記與快速新增。
+- Notes 筆記：資料夾、標籤、搜尋、排序、檢視模式、批量編輯、垃圾桶、四種模板入口。
+- 筆記編輯器：Rich text toolbar、待辦核取方塊、圖片插入/選取/裁切/縮放/框線/對齊/移動、附件插入與下載。
+- Calendar 行程：月曆、點擊日期行程、時間排序、新增/編輯/刪除。
+- Finance 記帳：存餘、收入、支出、帳戶、分類統計、預算、訂閱管理。
+- Settings 設定：Firebase 狀態與未來雲端同步入口。
 
-## Editor 更新
+## 本次更新
 
-- 已加入 `appflowy_editor 6.2.0` 依賴，並先以相容 JSON 方式產生 `templateData.appflowy` 文件鏡像；圖片會轉成 AppFlowy image block JSON。
-- 已加入 `flutter_box_transform 0.4.7`，目前可見圖片縮放/拖移改由 TransformableBox 管理。
-- `image_cropper 12.2.1` 保留，用於圖片裁切。
-- 因 `appflowy_editor 6.2.0` 要求 `file_picker ^10.2.0`，`file_picker` 已從 11.x 調整為 `10.3.3`，現有 pick/save API 已改為 `FilePicker.platform`。
-- 目前仍保留舊的 `RichNoteTextController` 作為可見編輯器。`appflowy_editor 6.2.0` runtime 在 Flutter 3.44 Web build 會遇到 `TextInputClient.onFocusReceived` 相容問題，因此本次先不直接 import runtime；完整可視 AppFlowy editor 替換與自訂 attachment block 尚未完成。
+- 修正筆記圖片點擊：點圖片本體會立即選取圖片並切換圖片 toolbar，不會先選到 paragraph 或插入行。
+- 修正圖片遮擋輸入問題：圖片 block 回報實際 visual rect，點擊圖片區域會阻止文字區取得 focus，避免出現 caret 或鍵盤。
+- 加入 debug 驗證 log：`IMAGE_VISUAL_TAP ... nextParagraph.y>=...`，用來證明圖片 block 佔用真實 layout 高度。
+- 移除未實際使用的 `appflowy_editor` 依賴，保留內部 `templateData.appflowy` JSON mirror 作為未來相容資料格式。
+
+## 驗證
+
+- `dart analyze lib/main.dart`：通過。
+- `flutter build apk --debug --no-pub`：通過。
+- X510 實機安裝：通過。
+- X510 圖片點擊測試：點擊圖片中心只出現 `IMAGE_VISUAL_TAP`，未出現 `PARAGRAPH_TAP` / `CARET_CHANGED`，且鍵盤未跳出。
+- `flutter build web --debug --no-wasm-dry-run --no-pub`：通過。
+- Web 本機檢查：`http://127.0.0.1:8080/` 回應 `200`。
 
 ## Firebase 規劃
 
 - Firebase Auth：使用者登入。
-- Cloud Firestore：筆記、行程、訂閱、記帳、待辦資料。
-- Firebase Storage：圖片與附件。
-- Cloud Functions：背景任務、提醒與未來 Google Calendar 同步。
+- Cloud Firestore：筆記、行程、訂閱、記帳資料。
+- Firebase Storage：附件與圖片。
+- Cloud Functions：背景任務與 Google Calendar 同步。
 - Firebase Hosting：Flutter Web 部署。
 - FCM：手機推播通知。
 
 ## 開發指令
 
-本專案使用本機 D 槽 pub cache，避免 Android/Gradle 從 C 槽 cache 取套件造成不同 root 問題。
+PowerShell：
 
 ```powershell
 .\scripts\flutter_project.ps1 pub get
@@ -49,15 +55,15 @@ scripts\flutter_project.cmd analyze
 scripts\flutter_project.cmd build apk --debug
 ```
 
-安裝到指定 Android 裝置：
+安裝到 Android 測試機：
 
 ```powershell
 .\scripts\flutter_project.ps1 install -d <device-id>
 ```
 
-## 維護原則
+## 維護規則
 
-- 修改功能後同步更新 README 與 `docs/`。
-- 成功驗證後更新 `.success.bak` 備份。
-- 只提交 app 必要檔案，忽略 build output、cache、測試截圖與本機 log。
-- Firebase 實際專案金鑰與部署設定不提交到 repo。
+- 每次成功修改後同步更新 README。
+- 成功版本同步更新 `.success.bak` 備份。
+- 不提交 build output、cache、暫存測試截圖/XML/log。
+- Firebase 金鑰與環境設定不得提交到 repo。

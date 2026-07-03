@@ -48,7 +48,6 @@ dependencies:
   printing: 5.15.0
   share_plus: 12.0.1
   shadcn_ui: ^0.55.0
-  appflowy_editor: 6.2.0
   flutter_box_transform: 0.4.7
 
 dev_dependencies:

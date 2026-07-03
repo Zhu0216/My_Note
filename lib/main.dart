@@ -8982,9 +8982,12 @@ class RichNoteTextController extends TextEditingController {
   String? _selectedEmbedType;
   String? _selectedEmbedId;
   void Function(String type, String id)? _onEmbedSelected;
+  void Function(String type, String id)? _onEmbedBlockTapped;
+  ValueChanged<RichImageTapTarget>? _onImageLayoutChanged;
   ValueChanged<Map<String, dynamic>>? _onInlineImageChanged;
   ValueChanged<Map<String, dynamic>>? _onInlineAttachmentChanged;
   void Function(String type, String id)? _onEmbedDeleted;
+  DateTime? _suppressSelectionLogUntil;
 
   bool get canUndoRichChange => _undoStack.isNotEmpty;
   bool get canRedoRichChange => _redoStack.isNotEmpty;
@@ -9005,6 +9008,8 @@ class RichNoteTextController extends TextEditingController {
     required String? selectedType,
     required String? selectedId,
     required void Function(String type, String id) onEmbedSelected,
+    required void Function(String type, String id) onEmbedBlockTapped,
+    required ValueChanged<RichImageTapTarget> onImageLayoutChanged,
     required ValueChanged<Map<String, dynamic>> onImageChanged,
     required ValueChanged<Map<String, dynamic>> onAttachmentChanged,
     required void Function(String type, String id) onEmbedDeleted,
@@ -9015,6 +9020,8 @@ class RichNoteTextController extends TextEditingController {
     _selectedEmbedType = selectedType;
     _selectedEmbedId = selectedId;
     _onEmbedSelected = onEmbedSelected;
+    _onEmbedBlockTapped = onEmbedBlockTapped;
+    _onImageLayoutChanged = onImageLayoutChanged;
     _onInlineImageChanged = onImageChanged;
     _onInlineAttachmentChanged = onAttachmentChanged;
     _onEmbedDeleted = onEmbedDeleted;
@@ -9101,9 +9108,43 @@ class RichNoteTextController extends TextEditingController {
     replaceTextRange(mark.start, mark.end, '');
   }
 
+  void clearTextSelectionForImageInteraction() {
+    suppressSelectionChangeLogForImageInteraction();
+    _applyingChange = true;
+    final nextValue = value.copyWith(
+      selection: const TextSelection.collapsed(offset: -1),
+      composing: TextRange.empty,
+    );
+    value = nextValue;
+    _lastValue = nextValue;
+    _applyingChange = false;
+  }
+
+  void suppressSelectionChangeLogForImageInteraction([
+    Duration duration = const Duration(milliseconds: 500),
+  ]) {
+    _suppressSelectionLogUntil = DateTime.now().add(duration);
+  }
+
+  bool get _shouldSuppressSelectionChangeLog {
+    final until = _suppressSelectionLogUntil;
+    return until != null && DateTime.now().isBefore(until);
+  }
+
   void _handleUserTextChange() {
+    final selectionChanged = value.selection != _lastValue.selection;
     _rememberSelection();
     if (_applyingChange || text == _lastText) {
+      if (!_applyingChange && text == _lastText && selectionChanged) {
+        if (_shouldSuppressSelectionChangeLog) {
+          _lastValue = value;
+          return;
+        }
+        debugPrint(
+          'CARET_CHANGED selection=${value.selection.start}-${value.selection.end}',
+        );
+        _lastValue = value;
+      }
       return;
     }
     final previousEmbeds = embedKeysFromRichNoteMarks(_lastMarks);
@@ -9753,6 +9794,9 @@ class RichNoteTextController extends TextEditingController {
                 selected: selected,
                 readOnly: _renderReadOnly,
                 onSelect: () => _onEmbedSelected?.call(type, id),
+                onBlockTap: () => _onEmbedBlockTapped?.call(type, id),
+                onLayoutChanged: (target) =>
+                    _onImageLayoutChanged?.call(target),
                 onChanged: (value) => _onInlineImageChanged?.call(value),
               ),
             ),
@@ -10316,6 +10360,44 @@ TextStyle richNoteTextStyleForAttributes(
   return style;
 }
 
+class RichImageTapTarget {
+  const RichImageTapTarget({
+    required this.id,
+    required this.blockGlobalRect,
+    required this.visualGlobalRect,
+    required this.visualLocalRect,
+    required this.imageBlockHeight,
+  });
+
+  final String id;
+  final Rect blockGlobalRect;
+  final Rect visualGlobalRect;
+  final Rect visualLocalRect;
+  final double imageBlockHeight;
+
+  bool containsVisualPoint(Offset globalPosition) =>
+      visualGlobalRect.contains(globalPosition);
+
+  bool containsBlockPoint(Offset globalPosition) =>
+      blockGlobalRect.contains(globalPosition);
+
+  String visualTapDebugLog() {
+    return 'IMAGE_VISUAL_TAP id=$id '
+        'imageBlock.y=0.0 '
+        'imageBlock.height=${imageBlockHeight.toStringAsFixed(1)} '
+        'imageVisualRect=${visualLocalRect.left.toStringAsFixed(1)},'
+        '${visualLocalRect.top.toStringAsFixed(1)},'
+        '${visualLocalRect.width.toStringAsFixed(1)},'
+        '${visualLocalRect.height.toStringAsFixed(1)} '
+        'nextParagraph.y>=${imageBlockHeight.toStringAsFixed(1)}';
+  }
+
+  String blockTapDebugLog() {
+    return 'IMAGE_BLOCK_BACKGROUND_TAP id=$id '
+        'imageBlock.height=${imageBlockHeight.toStringAsFixed(1)}';
+  }
+}
+
 class GeneralRichTextEditorPanel extends StatefulWidget {
   const GeneralRichTextEditorPanel({
     super.key,
@@ -10355,6 +10437,11 @@ class _GeneralRichTextEditorPanelState
     extends State<GeneralRichTextEditorPanel> {
   String? selectedEmbedType;
   String? selectedEmbedId;
+  final FocusNode bodyFocusNode = FocusNode(debugLabel: 'rich-note-body');
+  final Map<String, RichImageTapTarget> imageTapTargets = {};
+  Timer? restoreBodyFocusTimer;
+  Timer? clearSuppressedParagraphTapTimer;
+  bool suppressNextParagraphTap = false;
 
   Map<String, dynamic>? get selectedImage =>
       selectedEmbedType == richNoteEmbedTypeImage
@@ -10366,14 +10453,108 @@ class _GeneralRichTextEditorPanelState
       ? nullableMapById(widget.attachments, selectedEmbedId ?? '')
       : null;
 
+  @override
+  void dispose() {
+    restoreBodyFocusTimer?.cancel();
+    clearSuppressedParagraphTapTimer?.cancel();
+    bodyFocusNode.dispose();
+    super.dispose();
+  }
+
   void selectEmbed(String type, String id) {
     if (widget.readOnly) {
       return;
+    }
+    if (type == richNoteEmbedTypeImage) {
+      FocusManager.instance.primaryFocus?.unfocus();
+      widget.controller.clearTextSelectionForImageInteraction();
     }
     setState(() {
       selectedEmbedType = type;
       selectedEmbedId = id;
     });
+  }
+
+  void blockEmbedBackgroundTap(String type, String id) {
+    if (type == richNoteEmbedTypeImage) {
+      FocusManager.instance.primaryFocus?.unfocus();
+      widget.controller.clearTextSelectionForImageInteraction();
+    }
+  }
+
+  void registerImageTapTarget(RichImageTapTarget target) {
+    imageTapTargets[target.id] = target;
+  }
+
+  void removeStaleImageTapTargets() {
+    final activeIds = widget.images
+        .map((image) => readString(image['id']))
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    imageTapTargets.removeWhere((id, _) => !activeIds.contains(id));
+  }
+
+  RichImageTapTarget? imageTapTargetAt(Offset globalPosition) {
+    final targets = imageTapTargets.values.toList(growable: false).reversed;
+    for (final target in targets) {
+      if (target.containsVisualPoint(globalPosition)) {
+        return target;
+      }
+    }
+    for (final target in targets) {
+      if (target.containsBlockPoint(globalPosition)) {
+        return target;
+      }
+    }
+    return null;
+  }
+
+  void temporarilyDisableBodyFocus() {
+    bodyFocusNode.canRequestFocus = false;
+    restoreBodyFocusTimer?.cancel();
+    restoreBodyFocusTimer = Timer(const Duration(milliseconds: 350), () {
+      if (mounted) {
+        bodyFocusNode.canRequestFocus = true;
+      }
+    });
+  }
+
+  void suppressUpcomingParagraphTap() {
+    suppressNextParagraphTap = true;
+    clearSuppressedParagraphTapTimer?.cancel();
+    clearSuppressedParagraphTapTimer = Timer(
+      const Duration(milliseconds: 350),
+      () {
+        if (mounted) {
+          suppressNextParagraphTap = false;
+        }
+      },
+    );
+  }
+
+  void handleBodyPointerDown(PointerDownEvent event) {
+    if (widget.readOnly) {
+      return;
+    }
+    final target = imageTapTargetAt(event.position);
+    if (target == null) {
+      return;
+    }
+    suppressUpcomingParagraphTap();
+    temporarilyDisableBodyFocus();
+    widget.controller.suppressSelectionChangeLogForImageInteraction();
+    if (target.containsVisualPoint(event.position)) {
+      debugPrint(target.visualTapDebugLog());
+      selectEmbed(richNoteEmbedTypeImage, target.id);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          selectEmbed(richNoteEmbedTypeImage, target.id);
+        }
+      });
+    } else {
+      debugPrint(target.blockTapDebugLog());
+      blockEmbedBackgroundTap(richNoteEmbedTypeImage, target.id);
+    }
   }
 
   void clearEmbedSelection() {
@@ -10532,6 +10713,7 @@ class _GeneralRichTextEditorPanelState
       context,
       widget.background,
     );
+    removeStaleImageTapTargets();
     widget.controller.configureInlineContent(
       images: widget.images,
       attachments: widget.attachments,
@@ -10539,6 +10721,8 @@ class _GeneralRichTextEditorPanelState
       selectedType: selectedEmbedType,
       selectedId: selectedEmbedId,
       onEmbedSelected: selectEmbed,
+      onEmbedBlockTapped: blockEmbedBackgroundTap,
+      onImageLayoutChanged: registerImageTapTarget,
       onImageChanged: updateImage,
       onAttachmentChanged: updateAttachment,
       onEmbedDeleted: removeKeyboardDeletedEmbed,
@@ -10591,31 +10775,46 @@ class _GeneralRichTextEditorPanelState
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-                    child: TextField(
-                      controller: widget.controller,
-                      readOnly: widget.readOnly,
-                      expands: true,
-                      minLines: null,
-                      maxLines: null,
-                      style: noteBodyTextStyle(widget.style, context: context),
-                      onTap: widget.readOnly
-                          ? null
-                          : () {
-                              widget.controller.rememberSelection();
-                              clearEmbedSelection();
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                    child: Listener(
+                      behavior: HitTestBehavior.translucent,
+                      onPointerDown: handleBodyPointerDown,
+                      child: TextField(
+                        controller: widget.controller,
+                        focusNode: bodyFocusNode,
+                        readOnly: widget.readOnly,
+                        expands: true,
+                        minLines: null,
+                        maxLines: null,
+                        style: noteBodyTextStyle(
+                          widget.style,
+                          context: context,
+                        ),
+                        onTap: widget.readOnly
+                            ? null
+                            : () {
+                                if (suppressNextParagraphTap) {
+                                  suppressNextParagraphTap = false;
+                                  return;
+                                }
+                                debugPrint('PARAGRAPH_TAP');
                                 widget.controller.rememberSelection();
-                                widget.controller
-                                    .toggleTodoCheckboxAtSelection();
-                              });
-                            },
-                      decoration: const InputDecoration(
-                        hintText: '開始輸入筆記內容',
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        filled: false,
-                        isCollapsed: true,
+                                clearEmbedSelection();
+                                WidgetsBinding.instance.addPostFrameCallback((
+                                  _,
+                                ) {
+                                  widget.controller.rememberSelection();
+                                  widget.controller
+                                      .toggleTodoCheckboxAtSelection();
+                                });
+                              },
+                        decoration: const InputDecoration(
+                          hintText: '開始輸入筆記內容',
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          filled: false,
+                          isCollapsed: true,
+                        ),
                       ),
                     ),
                   ),
@@ -10821,6 +11020,8 @@ class InlineRichImageBlock extends StatelessWidget {
     required this.selected,
     required this.readOnly,
     required this.onSelect,
+    required this.onBlockTap,
+    required this.onLayoutChanged,
     required this.onChanged,
   });
 
@@ -10828,6 +11029,8 @@ class InlineRichImageBlock extends StatelessWidget {
   final bool selected;
   final bool readOnly;
   final VoidCallback onSelect;
+  final VoidCallback onBlockTap;
+  final ValueChanged<RichImageTapTarget> onLayoutChanged;
   final ValueChanged<Map<String, dynamic>> onChanged;
 
   @override
@@ -10872,7 +11075,11 @@ class InlineRichImageBlock extends StatelessWidget {
         final freeX = readDouble(
           image['offsetX'],
         ).clamp(0.0, math.max(0, availableWidth - visualWidth)).toDouble();
-        final freeY = readDouble(image['offsetY']).clamp(0.0, 520.0).toDouble();
+        const blockVerticalPadding = 8.0;
+        const maxFreeOffsetY = 520.0;
+        final freeY = readDouble(
+          image['offsetY'],
+        ).clamp(0.0, maxFreeOffsetY).toDouble();
         final fixedLeft = switch (alignment) {
           NoteImageAlignment.center => (availableWidth - visualWidth) / 2,
           NoteImageAlignment.right => availableWidth - visualWidth,
@@ -10881,17 +11088,65 @@ class InlineRichImageBlock extends StatelessWidget {
         final imageLeft = alignment == NoteImageAlignment.free
             ? freeX
             : fixedLeft.clamp(0.0, math.max(0, availableWidth - visualWidth));
-        final imageTop = alignment == NoteImageAlignment.free ? freeY : 0.0;
-        final textTheme = Theme.of(context).textTheme;
-        final lineHeight =
-            ((textTheme.bodyMedium?.fontSize ?? 16) *
-                    (textTheme.bodyMedium?.height ?? 1.5))
-                .clamp(24.0, 42.0)
-                .toDouble();
-        final blockHeight = imageTop + visualHeight + (selected ? 26 : 0);
-        final reservedLines = math.max(1, (blockHeight / lineHeight).ceil());
-        final reservedHeight = reservedLines * lineHeight;
-        final clampingHeight = math.max(reservedHeight, 80.0);
+        final imageTop =
+            blockVerticalPadding +
+            (alignment == NoteImageAlignment.free ? freeY : 0.0);
+        final handleHeight = selected ? 26.0 : 0.0;
+        final imageBlockHeight =
+            imageTop + visualHeight + blockVerticalPadding + handleHeight;
+        final clampingHeight = alignment == NoteImageAlignment.free
+            ? math.max(
+                imageBlockHeight,
+                visualHeight + maxFreeOffsetY + blockVerticalPadding * 2,
+              )
+            : math.max(imageBlockHeight, 80.0);
+        final imageRect = Rect.fromLTWH(
+          imageLeft.toDouble(),
+          imageTop,
+          visualWidth,
+          visualHeight,
+        );
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final renderObject = context.findRenderObject();
+          if (renderObject is! RenderBox ||
+              !renderObject.attached ||
+              !renderObject.hasSize) {
+            return;
+          }
+          final blockTopLeft = renderObject.localToGlobal(Offset.zero);
+          onLayoutChanged(
+            RichImageTapTarget(
+              id: readString(image['id']),
+              blockGlobalRect:
+                  blockTopLeft & Size(availableWidth, imageBlockHeight),
+              visualGlobalRect: imageRect.shift(blockTopLeft),
+              visualLocalRect: imageRect,
+              imageBlockHeight: imageBlockHeight,
+            ),
+          );
+        });
+
+        void handleImageVisualTap() {
+          final blockBottom = imageBlockHeight;
+          debugPrint(
+            'IMAGE_VISUAL_TAP id=${readString(image['id'])} '
+            'imageBlock.y=0.0 imageBlock.height=${imageBlockHeight.toStringAsFixed(1)} '
+            'imageVisualRect=${imageRect.left.toStringAsFixed(1)},'
+            '${imageRect.top.toStringAsFixed(1)},'
+            '${imageRect.width.toStringAsFixed(1)},'
+            '${imageRect.height.toStringAsFixed(1)} '
+            'nextParagraph.y>=${blockBottom.toStringAsFixed(1)}',
+          );
+          onSelect();
+        }
+
+        void handleImageBlockBackgroundTap() {
+          debugPrint(
+            'IMAGE_BLOCK_BACKGROUND_TAP id=${readString(image['id'])} '
+            'imageBlock.height=${imageBlockHeight.toStringAsFixed(1)}',
+          );
+          onBlockTap();
+        }
 
         Widget buildImageBox(Size size) {
           return MouseRegion(
@@ -10928,12 +11183,6 @@ class InlineRichImageBlock extends StatelessWidget {
           );
         }
 
-        final imageRect = Rect.fromLTWH(
-          imageLeft.toDouble(),
-          imageTop,
-          visualWidth,
-          visualHeight,
-        );
         final handleSet = alignment == NoteImageAlignment.free
             ? {...fbt.HandlePosition.values}
             : {fbt.HandlePosition.bottomRight};
@@ -10957,7 +11206,7 @@ class InlineRichImageBlock extends StatelessWidget {
                 allowFlippingWhileResizing: false,
                 enabledHandles: handleSet,
                 visibleHandles: handleSet,
-                onTap: onSelect,
+                onTap: handleImageVisualTap,
                 onChanged: (result, event) {
                   final rect = result.rect;
                   final next = <String, dynamic>{
@@ -10969,8 +11218,8 @@ class InlineRichImageBlock extends StatelessWidget {
                     next['offsetX'] = rect.left
                         .clamp(0.0, math.max(0, availableWidth - rect.width))
                         .toDouble();
-                    next['offsetY'] = rect.top
-                        .clamp(0.0, math.max(0, clampingHeight - rect.height))
+                    next['offsetY'] = (rect.top - blockVerticalPadding)
+                        .clamp(0.0, maxFreeOffsetY)
                         .toDouble();
                   }
                   onChanged(next);
@@ -10985,32 +11234,25 @@ class InlineRichImageBlock extends StatelessWidget {
                 top: imageRect.top,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: onSelect,
+                  onTap: handleImageVisualTap,
                   child: buildImageBox(imageRect.size),
                 ),
               );
-        return GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onTap: onSelect,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: SizedBox(
-              width: availableWidth,
-              height: reservedHeight,
-              child: Stack(
-                clipBehavior: Clip.hardEdge,
-                children: [
-                  Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: const BoxDecoration(
-                        color: Colors.transparent,
-                      ),
-                    ),
-                  ),
-                  transformableImage,
-                ],
+        return SizedBox(
+          width: availableWidth,
+          height: imageBlockHeight,
+          child: Stack(
+            clipBehavior: Clip.hardEdge,
+            children: [
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: handleImageBlockBackgroundTap,
+                  child: const SizedBox.expand(),
+                ),
               ),
-            ),
+              transformableImage,
+            ],
           ),
         );
       },
