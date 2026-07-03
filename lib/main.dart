@@ -8093,7 +8093,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     );
     if (templateType == NoteTemplateType.general) {
       migrateLegacyInlineAssets();
-      body.isolateEmbedBlocks();
+      body.isolateEmbedBlocks(images: noteImages);
       templateData = generalNoteTemplateData(
         templateData,
         body,
@@ -8359,11 +8359,13 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       'path': file.path ?? '',
       'row': body.text.split('\n').length,
     };
+    final nextImages = [...noteImages, image];
     body.insertEmbedBlock(
       type: richNoteEmbedTypeImage,
       id: readString(image['id']),
     );
-    setState(() => noteImages.add(image));
+    body.isolateEmbedBlocks(images: nextImages);
+    setState(() => noteImages = nextImages);
   }
 
   Future<void> addAttachmentPlaceholder() async {
@@ -8987,6 +8989,7 @@ class RichNoteTextController extends TextEditingController {
   ValueChanged<Map<String, dynamic>>? _onInlineImageChanged;
   ValueChanged<Map<String, dynamic>>? _onInlineAttachmentChanged;
   void Function(String type, String id)? _onEmbedDeleted;
+  double? _renderContentWidth;
   DateTime? _suppressSelectionLogUntil;
 
   bool get canUndoRichChange => _undoStack.isNotEmpty;
@@ -9013,6 +9016,7 @@ class RichNoteTextController extends TextEditingController {
     required ValueChanged<Map<String, dynamic>> onImageChanged,
     required ValueChanged<Map<String, dynamic>> onAttachmentChanged,
     required void Function(String type, String id) onEmbedDeleted,
+    double? contentWidth,
   }) {
     _renderImages = images;
     _renderAttachments = attachments;
@@ -9025,6 +9029,7 @@ class RichNoteTextController extends TextEditingController {
     _onInlineImageChanged = onImageChanged;
     _onInlineAttachmentChanged = onAttachmentChanged;
     _onEmbedDeleted = onEmbedDeleted;
+    _renderContentWidth = contentWidth;
   }
 
   void insertEmbedBlock({required String type, required String id}) {
@@ -9359,12 +9364,12 @@ class RichNoteTextController extends TextEditingController {
     _applyingChange = false;
   }
 
-  void isolateEmbedBlocks() {
-    _isolateEmbedBlocks();
+  void isolateEmbedBlocks({List<Map<String, dynamic>> images = const []}) {
+    _isolateEmbedBlocks(images: images);
     _syncLastSnapshot();
   }
 
-  void _isolateEmbedBlocks() {
+  void _isolateEmbedBlocks({List<Map<String, dynamic>> images = const []}) {
     var guard = 0;
     while (guard < text.length + 8) {
       guard++;
@@ -9380,8 +9385,17 @@ class RichNoteTextController extends TextEditingController {
           break;
         }
         final after = index + 1;
-        if (after >= currentText.length || currentText[after] != '\n') {
-          _insertInternalLineBreak(after);
+        const requiredNewlines = 1;
+        var existingNewlines = 0;
+        while (after + existingNewlines < currentText.length &&
+            currentText[after + existingNewlines] == '\n') {
+          existingNewlines++;
+        }
+        if (existingNewlines < requiredNewlines) {
+          _insertInternalText(
+            after + existingNewlines,
+            '\n' * (requiredNewlines - existingNewlines),
+          );
           applied = true;
           break;
         }
@@ -9393,16 +9407,21 @@ class RichNoteTextController extends TextEditingController {
   }
 
   void _insertInternalLineBreak(int offset) {
+    _insertInternalText(offset, '\n');
+  }
+
+  void _insertInternalText(int offset, String replacement) {
     final currentSelection = selection;
     final selectionOffset = currentSelection.isValid
         ? currentSelection.extentOffset
         : text.length;
-    final nextCursor = selectionOffset + (offset <= selectionOffset ? 1 : 0);
+    final nextCursor =
+        selectionOffset + (offset <= selectionOffset ? replacement.length : 0);
     _applyInternalReplacement(
       RichNoteAutoEdit(
         start: offset,
         end: offset,
-        replacement: '\n',
+        replacement: replacement,
         cursorOffset: nextCursor,
       ),
     );
@@ -9793,6 +9812,7 @@ class RichNoteTextController extends TextEditingController {
                 image: image,
                 selected: selected,
                 readOnly: _renderReadOnly,
+                contentWidth: _renderContentWidth,
                 onSelect: () => _onEmbedSelected?.call(type, id),
                 onBlockTap: () => _onEmbedBlockTapped?.call(type, id),
                 onLayoutChanged: (target) =>
@@ -10398,6 +10418,95 @@ class RichImageTapTarget {
   }
 }
 
+enum RichNoteFlowBlockType { text, image, attachment }
+
+class RichNoteFlowBlock {
+  const RichNoteFlowBlock({
+    required this.type,
+    required this.order,
+    required this.start,
+    required this.end,
+    this.text = '',
+    this.id = '',
+  });
+
+  final RichNoteFlowBlockType type;
+  final int order;
+  final int start;
+  final int end;
+  final String text;
+  final String id;
+}
+
+List<RichNoteFlowBlock> richNoteFlowBlocks(RichNoteTextController controller) {
+  final text = controller.text;
+  final marks = controller.marks;
+  final blocks = <RichNoteFlowBlock>[];
+  var order = 0;
+  var textStart = 0;
+
+  void addTextBlock(int start, int end) {
+    if (end <= start && blocks.isNotEmpty) {
+      return;
+    }
+    blocks.add(
+      RichNoteFlowBlock(
+        type: RichNoteFlowBlockType.text,
+        order: order++,
+        start: start,
+        end: end,
+        text: text.substring(start, end),
+      ),
+    );
+  }
+
+  for (var index = 0; index < text.length; index++) {
+    if (text[index] != richNoteEmbedObject) {
+      continue;
+    }
+    final textEnd = index > textStart && text[index - 1] == '\n'
+        ? index - 1
+        : index;
+    addTextBlock(textStart, textEnd);
+
+    final mark = firstRichNoteMarkAtOffset(marks, index);
+    final type = readString(mark?.attributes[RichNoteAttribute.embedType]);
+    final id = readString(mark?.attributes[RichNoteAttribute.embedId]);
+    if (type == richNoteEmbedTypeImage) {
+      blocks.add(
+        RichNoteFlowBlock(
+          type: RichNoteFlowBlockType.image,
+          order: order++,
+          start: index,
+          end: index + 1,
+          id: id,
+        ),
+      );
+    } else if (type == richNoteEmbedTypeAttachment) {
+      blocks.add(
+        RichNoteFlowBlock(
+          type: RichNoteFlowBlockType.attachment,
+          order: order++,
+          start: index,
+          end: index + 1,
+          id: id,
+        ),
+      );
+    }
+
+    textStart = index + 1;
+    if (textStart < text.length && text[textStart] == '\n') {
+      textStart++;
+    }
+  }
+
+  addTextBlock(textStart, text.length);
+  if (blocks.isEmpty) {
+    addTextBlock(0, 0);
+  }
+  return blocks;
+}
+
 class GeneralRichTextEditorPanel extends StatefulWidget {
   const GeneralRichTextEditorPanel({
     super.key,
@@ -10438,6 +10547,9 @@ class _GeneralRichTextEditorPanelState
   String? selectedEmbedType;
   String? selectedEmbedId;
   final FocusNode bodyFocusNode = FocusNode(debugLabel: 'rich-note-body');
+  final Map<int, TextEditingController> flowTextControllers = {};
+  final Map<int, FocusNode> flowTextFocusNodes = {};
+  final Map<int, TextRange> flowTextRanges = {};
   final Map<String, RichImageTapTarget> imageTapTargets = {};
   Timer? restoreBodyFocusTimer;
   Timer? clearSuppressedParagraphTapTimer;
@@ -10457,6 +10569,12 @@ class _GeneralRichTextEditorPanelState
   void dispose() {
     restoreBodyFocusTimer?.cancel();
     clearSuppressedParagraphTapTimer?.cancel();
+    for (final controller in flowTextControllers.values) {
+      controller.dispose();
+    }
+    for (final focusNode in flowTextFocusNodes.values) {
+      focusNode.dispose();
+    }
     bodyFocusNode.dispose();
     super.dispose();
   }
@@ -10571,6 +10689,7 @@ class _GeneralRichTextEditorPanelState
     final next = widget.images
         .map((item) => readString(item['id']) == id ? image : item)
         .toList(growable: false);
+    widget.controller.isolateEmbedBlocks(images: next);
     widget.onImagesChanged(next);
   }
 
@@ -10626,6 +10745,73 @@ class _GeneralRichTextEditorPanelState
     if (selectedEmbedType == type && selectedEmbedId == id) {
       clearEmbedSelection();
     }
+  }
+
+  TextEditingController flowTextControllerFor(RichNoteFlowBlock block) {
+    final controller = flowTextControllers.putIfAbsent(
+      block.order,
+      () => TextEditingController(text: block.text),
+    );
+    final focusNode = flowTextFocusNodes[block.order];
+    if ((focusNode == null || !focusNode.hasFocus) &&
+        controller.text != block.text) {
+      final selectionOffset = controller.selection.extentOffset
+          .clamp(0, block.text.length)
+          .toInt();
+      controller.value = TextEditingValue(
+        text: block.text,
+        selection: TextSelection.collapsed(offset: selectionOffset),
+      );
+    }
+    if (focusNode == null || !focusNode.hasFocus) {
+      flowTextRanges[block.order] = TextRange(
+        start: block.start,
+        end: block.end,
+      );
+    } else {
+      flowTextRanges.putIfAbsent(
+        block.order,
+        () => TextRange(start: block.start, end: block.end),
+      );
+    }
+    return controller;
+  }
+
+  FocusNode flowTextFocusNodeFor(RichNoteFlowBlock block) {
+    return flowTextFocusNodes.putIfAbsent(
+      block.order,
+      () => FocusNode(debugLabel: 'rich-note-flow-${block.order}'),
+    );
+  }
+
+  void replaceFlowTextBlock(RichNoteFlowBlock block, String nextText) {
+    final range =
+        flowTextRanges[block.order] ??
+        TextRange(start: block.start, end: block.end);
+    widget.controller.replaceTextRange(range.start, range.end, nextText);
+    flowTextRanges[block.order] = TextRange(
+      start: range.start,
+      end: range.start + nextText.length,
+    );
+    setState(() {});
+  }
+
+  void syncFlowSelection(RichNoteFlowBlock block) {
+    final controller = flowTextControllers[block.order];
+    if (controller == null || !controller.selection.isValid) {
+      return;
+    }
+    final range =
+        flowTextRanges[block.order] ??
+        TextRange(start: block.start, end: block.end);
+    widget.controller.value = widget.controller.value.copyWith(
+      selection: TextSelection(
+        baseOffset: range.start + controller.selection.baseOffset,
+        extentOffset: range.start + controller.selection.extentOffset,
+      ),
+      composing: TextRange.empty,
+    );
+    widget.controller.rememberSelection();
   }
 
   Future<void> cropSelectedImage() async {
@@ -10714,19 +10900,6 @@ class _GeneralRichTextEditorPanelState
       widget.background,
     );
     removeStaleImageTapTargets();
-    widget.controller.configureInlineContent(
-      images: widget.images,
-      attachments: widget.attachments,
-      readOnly: widget.readOnly,
-      selectedType: selectedEmbedType,
-      selectedId: selectedEmbedId,
-      onEmbedSelected: selectEmbed,
-      onEmbedBlockTapped: blockEmbedBackgroundTap,
-      onImageLayoutChanged: registerImageTapTarget,
-      onImageChanged: updateImage,
-      onAttachmentChanged: updateAttachment,
-      onEmbedDeleted: removeKeyboardDeletedEmbed,
-    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -10775,47 +10948,173 @@ class _GeneralRichTextEditorPanelState
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-                    child: Listener(
-                      behavior: HitTestBehavior.translucent,
-                      onPointerDown: handleBodyPointerDown,
-                      child: TextField(
-                        controller: widget.controller,
-                        focusNode: bodyFocusNode,
-                        readOnly: widget.readOnly,
-                        expands: true,
-                        minLines: null,
-                        maxLines: null,
-                        style: noteBodyTextStyle(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final contentWidth = constraints.maxWidth.isFinite
+                            ? constraints.maxWidth
+                            : null;
+                        widget.controller.configureInlineContent(
+                          images: widget.images,
+                          attachments: widget.attachments,
+                          readOnly: widget.readOnly,
+                          selectedType: selectedEmbedType,
+                          selectedId: selectedEmbedId,
+                          onEmbedSelected: selectEmbed,
+                          onEmbedBlockTapped: blockEmbedBackgroundTap,
+                          onImageLayoutChanged: registerImageTapTarget,
+                          onImageChanged: updateImage,
+                          onAttachmentChanged: updateAttachment,
+                          onEmbedDeleted: removeKeyboardDeletedEmbed,
+                          contentWidth: contentWidth,
+                        );
+                        final blocks = richNoteFlowBlocks(widget.controller);
+                        final bodyStyle = noteBodyTextStyle(
                           widget.style,
                           context: context,
-                        ),
-                        onTap: widget.readOnly
-                            ? null
-                            : () {
-                                if (suppressNextParagraphTap) {
-                                  suppressNextParagraphTap = false;
-                                  return;
-                                }
-                                debugPrint('PARAGRAPH_TAP');
-                                widget.controller.rememberSelection();
-                                clearEmbedSelection();
-                                WidgetsBinding.instance.addPostFrameCallback((
-                                  _,
-                                ) {
-                                  widget.controller.rememberSelection();
-                                  widget.controller
-                                      .toggleTodoCheckboxAtSelection();
-                                });
-                              },
-                        decoration: const InputDecoration(
-                          hintText: '開始輸入筆記內容',
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          filled: false,
-                          isCollapsed: true,
-                        ),
-                      ),
+                        );
+                        return SingleChildScrollView(
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              minHeight: constraints.maxHeight,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                for (final block in blocks)
+                                  switch (block.type) {
+                                    RichNoteFlowBlockType.text => Builder(
+                                      builder: (context) {
+                                        final controller =
+                                            flowTextControllerFor(block);
+                                        final focusNode = flowTextFocusNodeFor(
+                                          block,
+                                        );
+                                        return TextField(
+                                          controller: controller,
+                                          focusNode: focusNode,
+                                          readOnly: widget.readOnly,
+                                          maxLines: null,
+                                          minLines:
+                                              blocks.length == 1 &&
+                                                  block.text.isEmpty
+                                              ? 10
+                                              : 1,
+                                          style: bodyStyle,
+                                          onChanged: widget.readOnly
+                                              ? null
+                                              : (value) => replaceFlowTextBlock(
+                                                  block,
+                                                  value,
+                                                ),
+                                          onTap: widget.readOnly
+                                              ? null
+                                              : () {
+                                                  debugPrint('PARAGRAPH_TAP');
+                                                  clearEmbedSelection();
+                                                  syncFlowSelection(block);
+                                                },
+                                          decoration: const InputDecoration(
+                                            hintText: '開始輸入筆記內容',
+                                            border: InputBorder.none,
+                                            enabledBorder: InputBorder.none,
+                                            focusedBorder: InputBorder.none,
+                                            filled: false,
+                                            isCollapsed: true,
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                    RichNoteFlowBlockType.image =>
+                                      InlineRichImageBlock(
+                                        image: firstMapById(
+                                          widget.images,
+                                          block.id,
+                                        ),
+                                        selected:
+                                            selectedEmbedType ==
+                                                richNoteEmbedTypeImage &&
+                                            selectedEmbedId == block.id,
+                                        readOnly: widget.readOnly,
+                                        contentWidth: contentWidth,
+                                        onSelect: () => selectEmbed(
+                                          richNoteEmbedTypeImage,
+                                          block.id,
+                                        ),
+                                        onBlockTap: () =>
+                                            blockEmbedBackgroundTap(
+                                              richNoteEmbedTypeImage,
+                                              block.id,
+                                            ),
+                                        onLayoutChanged: registerImageTapTarget,
+                                        onChanged: updateImage,
+                                      ),
+                                    RichNoteFlowBlockType.attachment =>
+                                      InlineRichAttachmentBlock(
+                                        attachment: firstMapById(
+                                          widget.attachments,
+                                          block.id,
+                                        ),
+                                        selected:
+                                            selectedEmbedType ==
+                                                richNoteEmbedTypeAttachment &&
+                                            selectedEmbedId == block.id,
+                                        readOnly: widget.readOnly,
+                                        onSelect: () => selectEmbed(
+                                          richNoteEmbedTypeAttachment,
+                                          block.id,
+                                        ),
+                                        onChanged: updateAttachment,
+                                      ),
+                                  },
+                                const SizedBox(height: 96),
+                              ],
+                            ),
+                          ),
+                        );
+                        /*
+                        return Listener(
+                          behavior: HitTestBehavior.translucent,
+                          onPointerDown: handleBodyPointerDown,
+                          child: TextField(
+                            controller: widget.controller,
+                            focusNode: bodyFocusNode,
+                            readOnly: widget.readOnly,
+                            expands: true,
+                            minLines: null,
+                            maxLines: null,
+                            style: noteBodyTextStyle(
+                              widget.style,
+                              context: context,
+                            ),
+                            onTap: widget.readOnly
+                                ? null
+                                : () {
+                                    if (suppressNextParagraphTap) {
+                                      suppressNextParagraphTap = false;
+                                      return;
+                                    }
+                                    debugPrint('PARAGRAPH_TAP');
+                                    widget.controller.rememberSelection();
+                                    clearEmbedSelection();
+                                    WidgetsBinding.instance
+                                        .addPostFrameCallback((_) {
+                                          widget.controller.rememberSelection();
+                                          widget.controller
+                                              .toggleTodoCheckboxAtSelection();
+                                        });
+                                  },
+                            decoration: const InputDecoration(
+                              hintText: '開始輸入筆記內容',
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              filled: false,
+                              isCollapsed: true,
+                            ),
+                          ),
+                        );
+                        */
+                      },
                     ),
                   ),
                 ),
@@ -11019,6 +11318,7 @@ class InlineRichImageBlock extends StatelessWidget {
     required this.image,
     required this.selected,
     required this.readOnly,
+    required this.contentWidth,
     required this.onSelect,
     required this.onBlockTap,
     required this.onLayoutChanged,
@@ -11028,6 +11328,7 @@ class InlineRichImageBlock extends StatelessWidget {
   final Map<String, dynamic> image;
   final bool selected;
   final bool readOnly;
+  final double? contentWidth;
   final VoidCallback onSelect;
   final VoidCallback onBlockTap;
   final ValueChanged<RichImageTapTarget> onLayoutChanged;
@@ -11037,16 +11338,25 @@ class InlineRichImageBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final bytes = decodeBase64BytesOrNull(readString(image['bytesBase64']));
-    final alignment = readEnum(
+    final storedAlignment = readEnum(
       NoteImageAlignment.values,
       image['alignment'],
       NoteImageAlignment.left,
     );
+    final alignment = storedAlignment == NoteImageAlignment.free
+        ? NoteImageAlignment.left
+        : storedAlignment;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final blockWidth = constraints.maxWidth.isFinite
-            ? math.max(160.0, constraints.maxWidth).toDouble()
-            : 680.0;
+        final blockWidth = math
+            .max(
+              160.0,
+              contentWidth ??
+                  (constraints.maxWidth.isFinite
+                      ? constraints.maxWidth
+                      : 680.0),
+            )
+            .toDouble();
         final maxImageWidth = math.min(blockWidth, 680.0);
         final width = readDouble(
           image['width'],
@@ -11073,34 +11383,21 @@ class InlineRichImageBlock extends StatelessWidget {
         final borderColor = colorFromHex(
           readString(image['borderColor'], fallback: '#5967D8'),
         );
-        final freeX = readDouble(
-          image['offsetX'],
-        ).clamp(0.0, math.max(0, blockWidth - visualWidth)).toDouble();
         const blockVerticalPadding = 8.0;
-        const maxFreeOffsetY = 520.0;
-        final freeY = readDouble(
-          image['offsetY'],
-        ).clamp(0.0, maxFreeOffsetY).toDouble();
+        final handlePadding = selected ? 18.0 : 0.0;
         final fixedLeft = switch (alignment) {
           NoteImageAlignment.center => (blockWidth - visualWidth) / 2,
           NoteImageAlignment.right => blockWidth - visualWidth,
           _ => 0.0,
         };
-        final imageLeft = alignment == NoteImageAlignment.free
-            ? freeX
-            : fixedLeft.clamp(0.0, math.max(0, blockWidth - visualWidth));
-        final imageTop =
-            blockVerticalPadding +
-            (alignment == NoteImageAlignment.free ? freeY : 0.0);
-        final handleHeight = selected ? 26.0 : 0.0;
+        final imageLeft = fixedLeft.clamp(
+          0.0,
+          math.max(0, blockWidth - visualWidth),
+        );
+        final imageTop = blockVerticalPadding + handlePadding;
         final imageBlockHeight =
-            imageTop + visualHeight + blockVerticalPadding + handleHeight;
-        final clampingHeight = alignment == NoteImageAlignment.free
-            ? math.max(
-                imageBlockHeight,
-                visualHeight + maxFreeOffsetY + blockVerticalPadding * 2,
-              )
-            : math.max(imageBlockHeight, 80.0);
+            imageTop + visualHeight + blockVerticalPadding + handlePadding;
+        final clampingHeight = math.max(imageBlockHeight, 80.0);
         final imageRect = Rect.fromLTWH(
           imageLeft.toDouble(),
           imageTop,
@@ -11151,11 +11448,7 @@ class InlineRichImageBlock extends StatelessWidget {
 
         Widget buildImageBox(Size size) {
           return MouseRegion(
-            cursor: readOnly
-                ? SystemMouseCursors.click
-                : alignment == NoteImageAlignment.free
-                ? SystemMouseCursors.move
-                : SystemMouseCursors.click,
+            cursor: SystemMouseCursors.click,
             child: Container(
               width: size.width,
               height: size.height,
@@ -11184,9 +11477,7 @@ class InlineRichImageBlock extends StatelessWidget {
           );
         }
 
-        final handleSet = alignment == NoteImageAlignment.free
-            ? {...fbt.HandlePosition.values}
-            : {fbt.HandlePosition.bottomRight};
+        final handleSet = {...fbt.HandlePosition.values};
         final transformableImage = selected && !readOnly
             ? fbt.TransformableBox(
                 rect: imageRect,
@@ -11197,7 +11488,7 @@ class InlineRichImageBlock extends StatelessWidget {
                   maxWidth: maxImageWidth,
                   maxHeight: 520,
                 ),
-                draggable: alignment == NoteImageAlignment.free,
+                draggable: false,
                 resizable: true,
                 allowFlippingWhileResizing: false,
                 enabledHandles: handleSet,
@@ -11210,14 +11501,6 @@ class InlineRichImageBlock extends StatelessWidget {
                     'width': rect.width.clamp(80.0, maxImageWidth).toDouble(),
                     'height': rect.height.clamp(60.0, 520.0).toDouble(),
                   };
-                  if (alignment == NoteImageAlignment.free) {
-                    next['offsetX'] = rect.left
-                        .clamp(0.0, math.max(0, blockWidth - rect.width))
-                        .toDouble();
-                    next['offsetY'] = (rect.top - blockVerticalPadding)
-                        .clamp(0.0, maxFreeOffsetY)
-                        .toDouble();
-                  }
                   onChanged(next);
                 },
                 cornerHandleBuilder: richImageTransformHandle,
@@ -11594,9 +11877,7 @@ class _ModernRichImageEditToolbarState
             RichToolbarIconButton(
               tooltip: '縮放',
               icon: Icons.open_with,
-              active: alignment == NoteImageAlignment.free,
-              onPressed: () =>
-                  setValue('alignment', NoteImageAlignment.free.name),
+              onPressed: () {},
             ),
             RichToolbarIconButton(
               tooltip: '框線線徑 ${borderWidth.toStringAsFixed(1)}',
