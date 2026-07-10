@@ -8351,6 +8351,8 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       'bytesBase64': base64Encode(bytes),
       'size': file.size,
       'alignment': NoteImageAlignment.left.name,
+      'x': 0.0,
+      'y': 0.0,
       'width': initialWidth,
       'height': initialHeight,
       'naturalWidth': naturalWidth,
@@ -9111,6 +9113,58 @@ class RichNoteTextController extends TextEditingController {
     }
     final mark = _marks[index];
     replaceTextRange(mark.start, mark.end, '');
+  }
+
+  bool moveEmbedBlock({
+    required String type,
+    required String id,
+    required int direction,
+  }) {
+    final index = _marks.indexWhere(
+      (mark) =>
+          mark.attributes[RichNoteAttribute.embedType] == type &&
+          mark.attributes[RichNoteAttribute.embedId] == id,
+    );
+    if (index < 0 || direction == 0) {
+      return false;
+    }
+    final mark = _marks[index];
+    final currentText = text;
+    var insertAt = mark.start;
+    if (direction < 0) {
+      var before = mark.start;
+      while (before > 0 && currentText[before - 1] == '\n') {
+        before--;
+      }
+      if (before <= 0) {
+        return false;
+      }
+      insertAt = currentText.lastIndexOf('\n', before - 1) + 1;
+    } else {
+      var after = mark.end;
+      while (after < currentText.length && currentText[after] == '\n') {
+        after++;
+      }
+      if (after >= currentText.length) {
+        return false;
+      }
+      final nextBreak = currentText.indexOf('\n', after);
+      insertAt = nextBreak < 0 ? currentText.length : nextBreak + 1;
+    }
+    if (insertAt == mark.start) {
+      return false;
+    }
+    replaceTextRange(mark.start, mark.end, '');
+    final adjustedInsertAt = insertAt > mark.start
+        ? insertAt - (mark.end - mark.start)
+        : insertAt;
+    value = value.copyWith(
+      selection: TextSelection.collapsed(
+        offset: adjustedInsertAt.clamp(0, text.length).toInt(),
+      ),
+    );
+    insertEmbedBlock(type: type, id: id);
+    return true;
   }
 
   void clearTextSelectionForImageInteraction() {
@@ -10403,7 +10457,7 @@ class RichImageTapTarget {
 
   String visualTapDebugLog() {
     return 'IMAGE_VISUAL_TAP id=$id '
-        'imageBlock.y=0.0 '
+        'imageBlock.y=${visualLocalRect.top.toStringAsFixed(1)} '
         'imageBlock.height=${imageBlockHeight.toStringAsFixed(1)} '
         'imageVisualRect=${visualLocalRect.left.toStringAsFixed(1)},'
         '${visualLocalRect.top.toStringAsFixed(1)},'
@@ -10445,17 +10499,19 @@ List<RichNoteFlowBlock> richNoteFlowBlocks(RichNoteTextController controller) {
   var order = 0;
   var textStart = 0;
 
-  void addTextBlock(int start, int end) {
-    if (end <= start && blocks.isNotEmpty) {
+  void addTextBlock(int start, int end, {bool force = false}) {
+    final safeStart = start.clamp(0, text.length).toInt();
+    final safeEnd = end.clamp(safeStart, text.length).toInt();
+    if (!force && safeEnd <= safeStart && blocks.isNotEmpty) {
       return;
     }
     blocks.add(
       RichNoteFlowBlock(
         type: RichNoteFlowBlockType.text,
         order: order++,
-        start: start,
-        end: end,
-        text: text.substring(start, end),
+        start: safeStart,
+        end: safeEnd,
+        text: text.substring(safeStart, safeEnd),
       ),
     );
   }
@@ -10500,9 +10556,15 @@ List<RichNoteFlowBlock> richNoteFlowBlocks(RichNoteTextController controller) {
     }
   }
 
-  addTextBlock(textStart, text.length);
+  final needsTrailingText =
+      blocks.isEmpty || blocks.last.type != RichNoteFlowBlockType.text;
+  addTextBlock(
+    textStart,
+    text.length,
+    force: needsTrailingText && textStart >= text.length,
+  );
   if (blocks.isEmpty) {
-    addTextBlock(0, 0);
+    addTextBlock(0, 0, force: true);
   }
   return blocks;
 }
@@ -10554,6 +10616,7 @@ class _GeneralRichTextEditorPanelState
   Timer? restoreBodyFocusTimer;
   Timer? clearSuppressedParagraphTapTimer;
   bool suppressNextParagraphTap = false;
+  DateTime? lastImageMoveRequestAt;
 
   Map<String, dynamic>? get selectedImage =>
       selectedEmbedType == richNoteEmbedTypeImage
@@ -10691,6 +10754,29 @@ class _GeneralRichTextEditorPanelState
         .toList(growable: false);
     widget.controller.isolateEmbedBlocks(images: next);
     widget.onImagesChanged(next);
+  }
+
+  void requestImageBlockMove(String id, int direction) {
+    final now = DateTime.now();
+    final last = lastImageMoveRequestAt;
+    if (last != null && now.difference(last).inMilliseconds < 450) {
+      return;
+    }
+    lastImageMoveRequestAt = now;
+    final moved = widget.controller.moveEmbedBlock(
+      type: richNoteEmbedTypeImage,
+      id: id,
+      direction: direction,
+    );
+    if (!moved) {
+      return;
+    }
+    final image = nullableMapById(widget.images, id);
+    if (image != null) {
+      updateImage({...image, 'y': 0.0});
+    } else {
+      setState(() {});
+    }
   }
 
   void updateAttachment(Map<String, dynamic> attachment) {
@@ -11047,6 +11133,11 @@ class _GeneralRichTextEditorPanelState
                                             ),
                                         onLayoutChanged: registerImageTapTarget,
                                         onChanged: updateImage,
+                                        onMoveRequest: (direction) =>
+                                            requestImageBlockMove(
+                                              block.id,
+                                              direction,
+                                            ),
                                       ),
                                     RichNoteFlowBlockType.attachment =>
                                       InlineRichAttachmentBlock(
@@ -11323,6 +11414,7 @@ class InlineRichImageBlock extends StatelessWidget {
     required this.onBlockTap,
     required this.onLayoutChanged,
     required this.onChanged,
+    this.onMoveRequest,
   });
 
   final Map<String, dynamic> image;
@@ -11333,19 +11425,17 @@ class InlineRichImageBlock extends StatelessWidget {
   final VoidCallback onBlockTap;
   final ValueChanged<RichImageTapTarget> onLayoutChanged;
   final ValueChanged<Map<String, dynamic>> onChanged;
+  final ValueChanged<int>? onMoveRequest;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final bytes = decodeBase64BytesOrNull(readString(image['bytesBase64']));
-    final storedAlignment = readEnum(
+    final alignment = readEnum(
       NoteImageAlignment.values,
       image['alignment'],
       NoteImageAlignment.left,
     );
-    final alignment = storedAlignment == NoteImageAlignment.free
-        ? NoteImageAlignment.left
-        : storedAlignment;
     return LayoutBuilder(
       builder: (context, constraints) {
         final blockWidth = math
@@ -11357,7 +11447,7 @@ class InlineRichImageBlock extends StatelessWidget {
                       : 680.0),
             )
             .toDouble();
-        final maxImageWidth = math.min(blockWidth, 680.0);
+        final maxImageWidth = math.max(80.0, blockWidth);
         final width = readDouble(
           image['width'],
           fallback: 240,
@@ -11365,39 +11455,34 @@ class InlineRichImageBlock extends StatelessWidget {
         final height = readDouble(
           image['height'],
           fallback: 160,
-        ).clamp(60.0, 520.0).toDouble();
-        final naturalWidth = readDouble(image['naturalWidth'], fallback: width);
-        final naturalHeight = readDouble(
-          image['naturalHeight'],
-          fallback: height,
-        );
-        final fittedSize = fittedImageDisplaySize(
-          boxWidth: width,
-          boxHeight: height,
-          naturalWidth: naturalWidth,
-          naturalHeight: naturalHeight,
-        );
-        final visualWidth = fittedSize.width;
-        final visualHeight = fittedSize.height;
+        ).clamp(60.0, 900.0).toDouble();
+        final visualWidth = width;
+        final visualHeight = height;
         final borderWidth = readDouble(image['borderWidth']);
         final borderColor = colorFromHex(
           readString(image['borderColor'], fallback: '#5967D8'),
         );
-        const blockVerticalPadding = 8.0;
-        final handlePadding = selected ? 18.0 : 0.0;
+        const blockVerticalPadding = 10.0;
+        const handlePadding = 18.0;
         final fixedLeft = switch (alignment) {
           NoteImageAlignment.center => (blockWidth - visualWidth) / 2,
           NoteImageAlignment.right => blockWidth - visualWidth,
           _ => 0.0,
         };
-        final imageLeft = fixedLeft.clamp(
-          0.0,
-          math.max(0, blockWidth - visualWidth),
-        );
-        final imageTop = blockVerticalPadding + handlePadding;
+        final freeLeft = readDouble(image['x'], fallback: fixedLeft);
+        final imageLeft =
+            (alignment == NoteImageAlignment.free ? freeLeft : fixedLeft)
+                .clamp(0.0, math.max(0, blockWidth - visualWidth))
+                .toDouble();
+        final imageOffsetY = readDouble(image['y']).clamp(0.0, 1200.0);
+        final imageTop =
+            blockVerticalPadding + handlePadding + imageOffsetY.toDouble();
         final imageBlockHeight =
             imageTop + visualHeight + blockVerticalPadding + handlePadding;
-        final clampingHeight = math.max(imageBlockHeight, 80.0);
+        final clampingHeight = math.max(
+          imageBlockHeight + 320.0,
+          visualHeight + blockVerticalPadding + (handlePadding * 2) + 120.0,
+        );
         final imageRect = Rect.fromLTWH(
           imageLeft.toDouble(),
           imageTop,
@@ -11428,7 +11513,8 @@ class InlineRichImageBlock extends StatelessWidget {
           final blockBottom = imageBlockHeight;
           debugPrint(
             'IMAGE_VISUAL_TAP id=${readString(image['id'])} '
-            'imageBlock.y=0.0 imageBlock.height=${imageBlockHeight.toStringAsFixed(1)} '
+            'imageBlock.y=${imageTop.toStringAsFixed(1)} '
+            'imageBlock.height=${imageBlockHeight.toStringAsFixed(1)} '
             'imageVisualRect=${imageRect.left.toStringAsFixed(1)},'
             '${imageRect.top.toStringAsFixed(1)},'
             '${imageRect.width.toStringAsFixed(1)},'
@@ -11446,9 +11532,30 @@ class InlineRichImageBlock extends StatelessWidget {
           onBlockTap();
         }
 
+        void applyTransformRect(Rect rect) {
+          final nextWidth = rect.width.clamp(80.0, maxImageWidth).toDouble();
+          final nextHeight = rect.height.clamp(60.0, 900.0).toDouble();
+          final nextX = rect.left
+              .clamp(0.0, math.max(0.0, blockWidth - nextWidth))
+              .toDouble();
+          final nextY = (rect.top - blockVerticalPadding - handlePadding)
+              .clamp(0.0, 1200.0)
+              .toDouble();
+          onChanged({
+            ...image,
+            'alignment': NoteImageAlignment.free.name,
+            'x': nextX,
+            'y': nextY,
+            'width': nextWidth,
+            'height': nextHeight,
+          });
+        }
+
         Widget buildImageBox(Size size) {
           return MouseRegion(
-            cursor: SystemMouseCursors.click,
+            cursor: selected && !readOnly
+                ? SystemMouseCursors.move
+                : SystemMouseCursors.click,
             child: Container(
               width: size.width,
               height: size.height,
@@ -11477,7 +11584,16 @@ class InlineRichImageBlock extends StatelessWidget {
           );
         }
 
-        final handleSet = {...fbt.HandlePosition.values};
+        final handleSet = <fbt.HandlePosition>{
+          fbt.HandlePosition.topLeft,
+          fbt.HandlePosition.top,
+          fbt.HandlePosition.topRight,
+          fbt.HandlePosition.left,
+          fbt.HandlePosition.right,
+          fbt.HandlePosition.bottomLeft,
+          fbt.HandlePosition.bottom,
+          fbt.HandlePosition.bottomRight,
+        };
         final transformableImage = selected && !readOnly
             ? fbt.TransformableBox(
                 rect: imageRect,
@@ -11486,23 +11602,22 @@ class InlineRichImageBlock extends StatelessWidget {
                   minWidth: 80,
                   minHeight: 60,
                   maxWidth: maxImageWidth,
-                  maxHeight: 520,
+                  maxHeight: 900,
                 ),
-                draggable: false,
+                resizeModeResolver: () => fbt.ResizeMode.freeform,
+                draggable: true,
                 resizable: true,
                 allowFlippingWhileResizing: false,
                 enabledHandles: handleSet,
                 visibleHandles: handleSet,
                 onTap: handleImageVisualTap,
-                onChanged: (result, event) {
-                  final rect = result.rect;
-                  final next = <String, dynamic>{
-                    ...image,
-                    'width': rect.width.clamp(80.0, maxImageWidth).toDouble(),
-                    'height': rect.height.clamp(60.0, 520.0).toDouble(),
-                  };
-                  onChanged(next);
+                onDragUpdate: (result, event) {
+                  final topLimit = blockVerticalPadding + handlePadding + 2;
+                  if (event.delta.dy < -3 && result.rect.top <= topLimit) {
+                    onMoveRequest?.call(-1);
+                  }
                 },
+                onChanged: (result, event) => applyTransformRect(result.rect),
                 cornerHandleBuilder: richImageTransformHandle,
                 sideHandleBuilder: richImageTransformHandle,
                 contentBuilder: (context, rect, flip) =>
@@ -11791,6 +11906,8 @@ class ModernRichImageEditToolbar extends StatefulWidget {
 class _ModernRichImageEditToolbarState
     extends State<ModernRichImageEditToolbar> {
   bool showColorToolbar = false;
+  bool showBorderToolbar = false;
+  late final TextEditingController borderWidthController;
 
   static const borderColors = [
     '#202522',
@@ -11804,8 +11921,63 @@ class _ModernRichImageEditToolbarState
     '#12B5CB',
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    borderWidthController = TextEditingController(text: formattedBorderWidth);
+  }
+
+  @override
+  void didUpdateWidget(covariant ModernRichImageEditToolbar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final imageChanged =
+        readString(oldWidget.image['id']) != readString(widget.image['id']);
+    final widthChanged =
+        readDouble(oldWidget.image['borderWidth']) !=
+        readDouble(widget.image['borderWidth']);
+    if (imageChanged || (!showBorderToolbar && widthChanged)) {
+      borderWidthController.text = formattedBorderWidth;
+    }
+  }
+
+  @override
+  void dispose() {
+    borderWidthController.dispose();
+    super.dispose();
+  }
+
+  String get formattedBorderWidth {
+    final current = readDouble(widget.image['borderWidth']);
+    return current == current.roundToDouble()
+        ? current.toStringAsFixed(0)
+        : current.toStringAsFixed(1);
+  }
+
   void setValue(String key, Object value) {
     widget.onImageChanged({...widget.image, key: value});
+  }
+
+  void toggleBorderWidthEditor() {
+    setState(() {
+      showBorderToolbar = !showBorderToolbar;
+      if (showBorderToolbar) {
+        showColorToolbar = false;
+        borderWidthController.text = formattedBorderWidth;
+      }
+    });
+  }
+
+  void cancelBorderWidthEdit() {
+    setState(() {
+      borderWidthController.text = formattedBorderWidth;
+      showBorderToolbar = false;
+    });
+  }
+
+  void applyBorderWidthEdit() {
+    final parsed = double.tryParse(borderWidthController.text.trim());
+    setValue('borderWidth', (parsed ?? 0).clamp(0.0, 24.0).toDouble());
+    setState(() => showBorderToolbar = false);
   }
 
   Future<void> editBorderWidth() async {
@@ -11882,15 +12054,19 @@ class _ModernRichImageEditToolbarState
             RichToolbarIconButton(
               tooltip: '框線線徑 ${borderWidth.toStringAsFixed(1)}',
               icon: Icons.border_outer,
-              active: borderWidth > 0,
-              onPressed: editBorderWidth,
+              active: showBorderToolbar || borderWidth > 0,
+              onPressed: toggleBorderWidthEditor,
             ),
             RichToolbarColorToggleButton(
               tooltip: '框線顏色',
               selectedColor: borderColor,
               active: showColorToolbar,
-              onPressed: () =>
-                  setState(() => showColorToolbar = !showColorToolbar),
+              onPressed: () => setState(() {
+                showColorToolbar = !showColorToolbar;
+                if (showColorToolbar) {
+                  showBorderToolbar = false;
+                }
+              }),
             ),
             RichToolbarIconButton(
               tooltip: '靠左',
@@ -11925,6 +12101,46 @@ class _ModernRichImageEditToolbarState
             ),
           ],
         ),
+        if (showBorderToolbar) ...[
+          const SizedBox(height: 6),
+          _RichAssetToolbarShell(
+            children: [
+              SizedBox(
+                width: 112,
+                height: 40,
+                child: TextField(
+                  controller: borderWidthController,
+                  autofocus: true,
+                  textAlign: TextAlign.center,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d*\.?\d{0,2}'),
+                    ),
+                  ],
+                  onSubmitted: (_) => applyBorderWidthEdit(),
+                  decoration: const InputDecoration(
+                    suffixText: 'px',
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 10),
+                  ),
+                ),
+              ),
+              RichToolbarIconButton(
+                tooltip: '取消',
+                icon: Icons.close,
+                onPressed: cancelBorderWidthEdit,
+              ),
+              RichToolbarIconButton(
+                tooltip: '套用',
+                icon: Icons.check,
+                onPressed: applyBorderWidthEdit,
+              ),
+            ],
+          ),
+        ],
         if (showColorToolbar) ...[
           const SizedBox(height: 6),
           _RichAssetToolbarShell(

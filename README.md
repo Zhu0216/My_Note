@@ -1,41 +1,41 @@
 # My Note
 
-All-in-one 個人管理筆記本，使用 Flutter 開發，目標支援 Android、Flutter Web，並逐步接入 Firebase Auth、Cloud Firestore、Firebase Storage、FCM 與 Firebase Hosting。
+All-in-one 個人管理筆記本，使用 Flutter 建置，目標支援 Android 手機/平板與 Flutter Web。第一版以地端功能完整為主，Firebase 連線與部署能力已逐步接入，後續可延伸到 Google Play / Apple App Store 上線流程。
 
-## 目前功能
+## 主要功能
 
-- Home 首頁：月結算、今日行程、即將到來、最近筆記、待辦事項、可調整區塊順序與顯示樣式。
-- Notes 筆記：資料夾、未分類、垃圾桶、搜尋/篩選、排序、清單/格線/簡易清單、批次編輯、置頂、左滑刪除。
-- 一般筆記編輯：標題與標籤直接編輯、rich text toolbar、文字樣式、清單、待辦核取方塊、圖片、附件、背景設定、另存為入口。
-- 筆記模板：筆記、計劃、心智圖、人生試算表。四種模板已分流，未來可各自擴充成不同資料格式。
-- Calendar 行程：日期點選、當日行程、新增/編輯/刪除、時間選擇、左滑刪除。
-- Finance 記帳：存餘、本月收入、本月支出、收支紀錄、支出/收入統計、預算、存餘帳戶管理。
-- Settings 設定：Firebase 與未來同步設定入口。
+- Home 首頁：月結算、今日行程、即將到來、最近筆記、待辦事項與快速新增。
+- Notes 筆記：資料夾、標籤、搜尋、排序、檢視模式、模板篩選、置頂、垃圾桶、多選編輯。
+- Rich Note Editor：文字格式、待辦核取方塊、圖片、附件、背景設定、匯出入口。
+- Calendar 行程：月曆、日期行程清單、新增/編輯/刪除行程、提醒欄位。
+- Finance 記帳：存餘帳戶、收入、支出、分類統計、預算提醒、訂閱管理。
+- Settings 設定：Firebase 狀態與未來同步/部署設定入口。
 
 ## 筆記圖片編輯
 
-- 圖片現在不再放在 `TextField` 的 inline `WidgetSpan` 裡排版，改為 editor flow 中的獨立圖片 block。
-- 圖片 block 與文字 block 依序排列，達成類似 Word「上及下」的文繞圖方式。
-- 文字只能出現在圖片上方或下方，不會與圖片在同一個 y 範圍重疊。
-- 點擊圖片本體會立即選取圖片並顯示圖片 toolbar。
-- 圖片 toolbar 包含裁切、縮放、框線線徑、框線顏色、靠左、置中、靠右、刪除與完成。
-- 縮放只改變圖片尺寸，不改變對齊；對齊只改變水平位置。
-- 選取圖片時八個縮放控制點可見：左上、上、右上、左、右、左下、下、右下。
+- 圖片不再使用 editor 外層浮動層，而是 document flow 中的獨立圖片 block。
+- 圖片 block 會佔用真實 layout 高度，圖片下方段落會排在圖片 block 底部之後。
+- 圖片點擊範圍與實際顯示範圍一致，點擊圖片本體會直接選取圖片並顯示圖片 toolbar。
+- 圖片儲存 `x`、`y`、`width`、`height` 數值；拖移會更新座標，縮放會更新尺寸。
+- 縮放使用八個控制點，支援非等比例縮放。
+- 對齊功能只調整水平位置；自由拖移會從目前位置開始，不再被對齊重置。
+- 圖片外框線徑改為 toolbar 內嵌輸入列，取消與套用不再開啟系統 dialog。
+- 插入圖片後會保留圖片下方空白輸入段落，避免圖片在文末時無法繼續輸入。
 
 ## Firebase 規劃
 
 - Firebase Auth：使用者登入。
-- Cloud Firestore：筆記、行程、訂閱、記帳與待辦資料。
+- Cloud Firestore：筆記、行程、訂閱、記帳資料。
 - Firebase Storage：附件與圖片。
 - Cloud Functions：背景任務與未來 Google Calendar 同步。
 - Firebase Hosting：Flutter Web 部署。
 - FCM：手機推播通知。
 
-第一版以地端功能完整為主，Firebase 相關設定已規劃但尚未全面啟用。
+目前 Firebase CLI 登入曾受本機 OAuth/網路環境影響，專案端已保留 Firebase 設定入口與 `firebase_options.dart` 結構，後續完成登入後可繼續初始化服務。
 
-## 開發指令
+## 開發命令
 
-PowerShell：
+PowerShell:
 
 ```powershell
 .\scripts\flutter_project.ps1 pub get
@@ -44,7 +44,7 @@ PowerShell：
 .\scripts\flutter_project.ps1 build apk --debug
 ```
 
-CMD：
+CMD:
 
 ```cmd
 scripts\flutter_project.cmd pub get
@@ -52,7 +52,7 @@ scripts\flutter_project.cmd analyze
 scripts\flutter_project.cmd build apk --debug
 ```
 
-安裝到 Android 裝置：
+安裝到 Android 裝置:
 
 ```powershell
 .\scripts\flutter_project.ps1 install -d <device-id>
@@ -60,22 +60,24 @@ scripts\flutter_project.cmd build apk --debug
 
 ## 本次驗證
 
-- `dart format lib/main.dart`：成功。
-- `dart analyze lib/main.dart`：成功，No issues found。
-- `flutter build apk --debug --no-pub`：成功。
-- X510 實機安裝：成功。
-- X510 實機截圖確認：圖片上方文字、圖片 block、圖片下方文字依序排列，文字不再被圖片遮擋。
-- X510 實機截圖確認：點擊圖片本體可立即選取圖片，顯示圖片 toolbar 與八個縮放控制點。
-- `flutter build web --debug --no-wasm-dry-run --no-pub`：成功。
-- Web 靜態伺服器：`http://127.0.0.1:8080/` 回應 200，已開啟瀏覽器。
+- `dart analyze lib/main.dart`：通過，No issues found。
+- `flutter build web --no-pub`：通過，輸出 `build\web`。
+- `flutter build apk --debug --no-pub`：通過，輸出 `build\app\outputs\flutter-apk\app-debug.apk`。
+- X510 安裝：成功安裝 `com.allinone.mynote` debug APK。
+- X510 圖片插入：成功插入圖片，圖片下方保留可輸入段落。
+- X510 圖片選取：點擊圖片本體後立即顯示圖片 toolbar 與八個控制點。
+- X510 外框取消/套用：兩者皆未出現紅畫面。
+- X510 圖片縮放：拖曳右下控制點可改變圖片尺寸，下方輸入行會被往下推。
+- X510 圖片拖移：拖曳圖片本體可更新位置，圖片仍在 flow block 中，不遮擋文字輸入行。
+- Web：`http://127.0.0.1:8080/` 已啟動並開啟瀏覽器檢視。
 
-## 已知事項
+## 已知警告
 
-- Android build 仍會顯示 KGP 警告，來源為 `file_picker`、`firebase_storage`、`share_plus` 仍套用 Kotlin Gradle Plugin。此警告不影響本次圖片排版修正，但未來 Flutter 版本可能需要等待外掛更新或替換套件。
-- 一般筆記已改為 block flow 編輯器，後續若要完整保留跨 block 的 rich text 選取與格式套用，需再細化文字 block selection 與 toolbar 的整合。
+- Android build 仍顯示 Kotlin Gradle Plugin 警告，來源為 `file_picker`、`firebase_storage`、`share_plus` 等套件尚未完全遷移到 Built-in Kotlin。此次不影響 debug APK 建置與安裝。
+- Web build 顯示 wasm dry run 警告，來源為第三方 web 套件的 JS interop runtime check。一般 Flutter Web build 可正常產出，若未來要啟用 wasm 需追蹤套件更新。
 
 ## 維護流程
 
-- 每次功能修正後更新 README。
-- 每次成功修改後更新 `.success.bak` 備份。
-- 不提交 build output、cache、暫存截圖、裝置 XML/log。
+- 每次成功修改後更新 README。
+- 每次成功修改後建立/更新成功備份。
+- 不提交 build output、cache、測試截圖、XML 或 log 暫存檔。
