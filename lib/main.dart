@@ -1970,7 +1970,7 @@ class _HomePageState extends State<HomePage>
         await showNoteEditor(context);
         break;
       case 'todo':
-        await showTodoDialog(context);
+        await openTodoEditorPage(context);
         break;
       case 'finance':
         await showFinanceEditor(context);
@@ -2144,7 +2144,7 @@ Widget homeSectionAction(
     ),
     HomeSectionId.todos => IconButton(
       tooltip: '新增待辦事項',
-      onPressed: () => showTodoDialog(context),
+      onPressed: () => openTodoEditorPage(context),
       icon: const Icon(Icons.add_task),
     ),
   };
@@ -2528,13 +2528,19 @@ class NotesHomeSection extends StatelessWidget {
       return HomeTileWrap(
         children: [
           for (final note in notes)
-            SizedBox(
-              width: homeGridTileWidth(context),
-              child: CompactInfoTile(
-                icon: note.isPinned ? Icons.push_pin : Icons.notes,
-                title: note.title,
-                subtitle: note.category,
-                onTap: () => showNoteEditor(context, note: note),
+            SwipeDeleteTile(
+              itemKey: 'home-note-${note.id}',
+              confirmTitle: '刪除筆記？',
+              confirmMessage: '確定要刪除這則筆記嗎？',
+              onDelete: () => store.deleteNote(note),
+              child: SizedBox(
+                width: homeGridTileWidth(context),
+                child: CompactInfoTile(
+                  icon: note.isPinned ? Icons.push_pin : Icons.notes,
+                  title: note.title,
+                  subtitle: note.category,
+                  onTap: () => showNoteEditor(context, note: note),
+                ),
               ),
             ),
         ],
@@ -2549,6 +2555,7 @@ class NotesHomeSection extends StatelessWidget {
             child: NoteTile(
               note: note,
               onTap: () => showNoteEditor(context, note: note),
+              onDelete: () => store.deleteNote(note),
             ),
           ),
       ],
@@ -2595,7 +2602,7 @@ class _TodoHomeSectionState extends State<TodoHomeSection> {
               ),
               IconButton(
                 tooltip: '新增待辦事項',
-                onPressed: () => showTodoDialog(context),
+                onPressed: () => openTodoEditorPage(context),
                 icon: const Icon(Icons.add_task),
               ),
               Icon(widget.collapsed ? Icons.expand_more : Icons.expand_less),
@@ -2775,7 +2782,7 @@ class _EditableTodoRowState extends State<EditableTodoRow> {
       context,
     ).textTheme.labelSmall?.copyWith(color: Colors.black54);
     return InkWell(
-      onLongPress: () => showTodoDialog(context, todo: widget.todo),
+      onLongPress: () => openTodoEditorPage(context, todo: widget.todo),
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
@@ -2889,7 +2896,7 @@ class TodoCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: () => store.toggleTodo(todo),
-        onLongPress: () => showTodoDialog(context, todo: todo),
+        onLongPress: () => openTodoEditorPage(context, todo: todo),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(8, 8, 12, 12),
           child: Row(
@@ -8353,6 +8360,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       'alignment': NoteImageAlignment.left.name,
       'x': 0.0,
       'y': 0.0,
+      'locked': false,
       'width': initialWidth,
       'height': initialHeight,
       'naturalWidth': naturalWidth,
@@ -9866,6 +9874,7 @@ class RichNoteTextController extends TextEditingController {
                 image: image,
                 selected: selected,
                 readOnly: _renderReadOnly,
+                moveEnabled: false,
                 contentWidth: _renderContentWidth,
                 onSelect: () => _onEmbedSelected?.call(type, id),
                 onBlockTap: () => _onEmbedBlockTapped?.call(type, id),
@@ -10616,6 +10625,7 @@ class _GeneralRichTextEditorPanelState
   Timer? restoreBodyFocusTimer;
   Timer? clearSuppressedParagraphTapTimer;
   bool suppressNextParagraphTap = false;
+  bool imageMoveEnabled = false;
   DateTime? lastImageMoveRequestAt;
 
   Map<String, dynamic>? get selectedImage =>
@@ -10650,9 +10660,13 @@ class _GeneralRichTextEditorPanelState
       FocusManager.instance.primaryFocus?.unfocus();
       widget.controller.clearTextSelectionForImageInteraction();
     }
+    final isSameSelection = selectedEmbedType == type && selectedEmbedId == id;
     setState(() {
       selectedEmbedType = type;
       selectedEmbedId = id;
+      if (!isSameSelection || type != richNoteEmbedTypeImage) {
+        imageMoveEnabled = false;
+      }
     });
   }
 
@@ -10660,6 +10674,7 @@ class _GeneralRichTextEditorPanelState
     if (type == richNoteEmbedTypeImage) {
       FocusManager.instance.primaryFocus?.unfocus();
       widget.controller.clearTextSelectionForImageInteraction();
+      clearEmbedSelection();
     }
   }
 
@@ -10743,6 +10758,7 @@ class _GeneralRichTextEditorPanelState
       setState(() {
         selectedEmbedType = null;
         selectedEmbedId = null;
+        imageMoveEnabled = false;
       });
     }
   }
@@ -10993,7 +11009,10 @@ class _GeneralRichTextEditorPanelState
           if (selectedImage != null)
             ModernRichImageEditToolbar(
               image: selectedImage!,
+              moveEnabled: imageMoveEnabled,
               onImageChanged: updateImage,
+              onMoveEnabledChanged: (value) =>
+                  setState(() => imageMoveEnabled = value),
               onCrop: cropSelectedImage,
               onDelete: deleteSelectedImage,
               onDone: clearEmbedSelection,
@@ -11121,6 +11140,7 @@ class _GeneralRichTextEditorPanelState
                                                 richNoteEmbedTypeImage &&
                                             selectedEmbedId == block.id,
                                         readOnly: widget.readOnly,
+                                        moveEnabled: imageMoveEnabled,
                                         contentWidth: contentWidth,
                                         onSelect: () => selectEmbed(
                                           richNoteEmbedTypeImage,
@@ -11409,6 +11429,7 @@ class InlineRichImageBlock extends StatelessWidget {
     required this.image,
     required this.selected,
     required this.readOnly,
+    required this.moveEnabled,
     required this.contentWidth,
     required this.onSelect,
     required this.onBlockTap,
@@ -11420,6 +11441,7 @@ class InlineRichImageBlock extends StatelessWidget {
   final Map<String, dynamic> image;
   final bool selected;
   final bool readOnly;
+  final bool moveEnabled;
   final double? contentWidth;
   final VoidCallback onSelect;
   final VoidCallback onBlockTap;
@@ -11431,6 +11453,7 @@ class InlineRichImageBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final bytes = decodeBase64BytesOrNull(readString(image['bytesBase64']));
+    final locked = image['locked'] == true;
     final alignment = readEnum(
       NoteImageAlignment.values,
       image['alignment'],
@@ -11474,9 +11497,8 @@ class InlineRichImageBlock extends StatelessWidget {
             (alignment == NoteImageAlignment.free ? freeLeft : fixedLeft)
                 .clamp(0.0, math.max(0, blockWidth - visualWidth))
                 .toDouble();
-        final imageOffsetY = readDouble(image['y']).clamp(0.0, 1200.0);
-        final imageTop =
-            blockVerticalPadding + handlePadding + imageOffsetY.toDouble();
+        const imageOffsetY = 0.0;
+        final imageTop = blockVerticalPadding + handlePadding + imageOffsetY;
         final imageBlockHeight =
             imageTop + visualHeight + blockVerticalPadding + handlePadding;
         final clampingHeight = math.max(
@@ -11538,14 +11560,11 @@ class InlineRichImageBlock extends StatelessWidget {
           final nextX = rect.left
               .clamp(0.0, math.max(0.0, blockWidth - nextWidth))
               .toDouble();
-          final nextY = (rect.top - blockVerticalPadding - handlePadding)
-              .clamp(0.0, 1200.0)
-              .toDouble();
           onChanged({
             ...image,
             'alignment': NoteImageAlignment.free.name,
             'x': nextX,
-            'y': nextY,
+            'y': 0.0,
             'width': nextWidth,
             'height': nextHeight,
           });
@@ -11553,7 +11572,7 @@ class InlineRichImageBlock extends StatelessWidget {
 
         Widget buildImageBox(Size size) {
           return MouseRegion(
-            cursor: selected && !readOnly
+            cursor: selected && !readOnly && moveEnabled && !locked
                 ? SystemMouseCursors.move
                 : SystemMouseCursors.click,
             child: Container(
@@ -11594,7 +11613,7 @@ class InlineRichImageBlock extends StatelessWidget {
           fbt.HandlePosition.bottom,
           fbt.HandlePosition.bottomRight,
         };
-        final transformableImage = selected && !readOnly
+        final transformableImage = selected && !readOnly && !locked
             ? fbt.TransformableBox(
                 rect: imageRect,
                 clampingRect: Rect.fromLTWH(0, 0, blockWidth, clampingHeight),
@@ -11605,16 +11624,20 @@ class InlineRichImageBlock extends StatelessWidget {
                   maxHeight: 900,
                 ),
                 resizeModeResolver: () => fbt.ResizeMode.freeform,
-                draggable: true,
+                draggable: moveEnabled,
                 resizable: true,
                 allowFlippingWhileResizing: false,
                 enabledHandles: handleSet,
                 visibleHandles: handleSet,
                 onTap: handleImageVisualTap,
                 onDragUpdate: (result, event) {
-                  final topLimit = blockVerticalPadding + handlePadding + 2;
-                  if (event.delta.dy < -3 && result.rect.top <= topLimit) {
+                  if (!moveEnabled) {
+                    return;
+                  }
+                  if (event.delta.dy < -8) {
                     onMoveRequest?.call(-1);
+                  } else if (event.delta.dy > 8) {
+                    onMoveRequest?.call(1);
                   }
                 },
                 onChanged: (result, event) => applyTransformRect(result.rect),
@@ -11725,14 +11748,18 @@ class RichImageEditToolbar extends StatefulWidget {
   const RichImageEditToolbar({
     super.key,
     required this.image,
+    required this.moveEnabled,
     required this.onImageChanged,
+    required this.onMoveEnabledChanged,
     required this.onCrop,
     required this.onDelete,
     required this.onDone,
   });
 
   final Map<String, dynamic> image;
+  final bool moveEnabled;
   final ValueChanged<Map<String, dynamic>> onImageChanged;
+  final ValueChanged<bool> onMoveEnabledChanged;
   final VoidCallback onCrop;
   final VoidCallback onDelete;
   final VoidCallback onDone;
@@ -11886,14 +11913,18 @@ class ModernRichImageEditToolbar extends StatefulWidget {
   const ModernRichImageEditToolbar({
     super.key,
     required this.image,
+    required this.moveEnabled,
     required this.onImageChanged,
+    required this.onMoveEnabledChanged,
     required this.onCrop,
     required this.onDelete,
     required this.onDone,
   });
 
   final Map<String, dynamic> image;
+  final bool moveEnabled;
   final ValueChanged<Map<String, dynamic>> onImageChanged;
+  final ValueChanged<bool> onMoveEnabledChanged;
   final VoidCallback onCrop;
   final VoidCallback onDelete;
   final VoidCallback onDone;
@@ -11955,6 +11986,15 @@ class _ModernRichImageEditToolbarState
 
   void setValue(String key, Object value) {
     widget.onImageChanged({...widget.image, key: value});
+  }
+
+  void lockImage() {
+    widget.onMoveEnabledChanged(false);
+    setState(() {
+      showBorderToolbar = false;
+      showColorToolbar = false;
+    });
+    setValue('locked', true);
   }
 
   void toggleBorderWidthEditor() {
@@ -12026,6 +12066,20 @@ class _ModernRichImageEditToolbarState
 
   @override
   Widget build(BuildContext context) {
+    final locked = widget.image['locked'] == true;
+    if (locked) {
+      return _RichAssetToolbarShell(
+        children: [
+          RichToolbarIconButton(
+            tooltip: '解除鎖定',
+            icon: Icons.lock,
+            active: true,
+            onPressed: () => setValue('locked', false),
+          ),
+        ],
+      );
+    }
+
     final borderWidth = readDouble(widget.image['borderWidth']);
     final borderColor = readString(
       widget.image['borderColor'],
@@ -12047,9 +12101,10 @@ class _ModernRichImageEditToolbarState
               onPressed: widget.onCrop,
             ),
             RichToolbarIconButton(
-              tooltip: '縮放',
+              tooltip: '移動',
               icon: Icons.open_with,
-              onPressed: () {},
+              active: widget.moveEnabled,
+              onPressed: () => widget.onMoveEnabledChanged(!widget.moveEnabled),
             ),
             RichToolbarIconButton(
               tooltip: '框線線徑 ${borderWidth.toStringAsFixed(1)}',
@@ -12088,6 +12143,11 @@ class _ModernRichImageEditToolbarState
               active: alignment == NoteImageAlignment.right,
               onPressed: () =>
                   setValue('alignment', NoteImageAlignment.right.name),
+            ),
+            RichToolbarIconButton(
+              tooltip: '鎖定圖片',
+              icon: Icons.lock_open,
+              onPressed: lockImage,
             ),
             RichToolbarIconButton(
               tooltip: '刪除圖片',
@@ -15282,7 +15342,7 @@ Future<void> showQuickAddMenu(BuildContext context) async {
       await showNoteEditor(context);
       break;
     case 'todo':
-      await showTodoDialog(context);
+      await openTodoEditorPage(context);
       break;
     case 'finance':
       await showFinanceEditor(context);
@@ -15606,6 +15666,239 @@ class QuickAddOption extends StatelessWidget {
       title: Text(title),
       trailing: const Icon(Icons.chevron_right),
       onTap: () => onSelected(value),
+    );
+  }
+}
+
+Future<void> openTodoEditorPage(BuildContext context, {TodoItem? todo}) async {
+  await Navigator.of(
+    context,
+  ).push<void>(MaterialPageRoute(builder: (_) => TodoEditorPage(todo: todo)));
+}
+
+class TodoEditorPage extends StatefulWidget {
+  const TodoEditorPage({super.key, this.todo});
+
+  final TodoItem? todo;
+
+  @override
+  State<TodoEditorPage> createState() => _TodoEditorPageState();
+}
+
+class _TodoEditorPageState extends State<TodoEditorPage> {
+  late final TextEditingController controller;
+  late DateTime? dueDate;
+  late bool reminderEnabled;
+  late TimeOfDay reminderTime;
+
+  @override
+  void initState() {
+    super.initState();
+    final todo = widget.todo;
+    controller = TextEditingController(text: todo?.title ?? '');
+    dueDate = todo?.dueDate;
+    reminderEnabled = todo?.reminderEnabled ?? false;
+    reminderTime = todo?.reminderTime ?? const TimeOfDay(hour: 9, minute: 0);
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  void saveAndClose() {
+    final store = AppStoreScope.of(context);
+    final todo = widget.todo;
+    if (todo == null) {
+      store.addTodo(
+        controller.text,
+        dueDate: dueDate,
+        reminderEnabled: reminderEnabled,
+        reminderTime: reminderEnabled ? reminderTime : null,
+      );
+    } else {
+      final title = controller.text.trim();
+      todo.title = title.isEmpty ? todo.title : title;
+      todo.dueDate = dueDate;
+      todo.reminderEnabled = reminderEnabled;
+      todo.reminderTime = reminderEnabled ? reminderTime : null;
+      store.upsertTodo(todo);
+    }
+    Navigator.of(context).pop();
+  }
+
+  Future<void> deleteAndClose() async {
+    final todo = widget.todo;
+    if (todo == null) {
+      return;
+    }
+    final confirmed = await confirmDelete(
+      context,
+      title: '刪除待辦事項？',
+      message: '確定要刪除這個待辦事項嗎？',
+    );
+    if (!mounted || !confirmed) {
+      return;
+    }
+    AppStoreScope.of(context).deleteTodo(todo);
+    Navigator.of(context).pop();
+  }
+
+  Future<void> pickDueDate() async {
+    final picked = await showAppDatePicker(
+      context: context,
+      initialDate: dueDate ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null && mounted) {
+      setState(() => dueDate = picked);
+    }
+  }
+
+  Future<void> pickReminderTime() async {
+    final picked = await showAppTimePicker(
+      context,
+      initialTime: reminderTime,
+      helpText: '選擇提醒時間',
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        reminderTime = picked;
+        reminderEnabled = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isEditing = widget.todo != null;
+    return Scaffold(
+      backgroundColor: colorScheme.surfaceContainerLowest,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              InfoCard(
+                child: Row(
+                  children: [
+                    IconButton(
+                      tooltip: '返回',
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.arrow_back),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isEditing ? '編輯待辦' : '新增待辦',
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '期限、提醒與內容',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: const Color(0xff687386)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (isEditing)
+                      IconButton(
+                        tooltip: '刪除',
+                        onPressed: deleteAndClose,
+                        icon: const Icon(Icons.delete_outline),
+                      ),
+                    IconButton(
+                      tooltip: '儲存',
+                      onPressed: saveAndClose,
+                      icon: const Icon(Icons.check),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Expanded(
+                child: InfoCard(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      TextField(
+                        controller: controller,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          labelText: '標題',
+                          border: OutlineInputBorder(),
+                        ),
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => saveAndClose(),
+                      ),
+                      const SizedBox(height: 12),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.event_outlined),
+                        title: const Text('期限'),
+                        subtitle: Text(
+                          dueDate == null ? '無限期' : formatDate(dueDate!),
+                        ),
+                        onTap: pickDueDate,
+                        trailing: dueDate == null
+                            ? null
+                            : IconButton(
+                                tooltip: '清除期限',
+                                onPressed: () => setState(() => dueDate = null),
+                                icon: const Icon(Icons.close),
+                              ),
+                      ),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.notifications_outlined),
+                        title: const Text('提醒'),
+                        subtitle: Text(
+                          reminderEnabled
+                              ? formatTimeOfDayValue(reminderTime)
+                              : '未開啟',
+                        ),
+                        onTap: pickReminderTime,
+                        trailing: Switch(
+                          value: reminderEnabled,
+                          onChanged: (value) =>
+                              setState(() => reminderEnabled = value),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('取消'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: saveAndClose,
+                      child: Text(isEditing ? '儲存' : '新增'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
