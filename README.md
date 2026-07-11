@@ -82,12 +82,12 @@ scripts\flutter_project.cmd build apk --debug
 
 ## 本次驗證
 
-- `flutter analyze lib/main.dart`：通過，No issues found。
-- `flutter test test/widget_test.dart`：通過，包含 toolbar 選取文字套用格式、無選取時 typing mode、以及 editor UI 點擊 toolbar 的測試。
-- `flutter build web --no-pub`：通過，輸出 `build\web`。
+- `flutter analyze`：通過，No issues found。
+- `flutter test`：通過，包含 toolbar 選取文字套用格式、無選取時 typing mode、字級只作用於選取/後續輸入、字型 inline 標記、inline `TextStyle` 套用，以及圖片 block 可選取並顯示圖片 toolbar 的測試。
+- `flutter build web`：通過，輸出 `build\web`。
 - Web：`http://localhost:8080/` 回應 200，已開啟瀏覽器檢視最新 `build\web`。
-- `flutter build apk --debug --no-pub`：通過，輸出 `build\app\outputs\flutter-apk\app-debug.apk`。
-- X510：已安裝 debug APK 並啟動 `com.allinone.mynote`，截圖確認首頁正常顯示、無紅畫面。
+- `flutter build apk --debug`：通過，輸出 `build\app\outputs\flutter-apk\app-debug.apk`。
+- X510：已安裝 debug APK 並用 `monkey` 啟動 `com.allinone.mynote`；已擷取 `test_artifacts\my_note_x510_toolbar_check.png`，畫面正常、無紅畫面。
 
 ## 已知警告
 
