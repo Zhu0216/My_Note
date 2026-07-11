@@ -37,6 +37,8 @@ All-in-one 個人管理筆記本，使用 Flutter 建置，目標支援 Android 
 - 新筆記標題預設保持空白，只顯示 `請輸入標題` 提示；返回儲存時若仍未輸入才存成 `未命名筆記`。
 - 文字段落拆分後仍使用 rich text controller 呈現粗體、斜體、底線、上下標、程式碼、引用與待辦核取方塊。
 - 工具列新增字型選單，並保留字級、行距、復原/再製、圖片、附件與待辦插入。
+- 工具列會同步目前段落 TextField 的游標與反白範圍：選取文字時直接套用格式，未選取時切換接下來輸入的格式。
+- 工具列格式變更會立即刷新目前段落，不需重新進入頁面；下拉按鈕文字會自動省略，避免工具列 overflow。
 - 筆記內容 placeholder 只會在全文空白時顯示；已有文字、圖片、附件或待辦時不再顯示。
 - 點擊圖片 block 的空白處會跳到最近的文字輸入行，避免圖片區域產生游標。
 - 附件預覽會依檔案類型處理：圖片直接顯示、文字檔顯示可選取文字，其他檔案提供下載後用外部 App 開啟。
@@ -81,6 +83,7 @@ scripts\flutter_project.cmd build apk --debug
 ## 本次驗證
 
 - `flutter analyze lib/main.dart`：通過，No issues found。
+- `flutter test test/widget_test.dart`：通過，包含 toolbar 選取文字套用格式、無選取時 typing mode、以及 editor UI 點擊 toolbar 的測試。
 - `flutter build web --no-pub`：通過，輸出 `build\web`。
 - Web：`http://localhost:8080/` 回應 200，已開啟瀏覽器檢視最新 `build\web`。
 - `flutter build apk --debug --no-pub`：通過，輸出 `build\app\outputs\flutter-apk\app-debug.apk`。

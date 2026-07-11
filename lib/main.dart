@@ -9345,20 +9345,10 @@ class RichNoteTextController extends TextEditingController {
           );
         }
       }
-      final enabledAttributes = <String, dynamic>{
-        for (final entry in _typingAttributeOverrides.entries)
-          if (entry.value != false) entry.key: entry.value,
-      };
-      if (enabledAttributes.isNotEmpty) {
-        _marks.add(
-          RichNoteMark(
-            start: insertedRange.start,
-            end: insertedRange.end,
-            attributes: enabledAttributes,
-          ),
-        );
-      }
-      _marks = normalizeRichNoteMarks(_marks, text.length);
+      _applyTypingAttributeOverridesToRange(
+        insertedRange,
+        textLength: text.length,
+      );
     }
     if (text.isEmpty && change.replacementLength == 0) {
       _marks = [];
@@ -9626,12 +9616,11 @@ class RichNoteTextController extends TextEditingController {
   }
 
   void applyLineAttribute(String attribute, Object value) {
-    final selectionRange = normalizedSelectionRange();
-    if (selectionRange.isCollapsed) {
+    var range = currentLineRange();
+    if (range.isCollapsed) {
       toggleTypingAttribute(attribute, value);
       return;
     }
-    var range = currentLineRange();
     _pushCurrentUndo();
     _applyingChange = true;
     if (rangeHasAttribute(range, attribute, value: value)) {
@@ -9650,6 +9639,34 @@ class RichNoteTextController extends TextEditingController {
     _syncLastSnapshot();
     _applyingChange = false;
     notifyListeners();
+  }
+
+  void _applyTypingAttributeOverridesToRange(
+    TextRange range, {
+    required int textLength,
+  }) {
+    if (range.isCollapsed || _typingAttributeOverrides.isEmpty) {
+      return;
+    }
+    for (final entry in _typingAttributeOverrides.entries) {
+      if (entry.value == false) {
+        _marks = removeRichNoteAttribute(_marks, range, entry.key, textLength);
+      }
+    }
+    final enabledAttributes = <String, dynamic>{
+      for (final entry in _typingAttributeOverrides.entries)
+        if (entry.value != false) entry.key: entry.value,
+    };
+    if (enabledAttributes.isNotEmpty) {
+      _marks.add(
+        RichNoteMark(
+          start: range.start,
+          end: range.end,
+          attributes: enabledAttributes,
+        ),
+      );
+    }
+    _marks = normalizeRichNoteMarks(_marks, textLength);
   }
 
   void toggleTypingAttribute(String attribute, Object value) {
@@ -9671,6 +9688,28 @@ class RichNoteTextController extends TextEditingController {
         _marks = removeRichNoteAttribute(_marks, range, opposite, text.length);
       }
     }
+    notifyListeners();
+  }
+
+  void updateSelectionFromFlow(TextSelection selection) {
+    if (!selection.isValid) {
+      return;
+    }
+    final nextSelection = TextSelection(
+      baseOffset: selection.baseOffset.clamp(0, text.length).toInt(),
+      extentOffset: selection.extentOffset.clamp(0, text.length).toInt(),
+      affinity: selection.affinity,
+      isDirectional: selection.isDirectional,
+    );
+    final nextValue = value.copyWith(
+      selection: nextSelection,
+      composing: TextRange.empty,
+    );
+    _applyingChange = true;
+    value = nextValue;
+    _lastValue = nextValue;
+    _rememberSelection();
+    _applyingChange = false;
     notifyListeners();
   }
 
@@ -9759,7 +9798,12 @@ class RichNoteTextController extends TextEditingController {
     replaceTextRange(lineStart, lineEnd, replacement);
   }
 
-  void replaceTextRange(int start, int end, String replacement) {
+  void replaceTextRange(
+    int start,
+    int end,
+    String replacement, {
+    bool applyTypingAttributes = true,
+  }) {
     _pushCurrentUndo();
     _applyingChange = true;
     final nextText = text.replaceRange(start, end, replacement);
@@ -9770,6 +9814,12 @@ class RichNoteTextController extends TextEditingController {
       replacementLength: replacement.length,
       textLength: nextText.length,
     );
+    if (applyTypingAttributes && replacement.isNotEmpty) {
+      _applyTypingAttributeOverridesToRange(
+        TextRange(start: start, end: start + replacement.length),
+        textLength: nextText.length,
+      );
+    }
     _marks = normalizeRichNoteMarks(_marks, nextText.length);
     value = TextEditingValue(
       text: nextText,
@@ -10629,6 +10679,10 @@ class RichNoteFlowTextController extends TextEditingController {
     this.readOnly = readOnly;
   }
 
+  void notifyRichSourceChanged() {
+    notifyListeners();
+  }
+
   bool _isTodoMarkerAt(int index) {
     if (index < 0 || index >= text.length) {
       return false;
@@ -10842,6 +10896,9 @@ class _GeneralRichTextEditorPanelState
   Timer? clearSuppressedParagraphTapTimer;
   bool suppressNextParagraphTap = false;
   bool imageMoveEnabled = false;
+  bool updatingFlowTextController = false;
+  bool refreshingFlowFormatting = false;
+  late String richControllerContentSignature;
   DateTime? lastImageMoveRequestAt;
 
   Map<String, dynamic>? get selectedImage =>
@@ -10855,7 +10912,27 @@ class _GeneralRichTextEditorPanelState
       : null;
 
   @override
+  void initState() {
+    super.initState();
+    richControllerContentSignature = richControllerSignature(widget.controller);
+    widget.controller.addListener(handleRichControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant GeneralRichTextEditorPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(handleRichControllerChanged);
+      richControllerContentSignature = richControllerSignature(
+        widget.controller,
+      );
+      widget.controller.addListener(handleRichControllerChanged);
+    }
+  }
+
+  @override
   void dispose() {
+    widget.controller.removeListener(handleRichControllerChanged);
     restoreBodyFocusTimer?.cancel();
     clearSuppressedParagraphTapTimer?.cancel();
     for (final controller in flowTextControllers.values) {
@@ -10866,6 +10943,32 @@ class _GeneralRichTextEditorPanelState
     }
     bodyFocusNode.dispose();
     super.dispose();
+  }
+
+  String richControllerSignature(RichNoteTextController controller) {
+    return jsonEncode({
+      'text': controller.text,
+      'marks': controller.marks.map((mark) => mark.toJson()).toList(),
+    });
+  }
+
+  void handleRichControllerChanged() {
+    final nextSignature = richControllerSignature(widget.controller);
+    if (nextSignature == richControllerContentSignature) {
+      return;
+    }
+    richControllerContentSignature = nextSignature;
+    if (!mounted) {
+      return;
+    }
+    refreshingFlowFormatting = true;
+    for (final controller in flowTextControllers.values) {
+      if (controller is RichNoteFlowTextController) {
+        controller.notifyRichSourceChanged();
+      }
+    }
+    refreshingFlowFormatting = false;
+    setState(() {});
   }
 
   void selectEmbed(String type, String id) {
@@ -11122,15 +11225,18 @@ class _GeneralRichTextEditorPanelState
   }
 
   TextEditingController flowTextControllerFor(RichNoteFlowBlock block) {
-    final controller = flowTextControllers.putIfAbsent(
-      block.order,
-      () => RichNoteFlowTextController(
+    final controller = flowTextControllers.putIfAbsent(block.order, () {
+      final nextController = RichNoteFlowTextController(
         text: block.text,
         parent: widget.controller,
         rangeStart: block.start,
         readOnly: widget.readOnly,
-      ),
-    );
+      );
+      nextController.addListener(
+        () => handleFlowTextControllerChanged(block.order),
+      );
+      return nextController;
+    });
     if (controller is RichNoteFlowTextController) {
       controller.updateRichSource(
         parent: widget.controller,
@@ -11138,28 +11244,18 @@ class _GeneralRichTextEditorPanelState
         readOnly: widget.readOnly,
       );
     }
-    final focusNode = flowTextFocusNodes[block.order];
-    if ((focusNode == null || !focusNode.hasFocus) &&
-        controller.text != block.text) {
+    if (controller.text != block.text) {
       final selectionOffset = controller.selection.extentOffset
           .clamp(0, block.text.length)
           .toInt();
+      updatingFlowTextController = true;
       controller.value = TextEditingValue(
         text: block.text,
         selection: TextSelection.collapsed(offset: selectionOffset),
       );
+      updatingFlowTextController = false;
     }
-    if (focusNode == null || !focusNode.hasFocus) {
-      flowTextRanges[block.order] = TextRange(
-        start: block.start,
-        end: block.end,
-      );
-    } else {
-      flowTextRanges.putIfAbsent(
-        block.order,
-        () => TextRange(start: block.start, end: block.end),
-      );
-    }
+    flowTextRanges[block.order] = TextRange(start: block.start, end: block.end);
     return controller;
   }
 
@@ -11170,15 +11266,52 @@ class _GeneralRichTextEditorPanelState
     );
   }
 
+  void handleFlowTextControllerChanged(int order) {
+    if (updatingFlowTextController || refreshingFlowFormatting) {
+      return;
+    }
+    final controller = flowTextControllers[order];
+    final range = flowTextRanges[order];
+    if (controller == null || range == null || !controller.selection.isValid) {
+      return;
+    }
+    final focusNode = flowTextFocusNodes[order];
+    if (focusNode != null && !focusNode.hasFocus) {
+      return;
+    }
+    widget.controller.updateSelectionFromFlow(
+      TextSelection(
+        baseOffset: range.start + controller.selection.baseOffset,
+        extentOffset: range.start + controller.selection.extentOffset,
+        affinity: controller.selection.affinity,
+        isDirectional: controller.selection.isDirectional,
+      ),
+    );
+  }
+
   void replaceFlowTextBlock(RichNoteFlowBlock block, String nextText) {
     final range =
         flowTextRanges[block.order] ??
         TextRange(start: block.start, end: block.end);
-    widget.controller.replaceTextRange(range.start, range.end, nextText);
-    flowTextRanges[block.order] = TextRange(
-      start: range.start,
-      end: range.start + nextText.length,
+    final currentText = widget.controller.text;
+    final safeStart = range.start.clamp(0, currentText.length).toInt();
+    final safeEnd = range.end.clamp(safeStart, currentText.length).toInt();
+    final previousText = currentText.substring(safeStart, safeEnd);
+    final change = richNoteTextChange(oldText: previousText, newText: nextText);
+    final replacement = nextText.substring(
+      change.oldStart,
+      change.replacementEnd,
     );
+    widget.controller.replaceTextRange(
+      safeStart + change.oldStart,
+      safeStart + change.oldEnd,
+      replacement,
+    );
+    flowTextRanges[block.order] = TextRange(
+      start: safeStart,
+      end: safeStart + nextText.length,
+    );
+    syncFlowSelection(block);
     setState(() {});
   }
 
@@ -11190,14 +11323,14 @@ class _GeneralRichTextEditorPanelState
     final range =
         flowTextRanges[block.order] ??
         TextRange(start: block.start, end: block.end);
-    widget.controller.value = widget.controller.value.copyWith(
-      selection: TextSelection(
+    widget.controller.updateSelectionFromFlow(
+      TextSelection(
         baseOffset: range.start + controller.selection.baseOffset,
         extentOffset: range.start + controller.selection.extentOffset,
+        affinity: controller.selection.affinity,
+        isDirectional: controller.selection.isDirectional,
       ),
-      composing: TextRange.empty,
     );
-    widget.controller.rememberSelection();
   }
 
   Future<void> cropSelectedImage() async {
@@ -13321,16 +13454,20 @@ class RichToolbarMenuButton<T> extends StatelessWidget {
             ),
         ],
         child: SizedBox(
-          width: 78,
+          width: 86,
           height: 48,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                label,
-                style: TextStyle(
-                  color: colorScheme.onSurface,
-                  fontWeight: FontWeight.w800,
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: colorScheme.onSurface,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
               const SizedBox(width: 2),
