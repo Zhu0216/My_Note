@@ -1540,8 +1540,10 @@ Map<String, dynamic> defaultNoteStyle() {
 
 Map<String, dynamic> defaultNoteBackground() {
   return {
+    'type': 'color',
     'color': '#FFFFFF',
     'image': '',
+    'imageBytesBase64': '',
     'mode': NoteBackgroundMode.fill.name,
   };
 }
@@ -2782,7 +2784,7 @@ class _EditableTodoRowState extends State<EditableTodoRow> {
       context,
     ).textTheme.labelSmall?.copyWith(color: Colors.black54);
     return InkWell(
-      onLongPress: () => openTodoEditorPage(context, todo: widget.todo),
+      onLongPress: () => showTodoActionSheet(context, widget.todo),
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
@@ -2896,7 +2898,7 @@ class TodoCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: () => store.toggleTodo(todo),
-        onLongPress: () => openTodoEditorPage(context, todo: todo),
+        onLongPress: () => showTodoActionSheet(context, todo),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(8, 8, 12, 12),
           child: Row(
@@ -8077,7 +8079,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   void initState() {
     super.initState();
     final note = widget.note;
-    title = TextEditingController(text: note?.title ?? '未命名筆記');
+    title = TextEditingController(text: note?.title ?? '');
     tags = TextEditingController(text: formatTagsForEditing(note?.tags ?? []));
     folder = note?.category ?? normalizeFolderPath(widget.initialFolder);
     templateType = note?.templateType ?? widget.initialTemplateType;
@@ -8405,12 +8407,18 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   }
 
   Future<void> editBackground() async {
-    final color = TextEditingController(
-      text: readString(noteBackground['color'], fallback: '#FFFFFF'),
+    var backgroundType = readString(
+      noteBackground['type'],
+      fallback: readString(noteBackground['imageBytesBase64']).isNotEmpty
+          ? 'image'
+          : 'color',
     );
-    final image = TextEditingController(
-      text: readString(noteBackground['image']),
+    var selectedColor = readString(
+      noteBackground['color'],
+      fallback: '#FFFFFF',
     );
+    var imageName = readString(noteBackground['image']);
+    var imageBytesBase64 = readString(noteBackground['imageBytesBase64']);
     var mode = readEnum(
       NoteBackgroundMode.values,
       noteBackground['mode'],
@@ -8423,34 +8431,99 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
           title: const Text('背景設定'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              TextField(
-                controller: color,
-                decoration: const InputDecoration(labelText: '背景顏色'),
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(
+                    value: 'color',
+                    icon: Icon(Icons.palette_outlined),
+                    label: Text('顏色'),
+                  ),
+                  ButtonSegment(
+                    value: 'image',
+                    icon: Icon(Icons.image_outlined),
+                    label: Text('圖片'),
+                  ),
+                ],
+                selected: {backgroundType == 'image' ? 'image' : 'color'},
+                onSelectionChanged: (values) =>
+                    setModalState(() => backgroundType = values.first),
               ),
               const SizedBox(height: 12),
-              TextField(
-                controller: image,
-                decoration: const InputDecoration(labelText: '背景圖片'),
-              ),
-              const SizedBox(height: 12),
-              DropdownMenu<NoteBackgroundMode>(
-                initialSelection: mode,
-                label: const Text('背景模式'),
-                dropdownMenuEntries: NoteBackgroundMode.values
-                    .map(
-                      (item) => DropdownMenuEntry(
-                        value: item,
-                        label: noteBackgroundModeLabel(item),
+              if (backgroundType == 'color') ...[
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final color in const [
+                      '#FFFFFF',
+                      '#F7F8FC',
+                      '#FFF7D6',
+                      '#EAF7EF',
+                      '#EAF2FF',
+                      '#FDECEC',
+                      '#202522',
+                      '#5967D8',
+                      '#8A8F98',
+                    ])
+                      ChoiceChip(
+                        selected:
+                            selectedColor.toUpperCase() == color.toUpperCase(),
+                        avatar: _ColorSwatch(
+                          value: color,
+                          selected:
+                              selectedColor.toUpperCase() ==
+                              color.toUpperCase(),
+                        ),
+                        label: Text(colorLabel(color)),
+                        onSelected: (_) =>
+                            setModalState(() => selectedColor = color),
                       ),
-                    )
-                    .toList(),
-                onSelected: (value) {
-                  if (value != null) {
-                    setModalState(() => mode = value);
-                  }
-                },
-              ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (backgroundType == 'image') ...[
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final file = await NoteFileService.pickImage();
+                    if (!mounted || file == null) {
+                      return;
+                    }
+                    final bytes = file.bytes;
+                    if (bytes == null || bytes.isEmpty) {
+                      showToast(this.context, '無法讀取背景圖片');
+                      return;
+                    }
+                    setModalState(() {
+                      backgroundType = 'image';
+                      imageName = file.name;
+                      imageBytesBase64 = base64Encode(bytes);
+                    });
+                  },
+                  icon: const Icon(Icons.image_outlined),
+                  label: Text(imageName.isEmpty ? '選擇圖片' : imageName),
+                ),
+                const SizedBox(height: 12),
+                DropdownMenu<NoteBackgroundMode>(
+                  initialSelection: mode,
+                  label: const Text('背景模式'),
+                  dropdownMenuEntries: NoteBackgroundMode.values
+                      .map(
+                        (item) => DropdownMenuEntry(
+                          value: item,
+                          label: noteBackgroundModeLabel(item),
+                        ),
+                      )
+                      .toList(),
+                  onSelected: (value) {
+                    if (value != null) {
+                      setModalState(() => mode = value);
+                    }
+                  },
+                ),
+              ],
             ],
           ),
           actions: [
@@ -8462,10 +8535,12 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
               onPressed: () {
                 setState(() {
                   noteBackground = {
-                    'color': color.text.trim().isEmpty
+                    'type': backgroundType,
+                    'color': selectedColor.trim().isEmpty
                         ? '#FFFFFF'
-                        : color.text.trim(),
-                    'image': image.text.trim(),
+                        : selectedColor.trim(),
+                    'image': imageName.trim(),
+                    'imageBytesBase64': imageBytesBase64,
                     'mode': mode.name,
                   };
                 });
@@ -8477,8 +8552,6 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         ),
       ),
     );
-    color.dispose();
-    image.dispose();
   }
 
   Future<void> showExportOptions() async {
@@ -8584,7 +8657,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       child: Scaffold(
         body: SafeArea(
           child: AppPage(
-            title: title.text.trim().isEmpty ? '未命名筆記' : title.text.trim(),
+            title: title.text.trim().isEmpty ? '請輸入標題' : title.text.trim(),
             titleWidget: NoteEditorHeaderFields(
               title: title,
               tags: tags,
@@ -8821,7 +8894,7 @@ class NoteEditorHeaderFields extends StatelessWidget {
             color: const Color(0xff171f2f),
           ),
           decoration: const InputDecoration(
-            hintText: '未命名筆記',
+            hintText: '請輸入標題',
             border: InputBorder.none,
             enabledBorder: InputBorder.none,
             focusedBorder: InputBorder.none,
@@ -9045,27 +9118,44 @@ class RichNoteTextController extends TextEditingController {
   void insertEmbedBlock({required String type, required String id}) {
     final range = normalizedSelectionRange();
     final currentText = text;
+    var replaceStart = range.start;
+    var replaceEnd = range.end;
+    if (range.isCollapsed && currentText.trim().isEmpty) {
+      replaceStart = 0;
+      replaceEnd = currentText.length;
+    } else {
+      while (replaceStart > 1 &&
+          currentText[replaceStart - 1] == '\n' &&
+          currentText[replaceStart - 2] == '\n') {
+        replaceStart--;
+      }
+      while (replaceEnd + 1 < currentText.length &&
+          currentText[replaceEnd] == '\n' &&
+          currentText[replaceEnd + 1] == '\n') {
+        replaceEnd++;
+      }
+    }
     final needsLeadingNewLine =
-        range.start > 0 && currentText[range.start - 1] != '\n';
+        replaceStart > 0 && currentText[replaceStart - 1] != '\n';
     final needsTrailingNewLine =
-        range.end < currentText.length && currentText[range.end] != '\n';
+        replaceEnd < currentText.length && currentText[replaceEnd] != '\n';
     final leading = needsLeadingNewLine ? '\n' : '';
-    final trailing = needsTrailingNewLine || range.end == currentText.length
+    final trailing = needsTrailingNewLine || replaceEnd == currentText.length
         ? '\n'
         : '';
     final replacement = '$leading$richNoteEmbedObject$trailing';
-    final embedStart = range.start + leading.length;
+    final embedStart = replaceStart + leading.length;
     _pushCurrentUndo();
     _applyingChange = true;
     final nextText = currentText.replaceRange(
-      range.start,
-      range.end,
+      replaceStart,
+      replaceEnd,
       replacement,
     );
     _marks = adjustRichNoteMarksForReplacement(
       _marks,
-      oldStart: range.start,
-      oldEnd: range.end,
+      oldStart: replaceStart,
+      oldEnd: replaceEnd,
       replacementLength: replacement.length,
       textLength: nextText.length,
     );
@@ -9110,6 +9200,24 @@ class RichNoteTextController extends TextEditingController {
     );
   }
 
+  TextRange _embedLineRange(RichNoteMark mark) {
+    final currentText = text;
+    var start = mark.start.clamp(0, currentText.length).toInt();
+    var end = mark.end.clamp(start, currentText.length).toInt();
+    while (start > 0 && currentText[start - 1] != '\n') {
+      start--;
+    }
+    while (end < currentText.length && currentText[end] != '\n') {
+      end++;
+    }
+    if (end < currentText.length && currentText[end] == '\n') {
+      end++;
+    } else if (start > 0 && end == currentText.length) {
+      start--;
+    }
+    return TextRange(start: start, end: end);
+  }
+
   void removeEmbedBlock({required String type, required String id}) {
     final index = _marks.indexWhere(
       (mark) =>
@@ -9120,7 +9228,8 @@ class RichNoteTextController extends TextEditingController {
       return;
     }
     final mark = _marks[index];
-    replaceTextRange(mark.start, mark.end, '');
+    final range = _embedLineRange(mark);
+    replaceTextRange(range.start, range.end, '');
   }
 
   bool moveEmbedBlock({
@@ -9138,33 +9247,30 @@ class RichNoteTextController extends TextEditingController {
     }
     final mark = _marks[index];
     final currentText = text;
-    var insertAt = mark.start;
+    final sourceRange = _embedLineRange(mark);
+    var insertAt = sourceRange.start;
     if (direction < 0) {
-      var before = mark.start;
-      while (before > 0 && currentText[before - 1] == '\n') {
-        before--;
-      }
-      if (before <= 0) {
+      if (sourceRange.start <= 0) {
         return false;
       }
-      insertAt = currentText.lastIndexOf('\n', before - 1) + 1;
+      final previousBreak = currentText.lastIndexOf(
+        '\n',
+        math.max(0, sourceRange.start - 2),
+      );
+      insertAt = previousBreak + 1;
     } else {
-      var after = mark.end;
-      while (after < currentText.length && currentText[after] == '\n') {
-        after++;
-      }
-      if (after >= currentText.length) {
+      if (sourceRange.end >= currentText.length) {
         return false;
       }
-      final nextBreak = currentText.indexOf('\n', after);
+      final nextBreak = currentText.indexOf('\n', sourceRange.end);
       insertAt = nextBreak < 0 ? currentText.length : nextBreak + 1;
     }
-    if (insertAt == mark.start) {
+    if (insertAt == sourceRange.start || insertAt == sourceRange.end) {
       return false;
     }
-    replaceTextRange(mark.start, mark.end, '');
-    final adjustedInsertAt = insertAt > mark.start
-        ? insertAt - (mark.end - mark.start)
+    replaceTextRange(sourceRange.start, sourceRange.end, '');
+    final adjustedInsertAt = insertAt > sourceRange.start
+        ? insertAt - (sourceRange.end - sourceRange.start)
         : insertAt;
     value = value.copyWith(
       selection: TextSelection.collapsed(
@@ -10501,6 +10607,116 @@ class RichNoteFlowBlock {
   final String id;
 }
 
+class RichNoteFlowTextController extends TextEditingController {
+  RichNoteFlowTextController({
+    required String text,
+    required this.parent,
+    required this.rangeStart,
+    required this.readOnly,
+  }) : super(text: text);
+
+  RichNoteTextController parent;
+  int rangeStart;
+  bool readOnly;
+
+  void updateRichSource({
+    required RichNoteTextController parent,
+    required int rangeStart,
+    required bool readOnly,
+  }) {
+    this.parent = parent;
+    this.rangeStart = rangeStart;
+    this.readOnly = readOnly;
+  }
+
+  bool _isTodoMarkerAt(int index) {
+    if (index < 0 || index >= text.length) {
+      return false;
+    }
+    final marker = text[index];
+    if (marker != '☐' && marker != '☑') {
+      return false;
+    }
+    final lineStart = index == 0 || text[index - 1] == '\n';
+    final followedBySpace = index + 1 < text.length && text[index + 1] == ' ';
+    return lineStart && followedBySpace;
+  }
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    final baseStyle = style ?? const TextStyle();
+    final currentText = text;
+    if (currentText.isEmpty) {
+      return TextSpan(style: baseStyle, text: '');
+    }
+    final boundaries = <int>{0, currentText.length};
+    for (final mark in parent.marks) {
+      if (mark.attributes.containsKey(RichNoteAttribute.embedType)) {
+        continue;
+      }
+      final localStart = (mark.start - rangeStart).clamp(0, currentText.length);
+      final localEnd = (mark.end - rangeStart).clamp(0, currentText.length);
+      if (localEnd > localStart) {
+        boundaries.add(localStart.toInt());
+        boundaries.add(localEnd.toInt());
+      }
+    }
+    for (var index = 0; index < currentText.length; index++) {
+      if (_isTodoMarkerAt(index)) {
+        boundaries
+          ..add(index)
+          ..add(index + 1);
+      }
+    }
+    final ordered = boundaries.toList()..sort();
+    final children = <InlineSpan>[];
+    for (var index = 0; index < ordered.length - 1; index++) {
+      final start = ordered[index];
+      final end = ordered[index + 1];
+      if (end <= start) {
+        continue;
+      }
+      if (end == start + 1 && _isTodoMarkerAt(start)) {
+        final checked = currentText[start] == '☑';
+        children.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: InlineRichTodoCheckbox(
+              checked: checked,
+              readOnly: readOnly,
+              onChanged: () =>
+                  parent.toggleTodoCheckboxAtOffset(rangeStart + start),
+            ),
+          ),
+        );
+        continue;
+      }
+      final attributes = <String, dynamic>{};
+      final globalStart = rangeStart + start;
+      final globalEnd = rangeStart + end;
+      for (final mark in parent.marks) {
+        if (mark.attributes.containsKey(RichNoteAttribute.embedType)) {
+          continue;
+        }
+        if (mark.start < globalEnd && mark.end > globalStart) {
+          attributes.addAll(mark.attributes);
+        }
+      }
+      children.add(
+        TextSpan(
+          text: currentText.substring(start, end),
+          style: richNoteTextStyleForAttributes(context, baseStyle, attributes),
+        ),
+      );
+    }
+    return TextSpan(style: baseStyle, children: children);
+  }
+}
+
 List<RichNoteFlowBlock> richNoteFlowBlocks(RichNoteTextController controller) {
   final text = controller.text;
   final marks = controller.marks;
@@ -10675,7 +10891,63 @@ class _GeneralRichTextEditorPanelState
       FocusManager.instance.primaryFocus?.unfocus();
       widget.controller.clearTextSelectionForImageInteraction();
       clearEmbedSelection();
+      focusNearestTextBlockToEmbed(type, id);
     }
+  }
+
+  void focusNearestTextBlockToEmbed(String type, String id) {
+    if (widget.readOnly) {
+      return;
+    }
+    final targetType = type == richNoteEmbedTypeImage
+        ? RichNoteFlowBlockType.image
+        : RichNoteFlowBlockType.attachment;
+    final blocks = richNoteFlowBlocks(widget.controller);
+    final embedIndex = blocks.indexWhere(
+      (block) => block.type == targetType && block.id == id,
+    );
+    if (embedIndex < 0) {
+      return;
+    }
+
+    RichNoteFlowBlock? targetBlock;
+    for (var index = embedIndex + 1; index < blocks.length; index++) {
+      if (blocks[index].type == RichNoteFlowBlockType.text) {
+        targetBlock = blocks[index];
+        break;
+      }
+    }
+    if (targetBlock == null) {
+      for (var index = embedIndex - 1; index >= 0; index--) {
+        if (blocks[index].type == RichNoteFlowBlockType.text) {
+          targetBlock = blocks[index];
+          break;
+        }
+      }
+    }
+    final block = targetBlock;
+    if (block == null) {
+      return;
+    }
+    final controller = flowTextControllerFor(block);
+    final focusNode = flowTextFocusNodeFor(block);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      final offset = controller.text.length;
+      controller.selection = TextSelection.collapsed(offset: offset);
+      focusNode.requestFocus();
+      syncFlowSelection(block);
+      final focusContext = focusNode.context;
+      if (focusContext != null) {
+        Scrollable.ensureVisible(
+          focusContext,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
   }
 
   void registerImageTapTarget(RichImageTapTarget target) {
@@ -10852,8 +11124,20 @@ class _GeneralRichTextEditorPanelState
   TextEditingController flowTextControllerFor(RichNoteFlowBlock block) {
     final controller = flowTextControllers.putIfAbsent(
       block.order,
-      () => TextEditingController(text: block.text),
+      () => RichNoteFlowTextController(
+        text: block.text,
+        parent: widget.controller,
+        rangeStart: block.start,
+        readOnly: widget.readOnly,
+      ),
     );
+    if (controller is RichNoteFlowTextController) {
+      controller.updateRichSource(
+        parent: widget.controller,
+        rangeStart: block.start,
+        readOnly: widget.readOnly,
+      );
+    }
     final focusNode = flowTextFocusNodes[block.order];
     if ((focusNode == null || !focusNode.hasFocus) &&
         controller.text != block.text) {
@@ -10944,28 +11228,40 @@ class _GeneralRichTextEditorPanelState
     if (attachment == null) {
       return;
     }
+    final name = readString(attachment['name'], fallback: '附件');
     final bytes = decodeBase64BytesOrNull(
       readString(attachment['bytesBase64']),
     );
-    final preview = bytes == null
-        ? ''
-        : utf8.decode(bytes.take(4096).toList(), allowMalformed: true);
+    final preview = bytes == null ? null : safeUtf8Preview(bytes);
+    final isImage = bytes != null && isImageFileName(name);
     await showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(readString(attachment['name'], fallback: '附件')),
+      builder: (dialogContext) => AlertDialog(
+        title: Text(name),
         content: SizedBox(
           width: 420,
           child: SingleChildScrollView(
-            child: Text(
-              preview.trim().isEmpty ? '此附件已插入筆記，可下載後使用其他 App 開啟。' : preview,
-            ),
+            child: isImage
+                ? Image.memory(bytes, fit: BoxFit.contain)
+                : preview == null || preview.trim().isEmpty
+                ? const Text('此附件無法在筆記內預覽，可下載後使用裝置上的其他 App 開啟。')
+                : SelectableText(preview),
           ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('關閉'),
+          ),
+          TextButton.icon(
+            onPressed: bytes == null || bytes.isEmpty
+                ? null
+                : () {
+                    Navigator.pop(dialogContext);
+                    unawaited(downloadSelectedAttachment());
+                  },
+            icon: const Icon(Icons.download_outlined),
+            label: const Text('下載'),
           ),
         ],
       ),
@@ -11001,6 +11297,7 @@ class _GeneralRichTextEditorPanelState
       context,
       widget.background,
     );
+    final backgroundImage = effectiveNoteBackgroundImage(widget.background);
     removeStaleImageTapTargets();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -11038,7 +11335,9 @@ class _GeneralRichTextEditorPanelState
         ],
         Expanded(
           child: Material(
-            color: backgroundColor,
+            color: backgroundImage == null
+                ? backgroundColor
+                : Colors.transparent,
             elevation: 0,
             shape: RoundedRectangleBorder(
               borderRadius: const BorderRadius.vertical(
@@ -11047,142 +11346,153 @@ class _GeneralRichTextEditorPanelState
               side: BorderSide(color: colorScheme.outlineVariant),
             ),
             clipBehavior: Clip.antiAlias,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final contentWidth = constraints.maxWidth.isFinite
-                            ? constraints.maxWidth
-                            : null;
-                        widget.controller.configureInlineContent(
-                          images: widget.images,
-                          attachments: widget.attachments,
-                          readOnly: widget.readOnly,
-                          selectedType: selectedEmbedType,
-                          selectedId: selectedEmbedId,
-                          onEmbedSelected: selectEmbed,
-                          onEmbedBlockTapped: blockEmbedBackgroundTap,
-                          onImageLayoutChanged: registerImageTapTarget,
-                          onImageChanged: updateImage,
-                          onAttachmentChanged: updateAttachment,
-                          onEmbedDeleted: removeKeyboardDeletedEmbed,
-                          contentWidth: contentWidth,
-                        );
-                        final blocks = richNoteFlowBlocks(widget.controller);
-                        final bodyStyle = noteBodyTextStyle(
-                          widget.style,
-                          context: context,
-                        );
-                        return SingleChildScrollView(
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(
-                              minHeight: constraints.maxHeight,
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                for (final block in blocks)
-                                  switch (block.type) {
-                                    RichNoteFlowBlockType.text => Builder(
-                                      builder: (context) {
-                                        final controller =
-                                            flowTextControllerFor(block);
-                                        final focusNode = flowTextFocusNodeFor(
-                                          block,
-                                        );
-                                        return TextField(
-                                          controller: controller,
-                                          focusNode: focusNode,
-                                          readOnly: widget.readOnly,
-                                          maxLines: null,
-                                          minLines:
-                                              blocks.length == 1 &&
-                                                  block.text.isEmpty
-                                              ? 10
-                                              : 1,
-                                          style: bodyStyle,
-                                          onChanged: widget.readOnly
-                                              ? null
-                                              : (value) => replaceFlowTextBlock(
-                                                  block,
-                                                  value,
-                                                ),
-                                          onTap: widget.readOnly
-                                              ? null
-                                              : () {
-                                                  debugPrint('PARAGRAPH_TAP');
-                                                  clearEmbedSelection();
-                                                  syncFlowSelection(block);
-                                                },
-                                          decoration: const InputDecoration(
-                                            hintText: '開始輸入筆記內容',
-                                            border: InputBorder.none,
-                                            enabledBorder: InputBorder.none,
-                                            focusedBorder: InputBorder.none,
-                                            filled: false,
-                                            isCollapsed: true,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: backgroundColor,
+                image: backgroundImage,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final contentWidth = constraints.maxWidth.isFinite
+                              ? constraints.maxWidth
+                              : null;
+                          widget.controller.configureInlineContent(
+                            images: widget.images,
+                            attachments: widget.attachments,
+                            readOnly: widget.readOnly,
+                            selectedType: selectedEmbedType,
+                            selectedId: selectedEmbedId,
+                            onEmbedSelected: selectEmbed,
+                            onEmbedBlockTapped: blockEmbedBackgroundTap,
+                            onImageLayoutChanged: registerImageTapTarget,
+                            onImageChanged: updateImage,
+                            onAttachmentChanged: updateAttachment,
+                            onEmbedDeleted: removeKeyboardDeletedEmbed,
+                            contentWidth: contentWidth,
+                          );
+                          final blocks = richNoteFlowBlocks(widget.controller);
+                          final bodyStyle = noteBodyTextStyle(
+                            widget.style,
+                            context: context,
+                          );
+                          return SingleChildScrollView(
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                minHeight: constraints.maxHeight,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  for (final block in blocks)
+                                    switch (block.type) {
+                                      RichNoteFlowBlockType.text => Builder(
+                                        builder: (context) {
+                                          final controller =
+                                              flowTextControllerFor(block);
+                                          final focusNode =
+                                              flowTextFocusNodeFor(block);
+                                          return TextField(
+                                            controller: controller,
+                                            focusNode: focusNode,
+                                            readOnly: widget.readOnly,
+                                            maxLines: null,
+                                            minLines:
+                                                blocks.length == 1 &&
+                                                    block.text.isEmpty
+                                                ? 10
+                                                : 1,
+                                            style: bodyStyle,
+                                            onChanged: widget.readOnly
+                                                ? null
+                                                : (value) =>
+                                                      replaceFlowTextBlock(
+                                                        block,
+                                                        value,
+                                                      ),
+                                            onTap: widget.readOnly
+                                                ? null
+                                                : () {
+                                                    debugPrint('PARAGRAPH_TAP');
+                                                    clearEmbedSelection();
+                                                    syncFlowSelection(block);
+                                                  },
+                                            decoration: InputDecoration(
+                                              hintText:
+                                                  widget.controller.text
+                                                      .trim()
+                                                      .isEmpty
+                                                  ? '開始輸入筆記內容'
+                                                  : null,
+                                              border: InputBorder.none,
+                                              enabledBorder: InputBorder.none,
+                                              focusedBorder: InputBorder.none,
+                                              filled: false,
+                                              isCollapsed: true,
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                      RichNoteFlowBlockType.image =>
+                                        InlineRichImageBlock(
+                                          image: firstMapById(
+                                            widget.images,
+                                            block.id,
                                           ),
-                                        );
-                                      },
-                                    ),
-                                    RichNoteFlowBlockType.image =>
-                                      InlineRichImageBlock(
-                                        image: firstMapById(
-                                          widget.images,
-                                          block.id,
+                                          selected:
+                                              selectedEmbedType ==
+                                                  richNoteEmbedTypeImage &&
+                                              selectedEmbedId == block.id,
+                                          readOnly: widget.readOnly,
+                                          moveEnabled: imageMoveEnabled,
+                                          contentWidth: contentWidth,
+                                          onSelect: () => selectEmbed(
+                                            richNoteEmbedTypeImage,
+                                            block.id,
+                                          ),
+                                          onBlockTap: () =>
+                                              blockEmbedBackgroundTap(
+                                                richNoteEmbedTypeImage,
+                                                block.id,
+                                              ),
+                                          onLayoutChanged:
+                                              registerImageTapTarget,
+                                          onChanged: updateImage,
+                                          onMoveRequest: (direction) =>
+                                              requestImageBlockMove(
+                                                block.id,
+                                                direction,
+                                              ),
                                         ),
-                                        selected:
-                                            selectedEmbedType ==
-                                                richNoteEmbedTypeImage &&
-                                            selectedEmbedId == block.id,
-                                        readOnly: widget.readOnly,
-                                        moveEnabled: imageMoveEnabled,
-                                        contentWidth: contentWidth,
-                                        onSelect: () => selectEmbed(
-                                          richNoteEmbedTypeImage,
-                                          block.id,
+                                      RichNoteFlowBlockType.attachment =>
+                                        InlineRichAttachmentBlock(
+                                          attachment: firstMapById(
+                                            widget.attachments,
+                                            block.id,
+                                          ),
+                                          selected:
+                                              selectedEmbedType ==
+                                                  richNoteEmbedTypeAttachment &&
+                                              selectedEmbedId == block.id,
+                                          readOnly: widget.readOnly,
+                                          onSelect: () => selectEmbed(
+                                            richNoteEmbedTypeAttachment,
+                                            block.id,
+                                          ),
+                                          onChanged: updateAttachment,
                                         ),
-                                        onBlockTap: () =>
-                                            blockEmbedBackgroundTap(
-                                              richNoteEmbedTypeImage,
-                                              block.id,
-                                            ),
-                                        onLayoutChanged: registerImageTapTarget,
-                                        onChanged: updateImage,
-                                        onMoveRequest: (direction) =>
-                                            requestImageBlockMove(
-                                              block.id,
-                                              direction,
-                                            ),
-                                      ),
-                                    RichNoteFlowBlockType.attachment =>
-                                      InlineRichAttachmentBlock(
-                                        attachment: firstMapById(
-                                          widget.attachments,
-                                          block.id,
-                                        ),
-                                        selected:
-                                            selectedEmbedType ==
-                                                richNoteEmbedTypeAttachment &&
-                                            selectedEmbedId == block.id,
-                                        readOnly: widget.readOnly,
-                                        onSelect: () => selectEmbed(
-                                          richNoteEmbedTypeAttachment,
-                                          block.id,
-                                        ),
-                                        onChanged: updateAttachment,
-                                      ),
-                                  },
-                                const SizedBox(height: 96),
-                              ],
+                                    },
+                                  const SizedBox(height: 96),
+                                ],
+                              ),
                             ),
-                          ),
-                        );
-                        /*
+                          );
+                          /*
                         return Listener(
                           behavior: HitTestBehavior.translucent,
                           onPointerDown: handleBodyPointerDown,
@@ -11225,11 +11535,12 @@ class _GeneralRichTextEditorPanelState
                           ),
                         );
                         */
-                      },
+                        },
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -12493,6 +12804,10 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
   Widget build(BuildContext context) {
     scheduleScrollButtonUpdate();
     final colorScheme = Theme.of(context).colorScheme;
+    final fontFamily = readString(
+      widget.style['fontFamily'],
+      fallback: 'System',
+    );
     final fontSize = readDouble(widget.style['fontSize'], fallback: 16).round();
     final lineHeight = readDouble(widget.style['lineHeight'], fallback: 1.45);
     return DecoratedBox(
@@ -12538,6 +12853,16 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
                       onSelected: (value) => widget.onStyleChanged({
                         ...widget.style,
                         'fontSize': value.toDouble(),
+                      }),
+                    ),
+                    RichToolbarMenuButton<String>(
+                      label: noteFontFamilyLabel(fontFamily),
+                      tooltip: '字型',
+                      values: noteFontFamilyValues,
+                      labelBuilder: noteFontFamilyLabel,
+                      onSelected: (value) => widget.onStyleChanged({
+                        ...widget.style,
+                        'fontFamily': value,
                       }),
                     ),
                     RichToolbarTextButton(
@@ -13628,6 +13953,34 @@ Color effectiveNoteBackgroundColor(
   return colorFromHex(colorValue);
 }
 
+DecorationImage? effectiveNoteBackgroundImage(Map<String, dynamic> background) {
+  if (readString(background['type'], fallback: 'color') != 'image') {
+    return null;
+  }
+  final bytes = decodeBase64BytesOrNull(
+    readString(background['imageBytesBase64']),
+  );
+  if (bytes == null || bytes.isEmpty) {
+    return null;
+  }
+  final mode = readEnum(
+    NoteBackgroundMode.values,
+    background['mode'],
+    NoteBackgroundMode.fill,
+  );
+  return DecorationImage(
+    image: MemoryImage(bytes),
+    fit: switch (mode) {
+      NoteBackgroundMode.stretch => BoxFit.fill,
+      NoteBackgroundMode.repeat => BoxFit.none,
+      NoteBackgroundMode.fill => BoxFit.cover,
+    },
+    repeat: mode == NoteBackgroundMode.repeat
+        ? ImageRepeat.repeat
+        : ImageRepeat.noRepeat,
+  );
+}
+
 Color colorFromHex(String value) {
   final hex = value.replaceFirst('#', '');
   final parsed = int.tryParse(hex.length == 6 ? 'ff$hex' : hex, radix: 16);
@@ -13638,10 +13991,89 @@ String colorLabel(String value) {
   return switch (value.toUpperCase()) {
     '#5967D8' => '主題藍',
     '#202522' => '深灰',
+    '#FFFFFF' => '白色',
+    '#8A8F98' => '灰色',
     '#D92D20' => '紅色',
+    '#F79009' => '橘色',
+    '#FEE440' => '黃色',
     '#16803C' => '綠色',
+    '#12B5CB' => '青色',
     _ => '自訂色',
   };
+}
+
+const noteFontFamilyValues = [
+  'System',
+  'Roboto',
+  'Noto Sans TC',
+  'serif',
+  'monospace',
+];
+
+String noteFontFamilyLabel(String value) {
+  return switch (value) {
+    'System' => '系統',
+    'Roboto' => 'Roboto',
+    'Noto Sans TC' => '思源黑體',
+    'serif' => '襯線',
+    'monospace' => '等寬',
+    _ => value,
+  };
+}
+
+String fileExtension(String name) {
+  final index = name.lastIndexOf('.');
+  if (index < 0 || index == name.length - 1) {
+    return '';
+  }
+  return name.substring(index + 1).toLowerCase();
+}
+
+bool isImageFileName(String name) {
+  return const {
+    'png',
+    'jpg',
+    'jpeg',
+    'gif',
+    'webp',
+    'bmp',
+  }.contains(fileExtension(name));
+}
+
+bool isTextLikeFileName(String name) {
+  return const {
+    'txt',
+    'md',
+    'markdown',
+    'json',
+    'csv',
+    'tsv',
+    'xml',
+    'html',
+    'css',
+    'js',
+    'ts',
+    'dart',
+    'yaml',
+    'yml',
+    'log',
+  }.contains(fileExtension(name));
+}
+
+String? safeUtf8Preview(Uint8List bytes, {int limit = 24000}) {
+  try {
+    final sample = bytes.take(limit).toList(growable: false);
+    final text = utf8.decode(sample, allowMalformed: false);
+    final controlCount = text.runes.where((rune) {
+      return rune < 32 && rune != 9 && rune != 10 && rune != 13;
+    }).length;
+    if (controlCount > math.max(4, text.length ~/ 80)) {
+      return null;
+    }
+    return text;
+  } catch (_) {
+    return null;
+  }
 }
 
 class NoteFileService {
@@ -15676,6 +16108,55 @@ Future<void> openTodoEditorPage(BuildContext context, {TodoItem? todo}) async {
   ).push<void>(MaterialPageRoute(builder: (_) => TodoEditorPage(todo: todo)));
 }
 
+Future<void> showTodoActionSheet(BuildContext context, TodoItem todo) async {
+  final action = await showModalBottomSheet<String>(
+    context: context,
+    showDragHandle: true,
+    builder: (context) => SafeArea(
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          ListTile(
+            leading: const Icon(Icons.edit_outlined),
+            title: const Text('編輯'),
+            onTap: () => Navigator.pop(context, 'edit'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_outline),
+            title: const Text('刪除'),
+            onTap: () => Navigator.pop(context, 'delete'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.task_alt),
+            title: const Text('完成'),
+            onTap: () => Navigator.pop(context, 'complete'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (!context.mounted || action == null) {
+    return;
+  }
+  final store = AppStoreScope.of(context);
+  switch (action) {
+    case 'edit':
+      await openTodoEditorPage(context, todo: todo);
+      break;
+    case 'delete':
+      store.deleteTodo(todo);
+      showToast(context, '刪除待辦事項');
+      break;
+    case 'complete':
+      if (!todo.done) {
+        store.toggleTodo(todo);
+      }
+      showToast(context, '完成待辦');
+      break;
+  }
+}
+
 class TodoEditorPage extends StatefulWidget {
   const TodoEditorPage({super.key, this.todo});
 
@@ -15725,23 +16206,12 @@ class _TodoEditorPageState extends State<TodoEditorPage> {
       todo.reminderTime = reminderEnabled ? reminderTime : null;
       store.upsertTodo(todo);
     }
+    showToast(context, '完成編輯');
     Navigator.of(context).pop();
   }
 
-  Future<void> deleteAndClose() async {
-    final todo = widget.todo;
-    if (todo == null) {
-      return;
-    }
-    final confirmed = await confirmDelete(
-      context,
-      title: '刪除待辦事項？',
-      message: '確定要刪除這個待辦事項嗎？',
-    );
-    if (!mounted || !confirmed) {
-      return;
-    }
-    AppStoreScope.of(context).deleteTodo(todo);
+  void cancelAndClose() {
+    showToast(context, '取消編輯');
     Navigator.of(context).pop();
   }
 
@@ -15788,7 +16258,7 @@ class _TodoEditorPageState extends State<TodoEditorPage> {
                   children: [
                     IconButton(
                       tooltip: '返回',
-                      onPressed: () => Navigator.of(context).pop(),
+                      onPressed: cancelAndClose,
                       icon: const Icon(Icons.arrow_back),
                     ),
                     const SizedBox(width: 6),
@@ -15810,14 +16280,13 @@ class _TodoEditorPageState extends State<TodoEditorPage> {
                         ],
                       ),
                     ),
-                    if (isEditing)
-                      IconButton(
-                        tooltip: '刪除',
-                        onPressed: deleteAndClose,
-                        icon: const Icon(Icons.delete_outline),
-                      ),
                     IconButton(
-                      tooltip: '儲存',
+                      tooltip: '取消',
+                      onPressed: cancelAndClose,
+                      icon: const Icon(Icons.close),
+                    ),
+                    IconButton(
+                      tooltip: '完成',
                       onPressed: saveAndClose,
                       icon: const Icon(Icons.check),
                     ),
@@ -15832,7 +16301,6 @@ class _TodoEditorPageState extends State<TodoEditorPage> {
                     children: [
                       TextField(
                         controller: controller,
-                        autofocus: true,
                         decoration: const InputDecoration(
                           labelText: '標題',
                           border: OutlineInputBorder(),
@@ -15876,24 +16344,6 @@ class _TodoEditorPageState extends State<TodoEditorPage> {
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('取消'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: saveAndClose,
-                      child: Text(isEditing ? '儲存' : '新增'),
-                    ),
-                  ),
-                ],
               ),
             ],
           ),
