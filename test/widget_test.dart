@@ -600,12 +600,34 @@ void main() {
 
       expect(find.byType(InlineRichTodoReferenceBlock), findsOneWidget);
       expect(find.text('同步待辦'), findsOneWidget);
-      expect(find.byType(Checkbox), findsNothing);
+      expect(find.byType(Checkbox), findsOneWidget);
 
+      await tester.tap(find.byType(Checkbox));
+      await tester.pump();
+      expect(todo.done, isTrue);
       store.toggleTodo(todo);
       await tester.pump();
 
-      expect(find.byIcon(Icons.check_circle), findsOneWidget);
+      expect(todo.done, isFalse);
+
+      await tester.tap(find.byType(InlineRichTodoReferenceBlock));
+      await tester.pump();
+
+      expect(find.byType(RichTodoReferenceEditToolbar), findsOneWidget);
+
+      await tester.tap(find.byTooltip('完成'));
+      await tester.pump();
+      expect(todo.done, isTrue);
+
+      await tester.tap(find.byTooltip('未完成'));
+      await tester.pump();
+      expect(todo.done, isFalse);
+
+      await tester.tap(find.byTooltip('自本筆記移除'));
+      await tester.pump();
+
+      expect(find.byType(InlineRichTodoReferenceBlock), findsNothing);
+      expect(store.todos.single.id, todo.id);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       store.dispose();
@@ -673,7 +695,7 @@ void main() {
     expect(find.byType(ModernRichImageEditToolbar), findsOneWidget);
   });
 
-  testWidgets('trailing empty image input block stays compact until focused', (
+  testWidgets('trailing empty image input block remains editable', (
     tester,
   ) async {
     final controller = RichNoteTextController(
@@ -726,6 +748,99 @@ void main() {
     await tester.pump();
 
     expect(find.byType(InlineRichImageBlock), findsOneWidget);
-    expect(find.byType(TextField), findsNWidgets(1));
+    expect(find.byType(TextField), findsNWidgets(2));
+  });
+
+  testWidgets('single inserted image keeps an input line below it', (
+    tester,
+  ) async {
+    final controller = RichNoteTextController(
+      text: '$richNoteEmbedObject\n',
+      marks: const [
+        RichNoteMark(
+          start: 0,
+          end: 1,
+          attributes: {
+            RichNoteAttribute.embedType: richNoteEmbedTypeImage,
+            RichNoteAttribute.embedId: 'image-1',
+          },
+        ),
+      ],
+    );
+    final images = <Map<String, dynamic>>[
+      {
+        'id': 'image-1',
+        'name': 'demo.png',
+        'width': 120.0,
+        'height': 80.0,
+        'alignment': NoteImageAlignment.center.name,
+      },
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 640,
+            height: 520,
+            child: GeneralRichTextEditorPanel(
+              controller: controller,
+              readOnly: false,
+              style: defaultNoteStyle(),
+              images: images,
+              attachments: const [],
+              background: defaultNoteBackground(),
+              onStyleChanged: (_) {},
+              onAddImage: () {},
+              onAddAttachment: () {},
+              onInsertTodo: () {},
+              onImagesChanged: (_) {},
+              onAttachmentsChanged: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(InlineRichImageBlock), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+  });
+
+  testWidgets('home todo row shows title above due and reminder metadata', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded();
+    store.todos.clear();
+    store.addTodo(
+      '整理筆記',
+      dueDate: DateTime(2026, 7, 20),
+      reminderEnabled: true,
+      reminderTime: const TimeOfDay(hour: 9, minute: 30),
+    );
+    final todo = store.todos.single;
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: const MaterialApp(home: Scaffold(body: TodoBlock())),
+        ),
+      );
+      await tester.pump();
+
+      final titleTop = tester.getTopLeft(find.text('整理筆記')).dy;
+      final dueTop = tester.getTopLeft(find.text(todoDueLabel(todo))).dy;
+      final reminderTop = tester
+          .getTopLeft(find.text(todoReminderTimeLabel(todo)))
+          .dy;
+
+      expect(titleTop, lessThan(dueTop));
+      expect(titleTop, lessThan(reminderTop));
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
   });
 }

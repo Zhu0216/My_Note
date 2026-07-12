@@ -3119,6 +3119,19 @@ class _GeneralRichTextEditorPanelState
       ? nullableMapById(widget.attachments, selectedEmbedId ?? '')
       : null;
 
+  TodoItem? get selectedTodoReference {
+    if (selectedEmbedType != richNoteEmbedTypeTodo || selectedEmbedId == null) {
+      return null;
+    }
+    final store = AppStoreScope.of(context);
+    for (final item in store.todos) {
+      if (item.id == selectedEmbedId) {
+        return item;
+      }
+    }
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -3432,6 +3445,24 @@ class _GeneralRichTextEditorPanelState
     if (selectedEmbedType == type && selectedEmbedId == id) {
       clearEmbedSelection();
     }
+  }
+
+  void setSelectedTodoReferenceDone(bool done) {
+    final todo = selectedTodoReference;
+    if (todo == null || todo.done == done) {
+      return;
+    }
+    AppStoreScope.of(context).toggleTodo(todo);
+    setState(() {});
+  }
+
+  void removeSelectedTodoReference() {
+    final id = selectedEmbedId;
+    if (selectedEmbedType != richNoteEmbedTypeTodo || id == null) {
+      return;
+    }
+    widget.controller.removeEmbedBlock(type: richNoteEmbedTypeTodo, id: id);
+    clearEmbedSelection();
   }
 
   TextEditingController flowTextControllerFor(RichNoteFlowBlock block) {
@@ -3978,6 +4009,13 @@ class _GeneralRichTextEditorPanelState
               onDelete: deleteSelectedAttachment,
               onDone: clearEmbedSelection,
             )
+          else if (selectedTodoReference != null)
+            RichTodoReferenceEditToolbar(
+              todo: selectedTodoReference!,
+              onMarkDone: () => setSelectedTodoReferenceDone(true),
+              onMarkUndone: () => setSelectedTodoReferenceDone(false),
+              onRemove: removeSelectedTodoReference,
+            )
           else
             RichTextTemplateToolbar(
               controller: widget.controller,
@@ -4065,7 +4103,12 @@ class _GeneralRichTextEditorPanelState
                                             final shouldCollapseEmptyBlock =
                                                 blocks.length > 1 &&
                                                 block.text.isEmpty &&
-                                                !focusNode.hasFocus;
+                                                !focusNode.hasFocus &&
+                                                block.end <
+                                                    widget
+                                                        .controller
+                                                        .text
+                                                        .length;
                                             if (shouldCollapseEmptyBlock) {
                                               return KeyedSubtree(
                                                 key: flowTextKeyFor(block),
@@ -4202,6 +4245,15 @@ class _GeneralRichTextEditorPanelState
                                         RichNoteFlowBlockType.todo =>
                                           InlineRichTodoReferenceBlock(
                                             todoId: block.id,
+                                            readOnly: widget.readOnly,
+                                            selected:
+                                                selectedEmbedType ==
+                                                    richNoteEmbedTypeTodo &&
+                                                selectedEmbedId == block.id,
+                                            onSelect: () => selectEmbed(
+                                              richNoteEmbedTypeTodo,
+                                              block.id,
+                                            ),
                                           ),
                                       },
                                     const SizedBox(height: 96),
@@ -4453,9 +4505,18 @@ class InlineRichTodoCheckbox extends StatelessWidget {
 }
 
 class InlineRichTodoReferenceBlock extends StatelessWidget {
-  const InlineRichTodoReferenceBlock({super.key, required this.todoId});
+  const InlineRichTodoReferenceBlock({
+    super.key,
+    required this.todoId,
+    required this.readOnly,
+    required this.selected,
+    required this.onSelect,
+  });
 
   final String todoId;
+  final bool readOnly;
+  final bool selected;
+  final VoidCallback onSelect;
 
   @override
   Widget build(BuildContext context) {
@@ -4492,58 +4553,111 @@ class InlineRichTodoReferenceBlock extends StatelessWidget {
     }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: todo.done
-              ? colorScheme.surfaceContainerHighest
-              : colorScheme.primaryContainer.withValues(alpha: 0.42),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: colorScheme.outlineVariant),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                todo.done ? Icons.check_circle : Icons.radio_button_unchecked,
-                color: todo.done ? colorScheme.primary : colorScheme.outline,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      todo.title,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        decoration: todo.done
-                            ? TextDecoration.lineThrough
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      todo.done ? todoCompletedLabel(todo) : todoSubtitle(todo),
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: readOnly ? null : onSelect,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: todo.done
+                ? colorScheme.surfaceContainerHighest
+                : colorScheme.primaryContainer.withValues(alpha: 0.42),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected
+                  ? colorScheme.primary
+                  : colorScheme.outlineVariant,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Checkbox(
+                  value: todo.done,
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onChanged: readOnly
+                      ? null
+                      : (_) {
+                          onSelect();
+                          AppStoreScope.of(context).toggleTodo(todo!);
+                        },
                 ),
-              ),
-              const SizedBox(width: 8),
-              Icon(
-                Icons.lock_outline,
-                size: 16,
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ],
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        todo.title,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          decoration: todo.done
+                              ? TextDecoration.lineThrough
+                              : null,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        todo.done
+                            ? todoCompletedLabel(todo)
+                            : todoSubtitle(todo),
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(color: colorScheme.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(Icons.link, size: 16, color: colorScheme.onSurfaceVariant),
+              ],
+            ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class RichTodoReferenceEditToolbar extends StatelessWidget {
+  const RichTodoReferenceEditToolbar({
+    super.key,
+    required this.todo,
+    required this.onMarkDone,
+    required this.onMarkUndone,
+    required this.onRemove,
+  });
+
+  final TodoItem todo;
+  final VoidCallback onMarkDone;
+  final VoidCallback onMarkUndone;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return _RichAssetToolbarShell(
+      children: [
+        RichToolbarIconButton(
+          tooltip: '完成',
+          icon: Icons.check,
+          active: todo.done,
+          onPressed: onMarkDone,
+        ),
+        RichToolbarIconButton(
+          tooltip: '未完成',
+          icon: Icons.close,
+          active: !todo.done,
+          onPressed: onMarkUndone,
+        ),
+        RichToolbarIconButton(
+          tooltip: '自本筆記移除',
+          icon: Icons.delete_outline,
+          onPressed: onRemove,
+        ),
+      ],
     );
   }
 }

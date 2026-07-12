@@ -2807,6 +2807,40 @@ class _EditableTodoRowState extends State<EditableTodoRow> {
                   children: [
                     Row(
                       children: [
+                        Expanded(
+                          child: editing
+                              ? TextField(
+                                  controller: controller,
+                                  focusNode: focusNode,
+                                  minLines: 1,
+                                  maxLines: widget.compact ? 2 : null,
+                                  textInputAction: TextInputAction.done,
+                                  decoration: const InputDecoration(
+                                    isDense: true,
+                                    border: InputBorder.none,
+                                    contentPadding: EdgeInsets.zero,
+                                  ),
+                                  style: todoTitleStyle(widget.todo),
+                                  onSubmitted: (_) => commitTitle(),
+                                )
+                              : GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: startEditing,
+                                  child: Text(
+                                    widget.todo.title,
+                                    maxLines: widget.compact ? 2 : null,
+                                    overflow: widget.compact
+                                        ? TextOverflow.ellipsis
+                                        : null,
+                                    style: todoTitleStyle(widget.todo),
+                                  ),
+                                ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
                         Flexible(
                           child: Text(
                             widget.todo.done
@@ -2837,35 +2871,6 @@ class _EditableTodoRowState extends State<EditableTodoRow> {
                         ],
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    if (editing)
-                      TextField(
-                        controller: controller,
-                        focusNode: focusNode,
-                        minLines: 1,
-                        maxLines: widget.compact ? 2 : null,
-                        textInputAction: TextInputAction.done,
-                        decoration: const InputDecoration(
-                          isDense: true,
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                        style: todoTitleStyle(widget.todo),
-                        onSubmitted: (_) => commitTitle(),
-                      )
-                    else
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: startEditing,
-                        child: Text(
-                          widget.todo.title,
-                          maxLines: widget.compact ? 2 : null,
-                          overflow: widget.compact
-                              ? TextOverflow.ellipsis
-                              : null,
-                          style: todoTitleStyle(widget.todo),
-                        ),
-                      ),
                   ],
                 ),
               ),
@@ -2896,6 +2901,9 @@ class TodoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = AppStoreScope.of(context);
+    final metaStyle = Theme.of(
+      context,
+    ).textTheme.labelSmall?.copyWith(color: Colors.black54);
     return Card(
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
@@ -2918,6 +2926,13 @@ class TodoCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Text(
+                        todo.title,
+                        maxLines: compact ? 2 : null,
+                        overflow: compact ? TextOverflow.ellipsis : null,
+                        style: todoTitleStyle(todo),
+                      ),
+                      const SizedBox(height: 4),
                       Row(
                         children: [
                           Flexible(
@@ -2927,8 +2942,7 @@ class TodoCard extends StatelessWidget {
                                   : todoDueLabel(todo),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.labelSmall
-                                  ?.copyWith(color: Colors.black54),
+                              style: metaStyle,
                             ),
                           ),
                           if (todo.reminderEnabled) ...[
@@ -2943,29 +2957,13 @@ class TodoCard extends StatelessWidget {
                               todoReminderTimeLabel(todo),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.labelSmall
-                                  ?.copyWith(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                              style: metaStyle?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ],
                         ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        todo.title,
-                        maxLines: compact ? 2 : null,
-                        overflow: compact ? TextOverflow.ellipsis : null,
-                        style: TextStyle(
-                          decoration: todo.done
-                              ? TextDecoration.lineThrough
-                              : null,
-                          color: todo.done ? Colors.black45 : null,
-                          fontWeight: FontWeight.w700,
-                        ),
                       ),
                     ],
                   ),
