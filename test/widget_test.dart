@@ -99,17 +99,158 @@ void main() {
     controller.updateSelectionFromFlow(
       const TextSelection.collapsed(offset: 5),
     );
-    controller.setInlineAttribute(RichNoteAttribute.fontFamily, 'serif');
+    controller.setInlineAttribute(RichNoteAttribute.fontFamily, 'NotoSerifTC');
     controller.replaceTextRange(5, 5, ' beta');
 
     final familyMark = controller.marks.singleWhere(
-      (mark) => mark.attributes[RichNoteAttribute.fontFamily] == 'serif',
+      (mark) => mark.attributes[RichNoteAttribute.fontFamily] == 'NotoSerifTC',
     );
     expect(controller.text, 'alpha beta');
     expect(
       controller.text.substring(familyMark.start, familyMark.end),
       ' beta',
     );
+  });
+
+  test('rich toolbar typing mode toggles off inherited inline styles', () {
+    const attributes = [
+      RichNoteAttribute.bold,
+      RichNoteAttribute.italic,
+      RichNoteAttribute.underline,
+      RichNoteAttribute.strikethrough,
+      RichNoteAttribute.inlineCode,
+    ];
+
+    for (final attribute in attributes) {
+      final controller = RichNoteTextController(
+        text: 'alpha',
+        marks: [
+          RichNoteMark(start: 0, end: 5, attributes: {attribute: true}),
+        ],
+      );
+
+      controller.updateSelectionFromFlow(
+        const TextSelection.collapsed(offset: 5),
+      );
+      expect(controller.selectionHasAttribute(attribute, value: true), isTrue);
+
+      controller.applyInlineAttribute(attribute, true);
+      expect(controller.selectionHasAttribute(attribute, value: true), isFalse);
+
+      controller.replaceTextRange(5, 5, ' beta');
+      final insertedHasAttribute = controller.marks.any(
+        (mark) =>
+            mark.start <= 5 &&
+            mark.end >= 10 &&
+            mark.attributes[attribute] == true,
+      );
+      expect(insertedHasAttribute, isFalse);
+    }
+  });
+
+  test(
+    'rich toolbar switches subscript and superscript typing modes directly',
+    () {
+      final controller = RichNoteTextController(
+        text: 'alpha',
+        marks: const [
+          RichNoteMark(
+            start: 0,
+            end: 5,
+            attributes: {RichNoteAttribute.subscript: true},
+          ),
+        ],
+      );
+
+      controller.updateSelectionFromFlow(
+        const TextSelection.collapsed(offset: 5),
+      );
+      expect(
+        controller.selectionHasAttribute(
+          RichNoteAttribute.subscript,
+          value: true,
+        ),
+        isTrue,
+      );
+
+      controller.applyInlineAttribute(RichNoteAttribute.superscript, true);
+
+      expect(
+        controller.selectionHasAttribute(
+          RichNoteAttribute.superscript,
+          value: true,
+        ),
+        isTrue,
+      );
+      expect(
+        controller.selectionHasAttribute(
+          RichNoteAttribute.subscript,
+          value: true,
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test('rich lists continue when typing a new line', () {
+    final cases = {
+      '1. Alpha': '1. Alpha\n2. ',
+      '• Alpha': '• Alpha\n• ',
+      '☐ Alpha': '☐ Alpha\n☐ ',
+    };
+
+    for (final entry in cases.entries) {
+      final controller = RichNoteTextController(
+        text: entry.key,
+        marks: const [],
+      );
+      controller.updateSelectionFromFlow(
+        TextSelection.collapsed(offset: entry.key.length),
+      );
+
+      controller.replaceTextRange(entry.key.length, entry.key.length, '\n');
+
+      expect(controller.text, entry.value);
+      expect(controller.selection.extentOffset, entry.value.length);
+    }
+  });
+
+  test('rich lists remove marker when marker trailing space is deleted', () {
+    final cases = {
+      '1. ': (2, ''),
+      '• ': (1, ''),
+      '☐ ': (1, ''),
+      '  • ': (3, '  '),
+    };
+
+    for (final entry in cases.entries) {
+      final controller = RichNoteTextController(
+        text: entry.key,
+        marks: const [],
+      );
+      final (spaceIndex, expectedText) = entry.value;
+
+      controller.replaceTextRange(spaceIndex, spaceIndex + 1, '');
+
+      expect(controller.text, expectedText);
+      expect(controller.selection.extentOffset, expectedText.length);
+    }
+  });
+
+  test('rich toolbar font size options cover 10 to 30 by step 2', () {
+    expect(RichToolbarFontSizeButton.values, const [
+      10,
+      12,
+      14,
+      16,
+      18,
+      20,
+      22,
+      24,
+      26,
+      28,
+      30,
+    ]);
   });
 
   testWidgets('inline font style is applied to text spans', (tester) async {
@@ -123,7 +264,7 @@ void main() {
               context,
               const TextStyle(fontSize: 16),
               const {
-                RichNoteAttribute.fontFamily: 'serif',
+                RichNoteAttribute.fontFamily: 'NotoSerifTC',
                 RichNoteAttribute.fontSize: 28.0,
               },
             );
@@ -133,7 +274,7 @@ void main() {
       ),
     );
 
-    expect(style.fontFamily, 'serif');
+    expect(style.fontFamily, 'NotoSerifTC');
     expect(style.fontSize, 28.0);
   });
 
@@ -197,6 +338,280 @@ void main() {
     expect(boldMark.end, 5);
   });
 
+  testWidgets('rich toolbar toggle off updates immediately and keeps focus', (
+    tester,
+  ) async {
+    final controller = RichNoteTextController(
+      text: 'alpha',
+      marks: const [
+        RichNoteMark(
+          start: 0,
+          end: 5,
+          attributes: {RichNoteAttribute.bold: true},
+        ),
+      ],
+    );
+    var style = defaultNoteStyle();
+    var images = <Map<String, dynamic>>[];
+    var attachments = <Map<String, dynamic>>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 800,
+            height: 520,
+            child: StatefulBuilder(
+              builder: (context, setState) => GeneralRichTextEditorPanel(
+                controller: controller,
+                readOnly: false,
+                style: style,
+                images: images,
+                attachments: attachments,
+                background: defaultNoteBackground(),
+                onStyleChanged: (value) => setState(() => style = value),
+                onAddImage: () {},
+                onAddAttachment: () {},
+                onInsertTodo: () {},
+                onImagesChanged: (value) =>
+                    setState(() => images = List.of(value)),
+                onAttachmentsChanged: (value) =>
+                    setState(() => attachments = List.of(value)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.showKeyboard(find.byType(TextField).last);
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: 'alpha',
+        selection: TextSelection.collapsed(offset: 5),
+      ),
+    );
+    await tester.pump();
+
+    final boldFinder = find.widgetWithText(RichToolbarTextButton, 'B');
+    expect(tester.widget<RichToolbarTextButton>(boldFinder).active, isTrue);
+
+    await tester.tap(boldFinder);
+    await tester.pump();
+
+    expect(tester.testTextInput.isVisible, isTrue);
+    expect(tester.widget<RichToolbarTextButton>(boldFinder).active, isFalse);
+  });
+
+  testWidgets('rich flow lists keep caret after continued list marker', (
+    tester,
+  ) async {
+    final controller = RichNoteTextController(text: '• Alpha', marks: const []);
+    var style = defaultNoteStyle();
+    var images = <Map<String, dynamic>>[];
+    var attachments = <Map<String, dynamic>>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 800,
+            height: 520,
+            child: StatefulBuilder(
+              builder: (context, setState) => GeneralRichTextEditorPanel(
+                controller: controller,
+                readOnly: false,
+                style: style,
+                images: images,
+                attachments: attachments,
+                background: defaultNoteBackground(),
+                onStyleChanged: (value) => setState(() => style = value),
+                onAddImage: () {},
+                onAddAttachment: () {},
+                onInsertTodo: () {},
+                onImagesChanged: (value) =>
+                    setState(() => images = List.of(value)),
+                onAttachmentsChanged: (value) =>
+                    setState(() => attachments = List.of(value)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.showKeyboard(find.byType(TextField).last);
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '• Alpha\n',
+        selection: TextSelection.collapsed(offset: 8),
+      ),
+    );
+    await tester.pump();
+
+    expect(controller.text, '• Alpha\n• ');
+    expect(controller.selection.extentOffset, controller.text.length);
+    final textField = tester.widget<TextField>(find.byType(TextField).last);
+    expect(textField.controller?.text, '• Alpha\n• ');
+    expect(textField.controller?.selection.extentOffset, '• Alpha\n• '.length);
+  });
+
+  testWidgets('rich flow caret height follows active font size', (
+    tester,
+  ) async {
+    final controller = RichNoteTextController(text: '', marks: const []);
+    controller.updateSelectionFromFlow(
+      const TextSelection.collapsed(offset: 0),
+    );
+    controller.setInlineAttribute(RichNoteAttribute.fontSize, 28.0);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 800,
+            height: 520,
+            child: GeneralRichTextEditorPanel(
+              controller: controller,
+              readOnly: false,
+              style: defaultNoteStyle(),
+              images: const [],
+              attachments: const [],
+              background: defaultNoteBackground(),
+              onStyleChanged: (_) {},
+              onAddImage: () {},
+              onAddAttachment: () {},
+              onInsertTodo: () {},
+              onImagesChanged: (_) {},
+              onAttachmentsChanged: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final textField = tester.widget<TextField>(find.byType(TextField).last);
+    expect(textField.cursorHeight, closeTo(28.0 * 1.45, 0.001));
+  });
+
+  testWidgets(
+    'rich flow caret height updates immediately after font size changes',
+    (tester) async {
+      final controller = RichNoteTextController(text: '', marks: const []);
+      controller.updateSelectionFromFlow(
+        const TextSelection.collapsed(offset: 0),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 800,
+              height: 520,
+              child: GeneralRichTextEditorPanel(
+                controller: controller,
+                readOnly: false,
+                style: defaultNoteStyle(),
+                images: const [],
+                attachments: const [],
+                background: defaultNoteBackground(),
+                onStyleChanged: (_) {},
+                onAddImage: () {},
+                onAddAttachment: () {},
+                onInsertTodo: () {},
+                onImagesChanged: (_) {},
+                onAttachmentsChanged: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        tester.widget<TextField>(find.byType(TextField).last).cursorHeight,
+        closeTo(16.0 * 1.45, 0.001),
+      );
+
+      controller.setInlineAttribute(RichNoteAttribute.fontSize, 30.0);
+      await tester.pump();
+
+      expect(
+        tester.widget<TextField>(find.byType(TextField).last).cursorHeight,
+        closeTo(30.0 * 1.45, 0.001),
+      );
+    },
+  );
+
+  testWidgets('todo reference renders as a synced read only block', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded();
+    store.todos.clear();
+    store.addTodo('同步待辦');
+    final todo = store.todos.single;
+    final controller = RichNoteTextController(
+      text: richNoteEmbedObject,
+      marks: [
+        RichNoteMark(
+          start: 0,
+          end: 1,
+          attributes: {
+            RichNoteAttribute.embedType: richNoteEmbedTypeTodo,
+            RichNoteAttribute.embedId: todo.id,
+          },
+        ),
+      ],
+    );
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 800,
+                height: 520,
+                child: GeneralRichTextEditorPanel(
+                  controller: controller,
+                  readOnly: false,
+                  style: defaultNoteStyle(),
+                  images: const [],
+                  attachments: const [],
+                  background: defaultNoteBackground(),
+                  onStyleChanged: (_) {},
+                  onAddImage: () {},
+                  onAddAttachment: () {},
+                  onInsertTodo: () {},
+                  onImagesChanged: (_) {},
+                  onAttachmentsChanged: (_) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(InlineRichTodoReferenceBlock), findsOneWidget);
+      expect(find.text('同步待辦'), findsOneWidget);
+      expect(find.byType(Checkbox), findsNothing);
+
+      store.toggleTodo(todo);
+      await tester.pump();
+
+      expect(find.byIcon(Icons.check_circle), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
   testWidgets('rich image block remains selectable from editor flow', (
     tester,
   ) async {
@@ -256,5 +671,61 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ModernRichImageEditToolbar), findsOneWidget);
+  });
+
+  testWidgets('trailing empty image input block stays compact until focused', (
+    tester,
+  ) async {
+    final controller = RichNoteTextController(
+      text: 'before\n$richNoteEmbedObject\n',
+      marks: const [
+        RichNoteMark(
+          start: 7,
+          end: 8,
+          attributes: {
+            RichNoteAttribute.embedType: richNoteEmbedTypeImage,
+            RichNoteAttribute.embedId: 'image-1',
+          },
+        ),
+      ],
+    );
+    final images = <Map<String, dynamic>>[
+      {
+        'id': 'image-1',
+        'name': 'demo.png',
+        'width': 120.0,
+        'height': 80.0,
+        'alignment': NoteImageAlignment.center.name,
+      },
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 640,
+            height: 520,
+            child: GeneralRichTextEditorPanel(
+              controller: controller,
+              readOnly: false,
+              style: defaultNoteStyle(),
+              images: images,
+              attachments: const [],
+              background: defaultNoteBackground(),
+              onStyleChanged: (_) {},
+              onAddImage: () {},
+              onAddAttachment: () {},
+              onInsertTodo: () {},
+              onImagesChanged: (_) {},
+              onAttachmentsChanged: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(InlineRichImageBlock), findsOneWidget);
+    expect(find.byType(TextField), findsNWidgets(1));
   });
 }

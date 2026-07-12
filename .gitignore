@@ -36,6 +36,7 @@ migrate_working_dir/
 # Local tool/cache directories
 .dart_appdata/
 .dart_localappdata/
+.tool_home/
 .tools/
 .codex/
 .agents/

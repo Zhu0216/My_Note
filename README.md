@@ -37,10 +37,14 @@ All-in-one 個人管理筆記本，使用 Flutter 建置，目標支援 Android 
 - 新筆記標題預設保持空白，只顯示 `請輸入標題` 提示；返回儲存時若仍未輸入才存成 `未命名筆記`。
 - 文字段落拆分後仍使用 rich text controller 呈現粗體、斜體、底線、上下標、程式碼、引用與待辦核取方塊。
 - 工具列新增字型選單，並保留字級、行距、復原/再製、圖片、附件與待辦插入。
+- 字級支援手動輸入數字，並提供 10 到 30、step 2 的快速選項；切換字級後游標高度會立即跟隨目前字級。
 - 工具列會同步目前段落 TextField 的游標與反白範圍：選取文字時直接套用格式，未選取時切換接下來輸入的格式。
 - 工具列格式變更會立即刷新目前段落，不需重新進入頁面；下拉按鈕文字會自動省略，避免工具列 overflow。
+- 編號清單、項目清單與待辦清單支援換行延續；若刪除清單符號後方空格，會連同符號一起移除，不留下孤立的數字、點或方格。
+- Toolbar 最右側的插入待辦會插入主頁待辦事項參照 block，可同步顯示待辦完成狀態。
 - 筆記內容 placeholder 只會在全文空白時顯示；已有文字、圖片、附件或待辦時不再顯示。
 - 點擊圖片 block 的空白處會跳到最近的文字輸入行，避免圖片區域產生游標。
+- 圖片或待辦插入在內容尾端時會保留可繼續輸入的位置；未聚焦時該位置維持極薄點擊區，避免看起來像刪不掉的空白行。
 - 附件預覽會依檔案類型處理：圖片直接顯示、文字檔顯示可選取文字，其他檔案提供下載後用外部 App 開啟。
 - 背景設定改為顏色/圖片二選一，顏色以色票顯示，圖片由檔案選擇器選取。
 
@@ -82,12 +86,12 @@ scripts\flutter_project.cmd build apk --debug
 
 ## 本次驗證
 
-- `flutter analyze`：通過，No issues found。
-- `flutter test`：通過，包含 toolbar 選取文字套用格式、無選取時 typing mode、字級只作用於選取/後續輸入、字型 inline 標記、inline `TextStyle` 套用，以及圖片 block 可選取並顯示圖片 toolbar 的測試。
+- `flutter analyze --no-pub`：通過，No issues found。
+- `flutter test --no-pub`：20 項測試通過，包含 toolbar 選取文字套用格式、無選取時 typing mode、字級只作用於選取/後續輸入、字級切換後游標高度立即更新、字型 inline 標記、清單換行延續、刪除清單符號後空格時同步移除符號、主頁待辦參照 block、圖片 block 可選取，以及尾端圖片輸入區維持 compact 的測試。
 - `flutter build web`：通過，輸出 `build\web`。
 - Web：`http://localhost:8080/` 回應 200，已開啟瀏覽器檢視最新 `build\web`。
-- `flutter build apk --debug`：通過，輸出 `build\app\outputs\flutter-apk\app-debug.apk`。
-- X510：已安裝 debug APK 並用 `monkey` 啟動 `com.allinone.mynote`；已擷取 `test_artifacts\my_note_x510_toolbar_check.png`，畫面正常、無紅畫面。
+- `flutter build apk --debug --no-pub`：通過，輸出 `build\app\outputs\flutter-apk\app-debug.apk`。
+- X510：已安裝 debug APK 並用 `monkey` 啟動 `com.allinone.mynote`；已擷取 `test_artifacts\x510_my_note_20260712_215415.png`，畫面正常、無紅畫面。
 
 ## 已知警告
 

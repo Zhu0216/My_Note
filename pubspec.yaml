@@ -102,3 +102,13 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+  fonts:
+    - family: NotoSansTC
+      fonts:
+        - asset: assets/fonts/NotoSansTC-VF.ttf
+    - family: NotoSerifTC
+      fonts:
+        - asset: assets/fonts/NotoSerifTC-VF.ttf
+    - family: CascadiaCode
+      fonts:
+        - asset: assets/fonts/CascadiaCode.ttf
