@@ -253,6 +253,70 @@ void main() {
     ]);
   });
 
+  testWidgets('rich toolbar font size wheel slides and opens input', (
+    tester,
+  ) async {
+    var currentSize = 16.0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            return Scaffold(
+              body: Center(
+                child: RichToolbarFontSizeButton(
+                  currentSize: currentSize,
+                  tooltip: '字級',
+                  onSelected: (value) => setState(() {
+                    currentSize = value;
+                  }),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    expect(find.text('16'), findsOneWidget);
+    expect(find.text('14'), findsNothing);
+    expect(find.text('18'), findsNothing);
+
+    await tester.drag(
+      find.byType(RichToolbarFontSizeButton),
+      const Offset(0, -24),
+    );
+    await tester.pump();
+
+    expect(currentSize, 18.0);
+    expect(find.text('18'), findsOneWidget);
+    expect(find.text('14'), findsOneWidget);
+    expect(find.text('16'), findsOneWidget);
+    expect(find.text('20'), findsOneWidget);
+    expect(find.text('22'), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 750));
+
+    expect(find.text('14'), findsNothing);
+    expect(find.text('16'), findsNothing);
+    expect(find.text('20'), findsNothing);
+    expect(find.text('22'), findsNothing);
+
+    await tester.drag(
+      find.byType(RichToolbarFontSizeButton),
+      const Offset(0, 24),
+    );
+    await tester.pump();
+
+    expect(currentSize, 16.0);
+
+    await tester.tap(find.byType(RichToolbarFontSizeButton));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.byType(ChoiceChip), findsNothing);
+  });
+
   testWidgets('inline font style is applied to text spans', (tester) async {
     late TextStyle style;
 

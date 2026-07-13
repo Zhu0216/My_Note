@@ -105,3 +105,12 @@ scripts\flutter_project.cmd build apk --debug
 - 每次成功修改後更新 README。
 - 每次成功修改後建立/更新成功備份。
 - 不提交 build output、cache、測試截圖、XML 或 log 暫存檔。
+
+## 2026-07-13 Update
+
+- Notes rich editor: 字級控制改為上下滑動與點擊輸入並行。
+- 字級滑動方向：往上滑或滾輪往上會放大字級，往下滑或滾輪往下會縮小字級。
+- 字級候選提示改為滑動時才顯示，使用 overlay 浮層顯示於字級 block 上下，不佔 toolbar 高度。
+- 候選提示上方顯示兩個較小字級，下方顯示兩個較大字級，並調整尺寸與間距避免重疊中央字級。
+- Verified: `flutter analyze --no-pub`, `flutter test --no-pub`, `flutter build web --no-pub`, `flutter build apk --debug --no-pub`.
+- Tested: X510 安裝並啟動成功，Web 版 `http://localhost:8080/` 正常。

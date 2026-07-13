@@ -6203,7 +6203,7 @@ class RichToolbarColorButton extends StatelessWidget {
   }
 }
 
-class RichToolbarFontSizeButton extends StatelessWidget {
+class RichToolbarFontSizeButton extends StatefulWidget {
   const RichToolbarFontSizeButton({
     super.key,
     required this.currentSize,
@@ -6217,9 +6217,36 @@ class RichToolbarFontSizeButton extends StatelessWidget {
   final String tooltip;
   final ValueChanged<double> onSelected;
 
-  Future<void> openPicker(BuildContext context) async {
+  static List<double> wheelValuesFor(double currentSize) {
+    final current = currentSize.roundToDouble().clamp(6.0, 96.0).toDouble();
+    final items = <double>{
+      for (var value = 6; value <= 96; value += 2) value.toDouble(),
+      current,
+    }.toList()..sort();
+    return items;
+  }
+
+  @override
+  State<RichToolbarFontSizeButton> createState() =>
+      _RichToolbarFontSizeButtonState();
+}
+
+class _RichToolbarFontSizeButtonState extends State<RichToolbarFontSizeButton> {
+  static const _dragStepDistance = 4.0;
+  double dragRemainder = 0;
+  OverlayEntry? fontSizeOverlay;
+  Timer? hideOverlayTimer;
+
+  @override
+  void dispose() {
+    hideOverlayTimer?.cancel();
+    fontSizeOverlay?.remove();
+    super.dispose();
+  }
+
+  Future<void> openInput(BuildContext context) async {
     final controller = TextEditingController(
-      text: currentSize.round().toString(),
+      text: widget.currentSize.round().toString(),
     );
     final picked = await showDialog<double>(
       context: context,
@@ -6249,20 +6276,6 @@ class RichToolbarFontSizeButton extends StatelessWidget {
                     }
                   },
                 ),
-                const SizedBox(height: 14),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final value in values)
-                      ChoiceChip(
-                        selected: currentSize.round() == value,
-                        label: Text('$value'),
-                        onSelected: (_) =>
-                            Navigator.pop(dialogContext, value.toDouble()),
-                      ),
-                  ],
-                ),
               ],
             ),
           ),
@@ -6288,41 +6301,291 @@ class RichToolbarFontSizeButton extends StatelessWidget {
     if (picked == null) {
       return;
     }
-    onSelected(picked.clamp(6.0, 96.0).toDouble());
+    widget.onSelected(picked.clamp(6.0, 96.0).toDouble());
+  }
+
+  void selectByDirection(int direction) {
+    final values = RichToolbarFontSizeButton.wheelValuesFor(widget.currentSize);
+    final current = widget.currentSize.roundToDouble();
+    var index = values.indexWhere((item) => item == current);
+    if (index < 0) {
+      index = values.indexWhere((item) => item >= current);
+      if (index < 0) {
+        index = values.length - 1;
+      }
+    }
+    final nextIndex = (index + direction).clamp(0, values.length - 1);
+    final next = values[nextIndex];
+    if (next != current) {
+      widget.onSelected(next);
+      showFontSizeOverlay(next);
+    }
+  }
+
+  void handleDragDelta(double delta) {
+    dragRemainder += delta;
+    while (dragRemainder.abs() >= _dragStepDistance) {
+      if (dragRemainder < 0) {
+        selectByDirection(1);
+        dragRemainder += _dragStepDistance;
+      } else {
+        selectByDirection(-1);
+        dragRemainder -= _dragStepDistance;
+      }
+    }
+  }
+
+  void handlePointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) {
+      return;
+    }
+    if (event.scrollDelta.dy < 0) {
+      selectByDirection(1);
+    } else if (event.scrollDelta.dy > 0) {
+      selectByDirection(-1);
+    }
+  }
+
+  List<double?> surroundingValues(double centerSize) {
+    final values = RichToolbarFontSizeButton.wheelValuesFor(centerSize);
+    final center = centerSize.roundToDouble();
+    final index = values.indexWhere((item) => item == center);
+    return [
+      index > 1 ? values[index - 2] : null,
+      index > 0 ? values[index - 1] : null,
+      index >= 0 && index < values.length - 1 ? values[index + 1] : null,
+      index >= 0 && index < values.length - 2 ? values[index + 2] : null,
+    ];
+  }
+
+  void showFontSizeOverlay(double centerSize) {
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    final renderObject = context.findRenderObject();
+    final overlayObject = overlay?.context.findRenderObject();
+    if (overlay == null ||
+        renderObject is! RenderBox ||
+        overlayObject is! RenderBox ||
+        !renderObject.attached) {
+      return;
+    }
+    hideOverlayTimer?.cancel();
+    fontSizeOverlay?.remove();
+
+    final offset = renderObject.localToGlobal(
+      Offset.zero,
+      ancestor: overlayObject,
+    );
+    final size = renderObject.size;
+    final color = Theme.of(context).colorScheme.onSurface;
+    final values = surroundingValues(centerSize);
+    fontSizeOverlay = OverlayEntry(
+      builder: (context) {
+        return Positioned(
+          left: offset.dx,
+          top: math.max(8, offset.dy - _RichToolbarFontSizeOverlay.topOffset),
+          width: size.width,
+          child: IgnorePointer(
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 140),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, child) {
+                return Opacity(
+                  opacity: value,
+                  child: Transform.translate(
+                    offset: Offset(0, (1 - value) * 8),
+                    child: child,
+                  ),
+                );
+              },
+              child: _RichToolbarFontSizeOverlay(
+                upperFar: values[0],
+                upperNear: values[1],
+                lowerNear: values[2],
+                lowerFar: values[3],
+                centerHeight: size.height,
+                color: color,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    overlay.insert(fontSizeOverlay!);
+    hideOverlayTimer = Timer(const Duration(milliseconds: 700), () {
+      fontSizeOverlay?.remove();
+      fontSizeOverlay = null;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final current = widget.currentSize.roundToDouble();
     return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: () => openPicker(context),
-        child: SizedBox(
-          width: 86,
-          height: 48,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Flexible(
-                child: Text(
-                  currentSize.round().toString(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colorScheme.onSurface,
-                    fontWeight: FontWeight.w800,
-                  ),
+      message: widget.tooltip,
+      child: Listener(
+        onPointerSignal: handlePointerSignal,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => openInput(context),
+          onPanUpdate: (details) => handleDragDelta(details.delta.dy),
+          onPanEnd: (_) => dragRemainder = 0,
+          onPanCancel: () => dragRemainder = 0,
+          child: DecoratedBox(
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(10)),
+            child: SizedBox(
+              width: 74,
+              height: 48,
+              child: Center(
+                child: _RichToolbarFontSizeWheel(
+                  current: current,
+                  color: colorScheme.onSurface,
                 ),
               ),
-              const SizedBox(width: 2),
-              Icon(
-                Icons.arrow_drop_down,
-                color: colorScheme.onSurface,
-                size: 20,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RichToolbarFontSizeWheel extends StatelessWidget {
+  const _RichToolbarFontSizeWheel({required this.current, required this.color});
+
+  final double current;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: color.withValues(alpha: 0.14)),
+            ),
+            child: SizedBox(
+              width: 54,
+              height: 28,
+              child: Center(
+                child: Text(
+                  current.round().toString(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: color, fontWeight: FontWeight.w900),
+                ),
               ),
-            ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RichToolbarFontSizeOverlay extends StatelessWidget {
+  const _RichToolbarFontSizeOverlay({
+    required this.upperFar,
+    required this.upperNear,
+    required this.lowerNear,
+    required this.lowerFar,
+    required this.centerHeight,
+    required this.color,
+  });
+
+  static const valueHeight = 20.0;
+  static const valueGap = 2.0;
+  static const centerGap = 4.0;
+  static const topOffset = valueHeight * 2 + valueGap + centerGap;
+
+  final double? upperFar;
+  final double? upperNear;
+  final double? lowerNear;
+  final double? lowerFar;
+  final double centerHeight;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _RichToolbarFontSizeOverlayValue(
+          value: upperFar,
+          color: color,
+          opacity: 0.22,
+          scale: 1,
+        ),
+        const SizedBox(height: valueGap),
+        _RichToolbarFontSizeOverlayValue(
+          value: upperNear,
+          color: color,
+          opacity: 0.42,
+          scale: 1,
+        ),
+        const SizedBox(height: centerGap),
+        SizedBox(height: centerHeight),
+        const SizedBox(height: centerGap),
+        _RichToolbarFontSizeOverlayValue(
+          value: lowerNear,
+          color: color,
+          opacity: 0.42,
+          scale: 1,
+        ),
+        const SizedBox(height: valueGap),
+        _RichToolbarFontSizeOverlayValue(
+          value: lowerFar,
+          color: color,
+          opacity: 0.22,
+          scale: 1,
+        ),
+      ],
+    );
+  }
+}
+
+class _RichToolbarFontSizeOverlayValue extends StatelessWidget {
+  const _RichToolbarFontSizeOverlayValue({
+    required this.value,
+    required this.color,
+    required this.opacity,
+    required this.scale,
+  });
+
+  final double? value;
+  final Color color;
+  final double opacity;
+  final double scale;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Opacity(
+        opacity: value == null ? 0 : opacity,
+        child: Transform.scale(
+          scale: scale,
+          child: SizedBox(
+            width: 48,
+            height: _RichToolbarFontSizeOverlay.valueHeight,
+            child: Center(
+              child: Text(
+                value?.round().toString() ?? '',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  height: 1,
+                ),
+              ),
+            ),
           ),
         ),
       ),
