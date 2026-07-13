@@ -315,6 +315,26 @@ void main() {
 
     expect(find.byType(TextField), findsOneWidget);
     expect(find.byType(ChoiceChip), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('font-size-input-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(TextField), findsNothing);
+    expect(currentSize, 16.0);
+
+    await tester.tap(find.byType(RichToolbarFontSizeButton));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('font-size-input-field')),
+      '24',
+    );
+    await tester.tap(find.byKey(const ValueKey('font-size-input-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(TextField), findsNothing);
+    expect(currentSize, 24.0);
   });
 
   testWidgets('inline font style is applied to text spans', (tester) async {

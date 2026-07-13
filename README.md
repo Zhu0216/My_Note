@@ -1,5 +1,11 @@
 # My Note
 
+## 2026-07-13 Font Size Dialog Fix
+
+- Notes rich editor: fixed the X510 red screen that appeared after tapping Cancel or Apply in the font-size input dialog.
+- The font-size dialog now owns and disposes its own text controller, and the toolbar clears temporary font-size overlays before opening the dialog.
+- Overlay cleanup is centralized so timer/dispose paths cannot remove the same overlay entry twice.
+
 All-in-one 個人管理筆記本，使用 Flutter 建置，目標支援 Android 手機/平板與 Flutter Web。第一版以地端功能完整為主，Firebase 連線與部署能力已逐步接入，後續可延伸到 Google Play / Apple App Store 上線流程。
 
 ## 主要功能

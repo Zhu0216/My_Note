@@ -6240,64 +6240,20 @@ class _RichToolbarFontSizeButtonState extends State<RichToolbarFontSizeButton> {
   @override
   void dispose() {
     hideOverlayTimer?.cancel();
-    fontSizeOverlay?.remove();
+    removeFontSizeOverlay();
     super.dispose();
   }
 
   Future<void> openInput(BuildContext context) async {
-    final controller = TextEditingController(
-      text: widget.currentSize.round().toString(),
-    );
+    hideOverlayTimer?.cancel();
+    removeFontSizeOverlay();
     final picked = await showDialog<double>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('字級'),
-          content: SizedBox(
-            width: 320,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextField(
-                  controller: controller,
-                  autofocus: true,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: const InputDecoration(
-                    labelText: '輸入字級',
-                    suffixText: 'pt',
-                    border: OutlineInputBorder(),
-                  ),
-                  onSubmitted: (value) {
-                    final parsed = double.tryParse(value);
-                    if (parsed != null) {
-                      Navigator.pop(dialogContext, parsed);
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final parsed = double.tryParse(controller.text);
-                if (parsed != null) {
-                  Navigator.pop(dialogContext, parsed);
-                }
-              },
-              child: const Text('套用'),
-            ),
-          ],
-        );
-      },
+      builder: (_) => _FontSizeInputDialog(initialSize: widget.currentSize),
     );
-    controller.dispose();
+    if (!mounted) {
+      return;
+    }
     if (picked == null) {
       return;
     }
@@ -6369,7 +6325,7 @@ class _RichToolbarFontSizeButtonState extends State<RichToolbarFontSizeButton> {
       return;
     }
     hideOverlayTimer?.cancel();
-    fontSizeOverlay?.remove();
+    removeFontSizeOverlay();
 
     final offset = renderObject.localToGlobal(
       Offset.zero,
@@ -6413,9 +6369,17 @@ class _RichToolbarFontSizeButtonState extends State<RichToolbarFontSizeButton> {
     );
     overlay.insert(fontSizeOverlay!);
     hideOverlayTimer = Timer(const Duration(milliseconds: 700), () {
-      fontSizeOverlay?.remove();
-      fontSizeOverlay = null;
+      removeFontSizeOverlay();
     });
+  }
+
+  void removeFontSizeOverlay() {
+    final overlay = fontSizeOverlay;
+    if (overlay == null) {
+      return;
+    }
+    overlay.remove();
+    fontSizeOverlay = null;
   }
 
   @override
@@ -6447,6 +6411,80 @@ class _RichToolbarFontSizeButtonState extends State<RichToolbarFontSizeButton> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _FontSizeInputDialog extends StatefulWidget {
+  const _FontSizeInputDialog({required this.initialSize});
+
+  final double initialSize;
+
+  @override
+  State<_FontSizeInputDialog> createState() => _FontSizeInputDialogState();
+}
+
+class _FontSizeInputDialogState extends State<_FontSizeInputDialog> {
+  late final TextEditingController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = TextEditingController(
+      text: widget.initialSize.round().toString(),
+    );
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  void close([double? value]) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    Navigator.of(context).pop(value);
+  }
+
+  void submit(String value) {
+    final parsed = double.tryParse(value);
+    if (parsed != null) {
+      close(parsed);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('字級'),
+      content: SizedBox(
+        width: 320,
+        child: TextField(
+          key: const ValueKey('font-size-input-field'),
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: const InputDecoration(
+            labelText: '輸入字級',
+            suffixText: 'pt',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: submit,
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('font-size-input-cancel'),
+          onPressed: () => close(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const ValueKey('font-size-input-confirm'),
+          onPressed: () => submit(controller.text),
+          child: const Text('套用'),
+        ),
+      ],
     );
   }
 }
