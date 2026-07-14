@@ -1,73 +1,35 @@
 # My Note
 
-## 2026-07-13 Font Size Dialog Fix
+All-in-one 個人管理筆記本，使用 Flutter 開發，目標支援 Android 手機 / 平板與 Flutter Web。第一階段以地端功能穩定為主，Firebase 已保留接軌設定，後續可逐步加入 Auth、Firestore、Storage、FCM 與 Hosting。
 
-- Notes rich editor: fixed the X510 red screen that appeared after tapping Cancel or Apply in the font-size input dialog.
-- The font-size dialog now owns and disposes its own text controller, and the toolbar clears temporary font-size overlays before opening the dialog.
-- Overlay cleanup is centralized so timer/dispose paths cannot remove the same overlay entry twice.
+## 目前功能
 
-All-in-one 個人管理筆記本，使用 Flutter 建置，目標支援 Android 手機/平板與 Flutter Web。第一版以地端功能完整為主，Firebase 連線與部署能力已逐步接入，後續可延伸到 Google Play / Apple App Store 上線流程。
+- Home 首頁：月結算、今日行程、即將到來、最近筆記與快速新增入口。
+- Notes 筆記：資料夾、未分類、垃圾桶、置頂、搜尋、排序、檢視模式、批量編輯與模板入口。
+- Rich Note Editor：文字格式、字級滾輪、字型選擇、清單、待辦核取方塊、圖片、附件、背景設定、插入待辦與匯出入口。
+- Calendar 行程：依日期查看行程、新增 / 編輯 / 刪除與提醒相關欄位。
+- Finance 記帳：存餘、本月收入、本月支出、支出 / 收入統計、帳戶與近期紀錄。
+- Settings 設定：Firebase 規劃與本機設定入口。
 
-## 主要功能
+## 筆記字型
 
-- Home 首頁：月結算、今日行程、即將到來、最近筆記、待辦事項與快速新增；最近筆記支援左滑刪除。
-- Notes 筆記：資料夾、標籤、搜尋、排序、檢視模式、模板篩選、置頂、垃圾桶、多選編輯。
-- Rich Note Editor：文字格式、待辦核取方塊、圖片、附件、背景設定、匯出入口；圖片支援選取、移動、鎖定與解除鎖定。
-- Calendar 行程：月曆、日期行程清單、新增/編輯/刪除行程、提醒欄位。
-- Finance 記帳：存餘帳戶、收入、支出、分類統計、預算提醒、訂閱管理。
-- Settings 設定：Firebase 狀態與未來同步/部署設定入口。
+- `裝置(XX體)` 會跟隨 Samsung 裝置目前套用的系統字型。
+- X510 上已驗證可偵測 Samsung FlipFont 字型套件，並列出已安裝字體，例如 `少女體`、`Samsung One`、`Roboto`、`Foundation`。
+- 選擇 `裝置(XX體)` 會跟著系統切換；選擇單一字體名稱則固定使用該字體。
+- 字型按鈕已改成依文字寬度自適應，會將 toolbar 後方項目往右推，超出畫面時維持橫向捲動與左右箭頭。
 
-## 筆記圖片編輯
+## Firebase 狀態
 
-- 圖片不再使用 editor 外層浮動層，而是 document flow 中的獨立圖片 block。
-- 圖片 block 會佔用真實 layout 高度，圖片下方段落會排在圖片 block 底部之後。
-- 圖片點擊範圍與實際顯示範圍一致，點擊圖片本體會直接選取圖片並顯示圖片 toolbar。
-- 圖片儲存 `x`、`y`、`width`、`height` 數值；移動模式開啟時才可拖移，縮放會更新尺寸。
-- 縮放使用八個控制點，支援非等比例縮放。
-- 對齊功能只調整水平位置；移動會從目前位置開始，不再被對齊重置。
-- 垂直拖移圖片時改以文件流 block 順序調整圖片位置，避免圖片覆蓋文字或輸入行。
-- 圖片可鎖定；鎖定後 toolbar 只保留鎖頭，所有移動、縮放、裁切、框線、對齊與刪除操作都會停用，點鎖頭可解除鎖定。
-- 圖片外框線徑改為 toolbar 內嵌輸入列，取消與套用不再開啟系統 dialog。
-- 插入圖片後會保留圖片下方可輸入段落，但會清理插入位置附近多餘的連續空白行。
+- Firebase CLI 已改用 `D:\Flutter_Project\firebase-cli`。
+- 專案已有 Firebase 設定檔接點，後續可加入：
+  - Firebase Auth：使用者登入
+  - Cloud Firestore：筆記、行程、訂閱、記帳資料
+  - Firebase Storage：附件與圖片
+  - Cloud Functions：背景任務與 Google Calendar 同步
+  - Firebase Hosting：Flutter Web 部署
+  - FCM：手機推播通知
 
-## 待辦事項互動
-
-- 主頁待辦事項以標題在上、期限與提醒在下的方式顯示。
-- 點擊待辦文字可直接在列表中編輯。
-- 長按待辦事項會開啟下方操作選單，可選擇編輯、刪除或完成。
-- 編輯頁不會自動跳出鍵盤，點擊標題欄位後才開始輸入。
-- 編輯頁以右上角叉叉取消、打勾完成，不再顯示底部儲存/取消按鈕。
-- 完成、取消與刪除會分別顯示 `完成待辦`、`取消編輯`、`刪除待辦事項` 提示。
-
-## 筆記編輯更新
-
-- 新筆記標題預設保持空白，只顯示 `請輸入標題` 提示；返回儲存時若仍未輸入才存成 `未命名筆記`。
-- 文字段落拆分後仍使用 rich text controller 呈現粗體、斜體、底線、上下標、程式碼、引用與待辦核取方塊。
-- 工具列新增字型選單，並保留字級、行距、復原/再製、圖片、附件與待辦插入。
-- 字級支援手動輸入數字，並提供 10 到 30、step 2 的快速選項；切換字級後游標高度會立即跟隨目前字級。
-- 工具列會同步目前段落 TextField 的游標與反白範圍：選取文字時直接套用格式，未選取時切換接下來輸入的格式。
-- 工具列格式變更會立即刷新目前段落，不需重新進入頁面；下拉按鈕文字會自動省略，避免工具列 overflow。
-- 編號清單、項目清單與待辦清單支援換行延續；若刪除清單符號後方空格，會連同符號一起移除，不留下孤立的數字、點或方格。
-- Toolbar 最右側的插入待辦會插入主頁待辦事項參照 block，可同步顯示與切換待辦完成狀態。
-- 插入的主頁待辦 block 可被選取並切換成專屬 toolbar，提供完成、未完成，以及只從本筆記移除該 block 的操作。
-- 筆記內容 placeholder 只會在全文空白時顯示；已有文字、圖片、附件或待辦時不再顯示。
-- 點擊圖片 block 的空白處會跳到最近的文字輸入行，避免圖片區域產生游標。
-- 圖片或待辦插入在內容尾端時會保留可繼續輸入的位置；未聚焦時該位置維持極薄點擊區，避免看起來像刪不掉的空白行。
-- 附件預覽會依檔案類型處理：圖片直接顯示、文字檔顯示可選取文字，其他檔案提供下載後用外部 App 開啟。
-- 背景設定改為顏色/圖片二選一，顏色以色票顯示，圖片由檔案選擇器選取。
-
-## Firebase 規劃
-
-- Firebase Auth：使用者登入。
-- Cloud Firestore：筆記、行程、訂閱、記帳資料。
-- Firebase Storage：附件與圖片。
-- Cloud Functions：背景任務與未來 Google Calendar 同步。
-- Firebase Hosting：Flutter Web 部署。
-- FCM：手機推播通知。
-
-目前 Firebase CLI 登入曾受本機 OAuth/網路環境影響，專案端已保留 Firebase 設定入口與 `firebase_options.dart` 結構，後續完成登入後可繼續初始化服務。
-
-## 開發命令
+## 開發與測試
 
 PowerShell:
 
@@ -86,37 +48,24 @@ scripts\flutter_project.cmd analyze
 scripts\flutter_project.cmd build apk --debug
 ```
 
-安裝到 Android 裝置:
+常用直接指令：
 
 ```powershell
-.\scripts\flutter_project.ps1 install -d <device-id>
+flutter analyze --no-pub
+flutter test --no-pub
+flutter build apk --debug --no-pub
+flutter build web --no-pub
 ```
 
-## 本次驗證
+## 已驗證
 
-- `flutter analyze --no-pub`：通過，No issues found。
-- `flutter test --no-pub`：22 項測試通過，包含 toolbar 選取文字套用格式、無選取時 typing mode、字級只作用於選取/後續輸入、字級切換後游標高度立即更新、字型 inline 標記、清單換行延續、刪除清單符號後空格時同步移除符號、主頁待辦參照 block、待辦 block 專屬 toolbar 完成/未完成/移除、主頁待辦標題與期限提醒排列、圖片 block 可選取，以及尾端圖片輸入區維持可編輯的測試。
-- `flutter build web`：通過，輸出 `build\web`。
-- Web：`http://localhost:8080/` 回應 200，已開啟瀏覽器檢視最新 `build\web`。
-- `flutter build apk --debug --no-pub`：通過，輸出 `build\app\outputs\flutter-apk\app-debug.apk`。
-- X510：已安裝 debug APK 並用 `monkey` 啟動 `com.allinone.mynote`；已擷取 `test_artifacts\x510_my_note_20260712_215415.png`，畫面正常、無紅畫面。
+- `flutter analyze --no-pub`
+- `flutter test --no-pub`
+- `flutter build apk --debug --no-pub`
+- `flutter build web --no-pub`
+- Samsung X510 安裝與截圖確認筆記裝置字型功能
 
 ## 已知警告
 
-- Android build 仍顯示 Kotlin Gradle Plugin 警告，來源為 `file_picker`、`firebase_storage`、`share_plus` 等套件尚未完全遷移到 Built-in Kotlin。此次不影響 debug APK 建置與安裝。
-- Web build 顯示 wasm dry run 警告，來源為第三方 web 套件的 JS interop runtime check。一般 Flutter Web build 可正常產出，若未來要啟用 wasm 需追蹤套件更新。
-
-## 維護流程
-
-- 每次成功修改後更新 README。
-- 每次成功修改後建立/更新成功備份。
-- 不提交 build output、cache、測試截圖、XML 或 log 暫存檔。
-
-## 2026-07-13 Update
-
-- Notes rich editor: 字級控制改為上下滑動與點擊輸入並行。
-- 字級滑動方向：往上滑或滾輪往上會放大字級，往下滑或滾輪往下會縮小字級。
-- 字級候選提示改為滑動時才顯示，使用 overlay 浮層顯示於字級 block 上下，不佔 toolbar 高度。
-- 候選提示上方顯示兩個較小字級，下方顯示兩個較大字級，並調整尺寸與間距避免重疊中央字級。
-- Verified: `flutter analyze --no-pub`, `flutter test --no-pub`, `flutter build web --no-pub`, `flutter build apk --debug --no-pub`.
-- Tested: X510 安裝並啟動成功，Web 版 `http://localhost:8080/` 正常。
+- Android build 仍會出現 Kotlin Gradle Plugin 未來相容性警告，來源包含 `file_picker`、`firebase_storage`、`share_plus` 等套件。現階段不影響 debug APK 建置與 app 功能。
+- Web build 會出現 Flutter wasm dry run 提示，現階段不影響一般 Flutter Web build。

@@ -362,6 +362,106 @@ void main() {
     expect(style.fontSize, 28.0);
   });
 
+  testWidgets('system note font resolves to device system family', (
+    tester,
+  ) async {
+    final previousDeviceFont = loadedDeviceSystemFontFamily;
+    final previousDeviceFontName = loadedDeviceSystemFontDisplayName;
+    final previousFontOptions = Map<String, DeviceFontOption>.from(
+      loadedDeviceFontOptions,
+    );
+    addTearDown(() {
+      loadedDeviceSystemFontFamily = previousDeviceFont;
+      loadedDeviceSystemFontDisplayName = previousDeviceFontName;
+      loadedDeviceFontOptions
+        ..clear()
+        ..addAll(previousFontOptions);
+    });
+    late TextStyle style;
+    late TextStyle inlineOverrideStyle;
+
+    loadedDeviceSystemFontFamily = null;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            style = noteBodyTextStyle({
+              'fontFamily': 'System',
+              'fontSize': 16.0,
+            }, context: context);
+            inlineOverrideStyle = richNoteTextStyleForAttributes(
+              context,
+              const TextStyle(fontFamily: 'NotoSansTC', fontSize: 16),
+              const {RichNoteAttribute.fontFamily: 'System'},
+            );
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+
+    expect(style.fontFamily, isNull);
+    expect(inlineOverrideStyle.fontFamily, isNull);
+    expect(noteFontFamilyLabel('System'), '裝置字體');
+
+    loadedDeviceSystemFontFamily = noteRuntimeDeviceFontFamily;
+    loadedDeviceSystemFontDisplayName = 'Samsung One';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            style = noteBodyTextStyle({
+              'fontFamily': 'System',
+              'fontSize': 16.0,
+            }, context: context);
+            inlineOverrideStyle = richNoteTextStyleForAttributes(
+              context,
+              const TextStyle(fontFamily: 'NotoSansTC', fontSize: 16),
+              const {RichNoteAttribute.fontFamily: 'System'},
+            );
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+
+    expect(style.fontFamily, noteRuntimeDeviceFontFamily);
+    expect(inlineOverrideStyle.fontFamily, noteRuntimeDeviceFontFamily);
+    expect(noteFontFamilyLabel('System'), '裝置(Samsung One)');
+  });
+
+  test('installed device fonts are available as note font options', () {
+    final previousFontOptions = Map<String, DeviceFontOption>.from(
+      loadedDeviceFontOptions,
+    );
+    addTearDown(() {
+      loadedDeviceFontOptions
+        ..clear()
+        ..addAll(previousFontOptions);
+    });
+
+    loadedDeviceFontOptions
+      ..clear()
+      ..addAll({
+        'com.monotype.android.font.samsungone': const DeviceFontOption(
+          packageName: 'com.monotype.android.font.samsungone',
+          displayName: 'Samsung One',
+          fontFamily: 'MyNoteInstalledDeviceFont0',
+        ),
+        'com.monotype.android.font.shaonv': const DeviceFontOption(
+          packageName: 'com.monotype.android.font.shaonv',
+          displayName: '少女體',
+          fontFamily: 'MyNoteInstalledDeviceFont1',
+        ),
+      });
+
+    final shaonvValue = noteDeviceFontValue('com.monotype.android.font.shaonv');
+
+    expect(noteFontFamilyValues, contains(shaonvValue));
+    expect(noteFontFamilyLabel(shaonvValue), '少女體');
+    expect(noteResolvedFontFamily(shaonvValue), 'MyNoteInstalledDeviceFont1');
+  });
+
   testWidgets('rich toolbar formats selected text from editor field', (
     tester,
   ) async {

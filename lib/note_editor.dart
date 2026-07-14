@@ -2733,12 +2733,7 @@ TextStyle richNoteTextStyleForAttributes(
   if (attributes[RichNoteAttribute.strikethrough] == true) {
     decorations.add(TextDecoration.lineThrough);
   }
-  var style = base.copyWith(
-    fontFamily: inlineFontFamily.isEmpty
-        ? base.fontFamily
-        : inlineFontFamily == 'System'
-        ? null
-        : inlineFontFamily,
+  var style = noteApplyFontFamily(base, inlineFontFamily).copyWith(
     fontSize: inlineFontSize > 0 ? inlineFontSize : base.fontSize,
     fontWeight: attributes[RichNoteAttribute.bold] == true
         ? FontWeight.w800
@@ -3760,7 +3755,7 @@ class _GeneralRichTextEditorPanelState
     if (selectedFamily.isEmpty) {
       return bodyStyle.fontFamily;
     }
-    return selectedFamily == 'System' ? null : selectedFamily;
+    return noteResolvedFontFamily(selectedFamily);
   }
 
   double flowMaxFontSizeForBlock(RichNoteFlowBlock block, TextStyle bodyStyle) {
@@ -3795,10 +3790,13 @@ class _GeneralRichTextEditorPanelState
     if (!flowBlockOnlyHasInputPrefix(block)) {
       return bodyStyle;
     }
-    return bodyStyle.copyWith(
-      fontFamily: flowCaretFontFamilyForBlock(block, bodyStyle),
-      fontSize: flowCaretFontSizeForBlock(block, bodyStyle),
+    final selectedFamily = readString(
+      widget.controller.selectionAttributeValue(RichNoteAttribute.fontFamily),
     );
+    return noteApplyFontFamily(
+      bodyStyle,
+      selectedFamily,
+    ).copyWith(fontSize: flowCaretFontSizeForBlock(block, bodyStyle));
   }
 
   StrutStyle flowStrutStyleForBlock(
@@ -6692,30 +6690,37 @@ class RichToolbarMenuButton<T> extends StatelessWidget {
               ),
             ),
         ],
-        child: SizedBox(
-          width: 86,
-          height: 48,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colorScheme.onSurface,
-                    fontWeight: FontWeight.w800,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 86),
+          child: SizedBox(
+            height: 48,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(left: 10),
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    softWrap: false,
+                    style: TextStyle(
+                      color: colorScheme.onSurface,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 2),
-              Icon(
-                Icons.arrow_drop_down,
-                color: colorScheme.onSurface,
-                size: 20,
-              ),
-            ],
+                const SizedBox(width: 2),
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Icon(
+                    Icons.arrow_drop_down,
+                    color: colorScheme.onSurface,
+                    size: 20,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -6795,10 +6800,12 @@ class NoteEditorToolbar extends StatelessWidget {
                 ),
                 label: const Text('字型'),
                 width: 132,
-                dropdownMenuEntries: const [
-                  DropdownMenuEntry(value: 'System', label: '系統'),
-                  DropdownMenuEntry(value: 'Serif', label: '襯線'),
-                  DropdownMenuEntry(value: 'Mono', label: '等寬'),
+                dropdownMenuEntries: [
+                  for (final value in noteFontFamilyValues)
+                    DropdownMenuEntry(
+                      value: value,
+                      label: noteFontFamilyLabel(value),
+                    ),
                 ],
                 onSelected: (value) {
                   if (value != null) {
@@ -7306,13 +7313,15 @@ TextStyle noteBodyTextStyle(
   final colorValue = readString(style['color'], fallback: '#202522');
   final usesDefaultColor =
       colorValue.toUpperCase() == '#202522' || colorValue.trim().isEmpty;
-  return TextStyle(
-    fontFamily: family == 'System' ? null : family,
-    fontSize: readDouble(style['fontSize'], fallback: 16),
-    color: usesDefaultColor && context != null
-        ? Theme.of(context).colorScheme.onSurface
-        : colorFromHex(colorValue),
-    height: readDouble(style['lineHeight'], fallback: 1.45),
+  return noteApplyFontFamily(
+    TextStyle(
+      fontSize: readDouble(style['fontSize'], fallback: 16),
+      color: usesDefaultColor && context != null
+          ? Theme.of(context).colorScheme.onSurface
+          : colorFromHex(colorValue),
+      height: readDouble(style['lineHeight'], fallback: 1.45),
+    ),
+    family,
   );
 }
 
@@ -7378,16 +7387,95 @@ String colorLabel(String value) {
   };
 }
 
-const noteFontFamilyValues = [
-  'System',
-  'NotoSansTC',
-  'NotoSerifTC',
-  'CascadiaCode',
-];
+List<String> get noteFontFamilyValues {
+  return [
+    'System',
+    for (final packageName in loadedDeviceFontOptions.keys)
+      noteDeviceFontValue(packageName),
+    'NotoSansTC',
+    'NotoSerifTC',
+    'CascadiaCode',
+  ];
+}
+
+String noteDeviceFontValue(String packageName) {
+  return '$noteDeviceFontValuePrefix$packageName';
+}
+
+String? noteDeviceFontPackageFromValue(String value) {
+  if (!value.startsWith(noteDeviceFontValuePrefix)) {
+    return null;
+  }
+  final packageName = value.substring(noteDeviceFontValuePrefix.length).trim();
+  return packageName.isEmpty ? null : packageName;
+}
+
+String? noteResolvedFontFamily(String value) {
+  final family = value.trim();
+  if (family.isEmpty) {
+    return null;
+  }
+  if (family == 'System') {
+    return loadedDeviceSystemFontFamily;
+  }
+  final devicePackageName = noteDeviceFontPackageFromValue(family);
+  if (devicePackageName != null) {
+    return loadedDeviceFontOptions[devicePackageName]?.fontFamily;
+  }
+  return family;
+}
+
+TextStyle noteApplyFontFamily(TextStyle base, String value) {
+  final family = value.trim();
+  if (family.isEmpty) {
+    return base;
+  }
+  final resolvedFamily = noteResolvedFontFamily(family);
+  if (resolvedFamily != null) {
+    return base.copyWith(fontFamily: resolvedFamily);
+  }
+  return noteTextStyleWithoutFontFamily(base);
+}
+
+TextStyle noteTextStyleWithoutFontFamily(TextStyle base) {
+  return TextStyle(
+    inherit: base.inherit,
+    color: base.color,
+    backgroundColor: base.backgroundColor,
+    fontSize: base.fontSize,
+    fontWeight: base.fontWeight,
+    fontStyle: base.fontStyle,
+    letterSpacing: base.letterSpacing,
+    wordSpacing: base.wordSpacing,
+    textBaseline: base.textBaseline,
+    height: base.height,
+    leadingDistribution: base.leadingDistribution,
+    locale: base.locale,
+    foreground: base.foreground,
+    background: base.background,
+    shadows: base.shadows,
+    fontFeatures: base.fontFeatures,
+    fontVariations: base.fontVariations,
+    decoration: base.decoration,
+    decorationColor: base.decorationColor,
+    decorationStyle: base.decorationStyle,
+    decorationThickness: base.decorationThickness,
+    debugLabel: base.debugLabel,
+    fontFamilyFallback: base.fontFamilyFallback,
+    overflow: base.overflow,
+  );
+}
 
 String noteFontFamilyLabel(String value) {
+  final devicePackageName = noteDeviceFontPackageFromValue(value);
+  if (devicePackageName != null) {
+    return loadedDeviceFontOptions[devicePackageName]?.displayName ?? value;
+  }
   return switch (value) {
-    'System' => '系統',
+    'System' =>
+      loadedDeviceSystemFontDisplayName.isEmpty
+          ? '裝置字體'
+          : '裝置($loadedDeviceSystemFontDisplayName)',
     'NotoSansTC' => 'Noto 黑體',
     'NotoSerifTC' => 'Noto 明體',
     'CascadiaCode' => 'Cascadia 等寬',
