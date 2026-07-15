@@ -40,6 +40,10 @@ migrate_working_dir/
 .tools/
 .codex/
 .agents/
+test/
+scripts/
+ios/RunnerTests/
+macos/RunnerTests/
 
 # Local logs and generated diagnostics
 *.log
