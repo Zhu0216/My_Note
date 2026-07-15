@@ -475,7 +475,9 @@ class AppStore extends ChangeNotifier {
     required this.hiddenHomeSections,
     required this.hiddenUpcomingItems,
     required this.homeSectionStyles,
+    bool persistenceLocked = false,
   }) {
+    _persistenceLocked = persistenceLocked;
     _syncNoteFolders();
     _removeLegacySeedTodos();
     _cleanupCompletedTodos();
@@ -484,7 +486,7 @@ class AppStore extends ChangeNotifier {
     _scheduleCompletedTodoCleanup();
   }
 
-  factory AppStore.seeded() {
+  factory AppStore.seeded({bool persistenceLocked = false}) {
     return AppStore._(
       monthlyBudget: 18000,
       homeSectionOrder: defaultHomeSectionOrder(),
@@ -499,6 +501,7 @@ class AppStore extends ChangeNotifier {
       savingsAccounts: [],
       todos: [],
       noteFolders: [],
+      persistenceLocked: persistenceLocked,
     );
   }
 
@@ -511,6 +514,11 @@ class AppStore extends ChangeNotifier {
   }
 
   static const String _storageKey = 'my_note_local_v1';
+  static const String _backupStorageKey = 'my_note_local_v1_backup';
+  static const String _backupHistoryStorageKey =
+      'my_note_local_v1_backup_history';
+  static const String _recoveryStorageKey = 'my_note_local_v1_recovery';
+  static const int _maxBackupSnapshots = 12;
 
   void _removeLegacySeedTodos() {
     const legacySeedTodoTitles = {'讀書計畫', '完成筆記模板整理', '設定 Firebase 專案'};
@@ -525,8 +533,98 @@ class AppStore extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_storageKey);
     if (raw == null) {
+      final recovered = await _recoverFromBackups(prefs);
+      if (recovered != null) {
+        return recovered;
+      }
       return AppStore.seeded();
     }
+    final loaded = _tryLoadFromRaw(raw);
+    if (loaded != null) {
+      if (_rawIsLegacySeedSnapshot(raw)) {
+        await prefs.setString(_recoveryStorageKey, raw);
+        return AppStore.seeded();
+      }
+      return loaded;
+    }
+
+    await prefs.setString(_recoveryStorageKey, raw);
+    final recovered = await _recoverFromBackups(prefs);
+    if (recovered != null) {
+      return recovered;
+    }
+    return AppStore.seeded(persistenceLocked: true);
+  }
+
+  static Future<AppStore?> _recoverFromBackups(SharedPreferences prefs) async {
+    for (final snapshot in _readBackupSnapshots(prefs)) {
+      final recovered = _tryLoadFromRaw(snapshot);
+      if (recovered == null || !_rawHasRecoverableUserContent(snapshot)) {
+        continue;
+      }
+      await prefs.setString(_storageKey, snapshot);
+      await _writeBackupSnapshot(prefs, snapshot);
+      return recovered;
+    }
+    return null;
+  }
+
+  static List<String> _readBackupSnapshots(SharedPreferences prefs) {
+    final snapshots = <String>[];
+    final latest = prefs.getString(_backupStorageKey);
+    if (latest != null) {
+      snapshots.add(latest);
+    }
+    final rawHistory = prefs.getString(_backupHistoryStorageKey);
+    if (rawHistory == null) {
+      return snapshots;
+    }
+    try {
+      final decoded = jsonDecode(rawHistory);
+      if (decoded is List) {
+        for (final item in decoded) {
+          if (item is Map && item['raw'] is String) {
+            snapshots.add(item['raw'] as String);
+          } else if (item is String) {
+            snapshots.add(item);
+          }
+        }
+      }
+    } catch (_) {
+      return snapshots;
+    }
+    return [
+      ...{for (final snapshot in snapshots) snapshot},
+    ];
+  }
+
+  static Future<void> _writeBackupSnapshot(
+    SharedPreferences prefs,
+    String raw,
+  ) async {
+    if (!_rawHasRecoverableUserContent(raw)) {
+      return;
+    }
+    await prefs.setString(_backupStorageKey, raw);
+    final history = <Map<String, dynamic>>[
+      {'savedAt': DateTime.now().toIso8601String(), 'raw': raw},
+    ];
+    for (final snapshot in _readBackupSnapshots(prefs)) {
+      if (snapshot == raw || !_rawHasRecoverableUserContent(snapshot)) {
+        continue;
+      }
+      history.add({
+        'savedAt': DateTime.now().toIso8601String(),
+        'raw': snapshot,
+      });
+      if (history.length >= _maxBackupSnapshots) {
+        break;
+      }
+    }
+    await prefs.setString(_backupHistoryStorageKey, jsonEncode(history));
+  }
+
+  static AppStore? _tryLoadFromRaw(String raw) {
     try {
       final data = jsonDecode(raw) as Map<String, dynamic>;
       return AppStore._(
@@ -552,7 +650,7 @@ class AppStore extends ChangeNotifier {
         homeSectionStyles: readHomeSectionStyles(data['homeSectionStyles']),
       );
     } catch (_) {
-      return AppStore.seeded();
+      return null;
     }
   }
 
@@ -572,6 +670,7 @@ class AppStore extends ChangeNotifier {
   int _nextId = 100;
   Timer? _saveDebounce;
   Timer? _todoCleanupTimer;
+  bool _persistenceLocked = false;
 
   String newId(String prefix) => '$prefix${_nextId++}';
 
@@ -621,14 +720,30 @@ class AppStore extends ChangeNotifier {
   }
 
   Future<void> _save() async {
+    if (_persistenceLocked) {
+      return;
+    }
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_storageKey, jsonEncode(toJson()));
+    final currentRaw = prefs.getString(_storageKey);
+    final nextRaw = jsonEncode(toJson());
+    if (_storeHasNoUserContent(toJson()) &&
+        _rawHasRecoverableUserContent(currentRaw)) {
+      if (currentRaw != null) {
+        await _writeBackupSnapshot(prefs, currentRaw);
+      }
+      return;
+    }
+    if (currentRaw != null && _rawHasRecoverableUserContent(currentRaw)) {
+      await _writeBackupSnapshot(prefs, currentRaw);
+    }
+    await prefs.setString(_storageKey, nextRaw);
+    await _writeBackupSnapshot(prefs, nextRaw);
   }
 
   void _commit() {
     notifyListeners();
     _saveDebounce?.cancel();
-    _saveDebounce = Timer(const Duration(milliseconds: 300), _save);
+    _saveDebounce = Timer(const Duration(milliseconds: 100), _save);
   }
 
   void _scheduleCompletedTodoCleanup() {
@@ -804,7 +919,7 @@ class AppStore extends ChangeNotifier {
   }
 
   void createNoteFolder(String name, {bool notify = true}) {
-    final folder = normalizeFolderPath(name);
+    final folder = limitFolderPathForStorage(name);
     if (folder.isEmpty) {
       return;
     }
@@ -872,7 +987,7 @@ class AppStore extends ChangeNotifier {
 
   void renameNoteFolder(String oldName, String newName) {
     final oldPath = normalizeFolderPath(oldName);
-    final folderName = folderBaseName(newName);
+    final folderName = limitFolderNameForStorage(folderBaseName(newName));
     if (oldPath.isEmpty || folderName.isEmpty) {
       return;
     }
@@ -1387,6 +1502,134 @@ TodoItem todoFromJson(Map<String, dynamic> data) {
 
 String readString(Object? value, {String fallback = ''}) {
   return value is String ? value : fallback;
+}
+
+bool _rawHasRecoverableUserContent(String? raw) {
+  if (raw == null || raw.trim().isEmpty) {
+    return false;
+  }
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map<String, dynamic>) {
+      return true;
+    }
+    if (_storeIsLegacySeedSnapshot(decoded)) {
+      return false;
+    }
+    return !_storeHasNoUserContent(decoded);
+  } catch (_) {
+    return true;
+  }
+}
+
+bool _rawIsLegacySeedSnapshot(String raw) {
+  try {
+    final decoded = jsonDecode(raw);
+    return decoded is Map<String, dynamic> &&
+        _storeIsLegacySeedSnapshot(decoded);
+  } catch (_) {
+    return false;
+  }
+}
+
+bool _storeIsLegacySeedSnapshot(Map<String, dynamic> data) {
+  if (_storeHasNoUserContent(data)) {
+    return false;
+  }
+  var matchedSeedItem = false;
+  var hasUnknownUserItem = false;
+
+  bool inspectList(
+    Object? raw,
+    bool Function(Map<String, dynamic> item) isLegacySeed,
+  ) {
+    if (raw is! List) {
+      return true;
+    }
+    for (final item in raw) {
+      if (item is! Map) {
+        hasUnknownUserItem = true;
+        continue;
+      }
+      final normalized = Map<String, dynamic>.from(item);
+      if (isLegacySeed(normalized)) {
+        matchedSeedItem = true;
+      } else {
+        hasUnknownUserItem = true;
+      }
+    }
+    return true;
+  }
+
+  inspectList(data['notes'], _isLegacySeedNote);
+  inspectList(data['schedules'], _isLegacySeedSchedule);
+  inspectList(data['subscriptions'], _isLegacySeedSubscription);
+  inspectList(data['financeEntries'], _isLegacySeedFinanceEntry);
+  inspectList(data['savingsAccounts'], _isLegacySeedSavingsAccount);
+  inspectList(data['todos'], _isLegacySeedTodo);
+
+  final folders = readStringList(data['noteFolders']);
+  if (folders.isNotEmpty) {
+    final legacyFolders = {'專案', '學習'};
+    if (folders.every(legacyFolders.contains)) {
+      matchedSeedItem = true;
+    } else {
+      hasUnknownUserItem = true;
+    }
+  }
+
+  return matchedSeedItem && !hasUnknownUserItem;
+}
+
+bool _isLegacySeedNote(Map<String, dynamic> item) {
+  return (item['id'] == 'n1' && item['title'] == '產品發想：All-in-one 個人管理筆記本') ||
+      (item['id'] == 'n2' && item['title'] == '專案規劃');
+}
+
+bool _isLegacySeedSchedule(Map<String, dynamic> item) {
+  return (item['id'] == 's1' && item['title'] == '團隊會議') ||
+      (item['id'] == 's2' && item['title'] == '週末採買');
+}
+
+bool _isLegacySeedSubscription(Map<String, dynamic> item) {
+  return (item['id'] == 'sub1' && item['name'] == 'ChatGPT') ||
+      (item['id'] == 'sub2' && item['name'] == 'Spotify');
+}
+
+bool _isLegacySeedFinanceEntry(Map<String, dynamic> item) {
+  return (item['id'] == 'f1' && item['title'] == '午餐') ||
+      (item['id'] == 'f2' && item['title'] == '咖啡') ||
+      (item['id'] == 'f3' && item['title'] == '專案收入');
+}
+
+bool _isLegacySeedSavingsAccount(Map<String, dynamic> item) {
+  return (item['id'] == 'sa1' && item['name'] == '銀行') ||
+      (item['id'] == 'sa2' && item['name'] == '現金');
+}
+
+bool _isLegacySeedTodo(Map<String, dynamic> item) {
+  return (item['id'] == 't1' && item['title'] == '完成筆記模板整理') ||
+      (item['id'] == 't2' && item['title'] == '設定 Firebase 專案') ||
+      (item['id'] == 't1' && item['title'] == '讀書計畫');
+}
+
+bool _storeHasNoUserContent(Map<String, dynamic> data) {
+  const contentKeys = [
+    'notes',
+    'schedules',
+    'subscriptions',
+    'financeEntries',
+    'savingsAccounts',
+    'todos',
+    'noteFolders',
+  ];
+  for (final key in contentKeys) {
+    final value = data[key];
+    if (value is List && value.isNotEmpty) {
+      return false;
+    }
+  }
+  return true;
 }
 
 List<String> readStringList(Object? value) {
@@ -2108,23 +2351,27 @@ class _HomePageState extends State<HomePage>
           ),
         ],
       ),
-      body: AppPage(
-        title: 'My Note',
-        subtitle: 'All-in-one 個人管理筆記本',
-        actions: [
-          IconButton(
-            tooltip: '調整首頁',
-            onPressed: () => showHomeLayoutSettings(context),
-            icon: const Icon(Icons.more_horiz),
-          ),
-        ],
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
-          children: [
-            for (final section in store.homeSectionOrder)
-              if (!store.hiddenHomeSections.contains(section))
-                HomeSection(section: section, onNavigate: widget.onNavigate),
+      body: DismissFabMenuLayer(
+        isOpen: quickAddOpen,
+        onDismiss: closeQuickAdd,
+        child: AppPage(
+          title: 'My Note',
+          subtitle: 'All-in-one 個人管理筆記本',
+          actions: [
+            IconButton(
+              tooltip: '調整首頁',
+              onPressed: () => showHomeLayoutSettings(context),
+              icon: const Icon(Icons.more_horiz),
+            ),
           ],
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+            children: [
+              for (final section in store.homeSectionOrder)
+                if (!store.hiddenHomeSections.contains(section))
+                  HomeSection(section: section, onNavigate: widget.onNavigate),
+            ],
+          ),
         ),
       ),
     );
@@ -3683,7 +3930,7 @@ class _NotesNavigationDrawerState extends State<NotesNavigationDrawer> {
               title: const Text('重新命名'),
               onTap: () async {
                 Navigator.pop(context);
-                final name = await promptForText(
+                final name = await promptForFolderName(
                   context,
                   title: '重新命名',
                   label: '名稱',
@@ -3914,6 +4161,7 @@ class _NotesPageState extends State<NotesPage>
   bool showingTrash = false;
   bool addMenuOpen = false;
   final Set<String> selectedNoteIds = {};
+  final Set<String> selectedFolderPaths = {};
   late final AnimationController addFabController;
 
   @override
@@ -3986,6 +4234,7 @@ class _NotesPageState extends State<NotesPage>
       folder = value;
       batchMode = false;
       selectedNoteIds.clear();
+      selectedFolderPaths.clear();
     });
   }
 
@@ -3998,7 +4247,19 @@ class _NotesPageState extends State<NotesPage>
     );
     final separatorStyle = titleStyle?.copyWith(color: Colors.black38);
 
-    Widget item(String label, String target) {
+    Widget separator() {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+        child: Text('\\', style: separatorStyle),
+      );
+    }
+
+    Widget item(
+      String label,
+      String target, {
+      IconData? icon,
+      bool iconOnly = false,
+    }) {
       final isCurrent = !showingTrash && !batchMode && folder == target;
       final style = isCurrent ? titleStyle : linkStyle;
       return InkWell(
@@ -4009,15 +4270,21 @@ class _NotesPageState extends State<NotesPage>
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (target != '所有筆記' && target.isNotEmpty) ...[
+              if (icon != null) ...[
                 Icon(
-                  Icons.folder_outlined,
+                  icon,
                   size: 20,
                   color: style?.color ?? Theme.of(context).iconTheme.color,
                 ),
-                const SizedBox(width: 4),
+                if (!iconOnly) const SizedBox(width: 4),
               ],
-              Text(label, style: style, overflow: TextOverflow.ellipsis),
+              if (!iconOnly)
+                Text(
+                  folderNameForPathTitle(label),
+                  style: style,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
             ],
           ),
         ),
@@ -4030,27 +4297,29 @@ class _NotesPageState extends State<NotesPage>
     if (folder == '所有筆記') {
       return item('所有筆記', '所有筆記');
     }
+    final children = <Widget>[
+      item('所有筆記', '所有筆記', icon: Icons.library_books_outlined, iconOnly: true),
+    ];
     if (folder.isEmpty) {
-      return item('未分類', '');
+      children
+        ..add(separator())
+        ..add(item('未分類', '', icon: Icons.folder_open_outlined));
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(mainAxisSize: MainAxisSize.min, children: children),
+      );
     }
 
     final parts = normalizeFolderPath(folder).split('/');
-    final children = <Widget>[];
     for (var index = 0; index < parts.length; index++) {
       final target = parts.take(index + 1).join('/');
-      if (index > 0) {
-        children.add(
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-            child: Text('\\', style: separatorStyle),
-          ),
-        );
-      }
-      children.add(item(parts[index], target));
+      children
+        ..add(separator())
+        ..add(item(parts[index], target, icon: Icons.folder_outlined));
     }
-    return Wrap(
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: children,
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(mainAxisSize: MainAxisSize.min, children: children),
     );
   }
 
@@ -4093,18 +4362,21 @@ class _NotesPageState extends State<NotesPage>
           folder = '所有筆記';
           batchMode = false;
           selectedNoteIds.clear();
+          selectedFolderPaths.clear();
         }),
         onFolderSelected: (value) => setState(() {
           showingTrash = false;
           folder = value;
           batchMode = false;
           selectedNoteIds.clear();
+          selectedFolderPaths.clear();
         }),
         onNoteSelected: (note) => showNoteEditor(context, note: note),
         onTrash: () => setState(() {
           showingTrash = true;
           batchMode = false;
           selectedNoteIds.clear();
+          selectedFolderPaths.clear();
         }),
       ),
       floatingActionButton: showingTrash
@@ -4142,38 +4414,41 @@ class _NotesPageState extends State<NotesPage>
                 ),
               ],
             ),
-      body: AppPage(
-        leading: Builder(
-          builder: (context) => IconButton(
-            tooltip: '開啟側邊欄',
-            onPressed: () => Scaffold.of(context).openDrawer(),
-            icon: const EqualMenuIcon(),
-          ),
-        ),
-        title: currentDirectoryTitle,
-        titleWidget: buildDirectoryTitle(context),
-        subtitle: '資料夾、標籤與搜尋',
-        actions: [
-          IconButton(
-            tooltip: '搜尋與篩選',
-            onPressed: () => setState(() => showFilters = !showFilters),
-            icon: Icon(showFilters ? Icons.search_off : Icons.search),
-          ),
-          if (showingTrash)
-            IconButton(
-              tooltip: '清空垃圾桶',
-              onPressed: clearTrashNotes,
-              icon: const Icon(Icons.delete_sweep_outlined),
-            )
-          else
-            IconButton(
-              tooltip: '建立資料夾',
-              onPressed: createFolder,
-              icon: const Icon(Icons.create_new_folder_outlined),
+      body: DismissFabMenuLayer(
+        isOpen: addMenuOpen,
+        onDismiss: closeAddMenu,
+        child: AppPage(
+          leading: Builder(
+            builder: (context) => IconButton(
+              tooltip: '開啟側邊欄',
+              onPressed: () => Scaffold.of(context).openDrawer(),
+              icon: const EqualMenuIcon(),
             ),
-        ],
-        child: Column(
-          children: [
+          ),
+          title: currentDirectoryTitle,
+          titleWidget: buildDirectoryTitle(context),
+          subtitle: '資料夾、標籤與搜尋',
+          actions: [
+            IconButton(
+              tooltip: '搜尋與篩選',
+              onPressed: () => setState(() => showFilters = !showFilters),
+              icon: Icon(showFilters ? Icons.search_off : Icons.search),
+            ),
+            if (showingTrash)
+              IconButton(
+                tooltip: '清空垃圾桶',
+                onPressed: clearTrashNotes,
+                icon: const Icon(Icons.delete_sweep_outlined),
+              )
+            else
+              IconButton(
+                tooltip: '建立資料夾',
+                onPressed: createFolder,
+                icon: const Icon(Icons.create_new_folder_outlined),
+              ),
+          ],
+          child: Column(
+            children: [
             if (batchMode)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
@@ -4189,16 +4464,16 @@ class _NotesPageState extends State<NotesPage>
                         onDone: exitBatchMode,
                       )
                     : BatchActionBar(
-                        selectedCount: selectedNoteIds.length,
-                        canRename: selectedNoteIds.length == 1,
-                        onDelete: selectedNoteIds.isEmpty
+                        selectedCount: selectedItemCount,
+                        canRename: selectedItemCount == 1,
+                        onDelete: selectedItemCount == 0
                             ? null
-                            : () => deleteSelectedNotes(store),
-                        onMove: selectedNoteIds.isEmpty
+                            : () => deleteSelectedItems(store),
+                        onMove: selectedItemCount == 0
                             ? null
-                            : () => moveSelectedNotes(store),
-                        onRename: selectedNoteIds.length == 1
-                            ? () => renameSelectedNote(store)
+                            : () => moveSelectedItems(store),
+                        onRename: selectedItemCount == 1
+                            ? () => renameSelectedItem(store)
                             : null,
                         onDone: exitBatchMode,
                       ),
@@ -4285,8 +4560,9 @@ class _NotesPageState extends State<NotesPage>
                     if (childFolders.isNotEmpty)
                       NotesFolderGrid(
                         folders: childFolders,
-                        onTap: openNotesFolder,
-                        onLongPress: showFolderActions,
+                        selectedFolders: selectedFolderPaths,
+                        onTap: handleFolderTap,
+                        onLongPress: enterBatchModeWithFolder,
                       ),
                     if (pinnedNotes.isNotEmpty)
                       NotesGroupContainer(
@@ -4322,6 +4598,7 @@ class _NotesPageState extends State<NotesPage>
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -4365,6 +4642,9 @@ class _NotesPageState extends State<NotesPage>
 
   String firstTag(NoteItem note) => note.tags.isEmpty ? '' : note.tags.first;
 
+  int get selectedItemCount =>
+      selectedNoteIds.length + selectedFolderPaths.length;
+
   bool matchesDateFilter(NoteItem note, NotesDateFilter filter) {
     if (filter == NotesDateFilter.all) {
       return true;
@@ -4387,13 +4667,33 @@ class _NotesPageState extends State<NotesPage>
     showNoteEditor(context, note: note, readOnly: showingTrash);
   }
 
+  void handleFolderTap(String targetFolder) {
+    if (batchMode) {
+      toggleSelectedFolder(targetFolder);
+      return;
+    }
+    openNotesFolder(targetFolder);
+  }
+
   void enterBatchModeWith(NoteItem note) {
     setState(() {
       if (!batchMode) {
         selectedNoteIds.clear();
+        selectedFolderPaths.clear();
       }
       batchMode = true;
       selectedNoteIds.add(note.id);
+    });
+  }
+
+  void enterBatchModeWithFolder(String targetFolder) {
+    setState(() {
+      if (!batchMode) {
+        selectedNoteIds.clear();
+        selectedFolderPaths.clear();
+      }
+      batchMode = true;
+      selectedFolderPaths.add(targetFolder);
     });
   }
 
@@ -4401,6 +4701,7 @@ class _NotesPageState extends State<NotesPage>
     setState(() {
       batchMode = false;
       selectedNoteIds.clear();
+      selectedFolderPaths.clear();
     });
   }
 
@@ -4408,6 +4709,20 @@ class _NotesPageState extends State<NotesPage>
     setState(() {
       if (!selectedNoteIds.add(note.id)) {
         selectedNoteIds.remove(note.id);
+      }
+      if (selectedItemCount == 0) {
+        batchMode = false;
+      }
+    });
+  }
+
+  void toggleSelectedFolder(String targetFolder) {
+    setState(() {
+      if (!selectedFolderPaths.add(targetFolder)) {
+        selectedFolderPaths.remove(targetFolder);
+      }
+      if (selectedItemCount == 0) {
+        batchMode = false;
       }
     });
   }
@@ -4430,6 +4745,7 @@ class _NotesPageState extends State<NotesPage>
                   setState(() {
                     batchMode = !batchMode;
                     selectedNoteIds.clear();
+                    selectedFolderPaths.clear();
                   });
                 },
               ),
@@ -4450,6 +4766,7 @@ class _NotesPageState extends State<NotesPage>
                   setState(() {
                     batchMode = !batchMode;
                     selectedNoteIds.clear();
+                    selectedFolderPaths.clear();
                   });
                 },
               ),
@@ -4590,17 +4907,25 @@ class _NotesPageState extends State<NotesPage>
 
   Future<void> createFolder() async {
     final store = AppStoreScope.of(context);
-    final name = await promptForText(context, title: '新增資料夾', label: '資料夾名稱');
+    final name = await promptForFolderName(
+      context,
+      title: '新增資料夾',
+      label: '資料夾名稱',
+    );
     if (name == null || name.trim().isEmpty) {
       return;
     }
-    final newFolder = joinFolderPath(currentFolderContext, name);
+    final newFolder = joinFolderPath(
+      currentFolderContext,
+      limitFolderNameForStorage(name),
+    );
     store.createNoteFolder(newFolder);
     setState(() {
       showingTrash = false;
       folder = newFolder;
       batchMode = false;
       selectedNoteIds.clear();
+      selectedFolderPaths.clear();
     });
   }
 
@@ -4619,7 +4944,7 @@ class _NotesPageState extends State<NotesPage>
               title: const Text('重新命名'),
               onTap: () async {
                 Navigator.pop(context);
-                final name = await promptForText(
+                final name = await promptForFolderName(
                   this.context,
                   title: '重新命名',
                   label: '名稱',
@@ -4671,19 +4996,34 @@ class _NotesPageState extends State<NotesPage>
     );
   }
 
-  Future<void> deleteSelectedNotes(AppStore store) async {
+  Future<void> deleteSelectedItems(AppStore store) async {
     final confirmed = await confirmDelete(
       context,
-      title: '刪除選取筆記？',
-      message: '確定要刪除選取的筆記嗎？',
+      title: '刪除選取項目？',
+      message: '確定要刪除選取的筆記與資料夾嗎？',
     );
     if (!confirmed) {
       return;
     }
-    store.deleteNotesById(selectedNoteIds);
+    final deletingFolders = selectedFolderPaths.toList(growable: false);
+    final shouldLeaveFolder = deletingFolders.any(
+      (item) =>
+          normalizeFolderPath(folder) == normalizeFolderPath(item) ||
+          folderContains(item, folder),
+    );
+    if (selectedNoteIds.isNotEmpty) {
+      store.deleteNotesById(selectedNoteIds);
+    }
+    for (final folderPath in deletingFolders) {
+      store.deleteNoteFolder(folderPath);
+    }
     setState(() {
       batchMode = false;
       selectedNoteIds.clear();
+      selectedFolderPaths.clear();
+      if (shouldLeaveFolder) {
+        folder = '所有筆記';
+      }
     });
   }
 
@@ -4692,6 +5032,7 @@ class _NotesPageState extends State<NotesPage>
     setState(() {
       batchMode = false;
       selectedNoteIds.clear();
+      selectedFolderPaths.clear();
     });
   }
 
@@ -4708,23 +5049,63 @@ class _NotesPageState extends State<NotesPage>
     setState(() {
       batchMode = false;
       selectedNoteIds.clear();
+      selectedFolderPaths.clear();
     });
   }
 
-  Future<void> moveSelectedNotes(AppStore store) async {
-    final folderName = await chooseFolder(context, store);
+  Future<void> moveSelectedItems(AppStore store) async {
+    final folderName = await chooseFolder(
+      context,
+      store,
+      excludedFolder: selectedFolderPaths.length == 1
+          ? selectedFolderPaths.single
+          : '',
+    );
     if (folderName == null) {
       return;
     }
-    store.moveNotesToFolder(selectedNoteIds, folderName);
+    if (selectedNoteIds.isNotEmpty) {
+      store.moveNotesToFolder(selectedNoteIds, folderName);
+    }
+    for (final folderPath in selectedFolderPaths) {
+      store.moveNoteFolder(folderPath, folderName);
+    }
     setState(() {
       batchMode = false;
       selectedNoteIds.clear();
+      selectedFolderPaths.clear();
       folder = folderName;
     });
   }
 
-  Future<void> renameSelectedNote(AppStore store) async {
+  Future<void> renameSelectedItem(AppStore store) async {
+    if (selectedFolderPaths.length == 1 && selectedNoteIds.isEmpty) {
+      final targetFolder = selectedFolderPaths.single;
+      final name = await promptForFolderName(
+        context,
+        title: '重新命名',
+        label: '資料夾名稱',
+        initialValue: folderBaseName(targetFolder),
+      );
+      if (name == null || name.trim().isEmpty) {
+        return;
+      }
+      final newPath = joinFolderPath(
+        folderParentPath(targetFolder),
+        limitFolderNameForStorage(name),
+      );
+      store.renameNoteFolder(targetFolder, name);
+      setState(() {
+        batchMode = false;
+        selectedFolderPaths.clear();
+        if (folderContains(targetFolder, folder) ||
+            normalizeFolderPath(folder) == normalizeFolderPath(targetFolder)) {
+          folder = replaceFolderPrefix(folder, targetFolder, newPath);
+        }
+      });
+      return;
+    }
+
     final note = store.notes.firstWhere(
       (item) => item.id == selectedNoteIds.first,
     );
@@ -4741,6 +5122,7 @@ class _NotesPageState extends State<NotesPage>
     setState(() {
       batchMode = false;
       selectedNoteIds.clear();
+      selectedFolderPaths.clear();
     });
   }
 }
@@ -4841,11 +5223,13 @@ class NotesFolderGrid extends StatelessWidget {
   const NotesFolderGrid({
     super.key,
     required this.folders,
+    required this.selectedFolders,
     required this.onTap,
     required this.onLongPress,
   });
 
   final List<String> folders;
+  final Set<String> selectedFolders;
   final ValueChanged<String> onTap;
   final ValueChanged<String> onLongPress;
 
@@ -4867,38 +5251,59 @@ class NotesFolderGrid extends StatelessWidget {
           runSpacing: 10,
           children: [
             for (final folder in folders)
-              SizedBox(
-                width: 58,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () => onTap(folder),
-                  onLongPress: () => onLongPress(folder),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 6,
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.folder_outlined,
-                          color: Theme.of(context).colorScheme.primary,
-                          size: 26,
+              Builder(
+                builder: (context) {
+                  final selected = selectedFolders.contains(folder);
+                  return SizedBox(
+                    width: 72,
+                    child: Material(
+                      color: selected
+                          ? Theme.of(context).colorScheme.primaryContainer
+                                .withValues(alpha: 0.72)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () => onTap(folder),
+                        onLongPress: () => onLongPress(folder),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 6,
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.folder_outlined,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                    size: 28,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                limitedFolderNameForDisplay(
+                                  folderBaseName(folder),
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                            ],
+                          ),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          folderBaseName(folder),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(fontWeight: FontWeight.w700),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
           ],
         ),
@@ -5892,6 +6297,36 @@ class FloatingActionMenuItem {
   final ValueChanged<String> onSelected;
 }
 
+class DismissFabMenuLayer extends StatelessWidget {
+  const DismissFabMenuLayer({
+    super.key,
+    required this.isOpen,
+    required this.onDismiss,
+    required this.child,
+  });
+
+  final bool isOpen;
+  final VoidCallback onDismiss;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        child,
+        if (isOpen)
+          Positioned.fill(
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (_) => onDismiss(),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class FloatingActionMenu extends StatelessWidget {
   const FloatingActionMenu({
     super.key,
@@ -5986,19 +6421,19 @@ class _FloatingActionMenuPillState extends State<FloatingActionMenuPill> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Material(
-      color: colorScheme.surface,
-      elevation: 7,
-      shadowColor: Colors.black.withValues(alpha: 0.16),
-      borderRadius: BorderRadius.circular(18),
-      child: AnimatedOpacity(
-        opacity: visible ? 1 : 0.5,
+    return AnimatedOpacity(
+      opacity: visible ? 1 : 0.5,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+      child: AnimatedSlide(
+        offset: Offset(visible ? 0 : 0.26, 0),
         duration: const Duration(milliseconds: 260),
         curve: Curves.easeOutCubic,
-        child: AnimatedSlide(
-          offset: Offset(visible ? 0 : 0.26, 0),
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOutCubic,
+        child: Material(
+          color: colorScheme.surface,
+          elevation: 7,
+          shadowColor: Colors.black.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(18),
           child: InkWell(
             borderRadius: BorderRadius.circular(18),
             onTap: () => widget.item.onSelected(widget.item.value),
@@ -6955,7 +7390,7 @@ class BatchActionBar extends StatelessWidget {
         runSpacing: 8,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Chip(label: Text('已選 $selectedCount 筆')),
+          Chip(label: Text('已選 $selectedCount 項')),
           FilledButton.tonalIcon(
             onPressed: onDelete,
             icon: const Icon(Icons.delete_outline),
@@ -7241,30 +7676,169 @@ Future<String?> promptForText(
   required String label,
   String initialValue = '',
 }) async {
-  final controller = TextEditingController(text: initialValue);
-  final result = await showDialog<String>(
+  return showDialog<String>(
     context: context,
-    builder: (context) => AlertDialog(
-      title: Text(title),
+    builder: (context) => StableTextPromptDialog(
+      title: title,
+      label: label,
+      initialValue: initialValue,
+    ),
+  );
+}
+
+Future<String?> promptForFolderName(
+  BuildContext context, {
+  required String title,
+  required String label,
+  String initialValue = '',
+}) async {
+  return showDialog<String>(
+    context: context,
+    builder: (context) => StableFolderNamePromptDialog(
+      title: title,
+      label: label,
+      initialValue: initialValue,
+    ),
+  );
+}
+
+class StableTextPromptDialog extends StatefulWidget {
+  const StableTextPromptDialog({
+    super.key,
+    required this.title,
+    required this.label,
+    this.initialValue = '',
+  });
+
+  final String title;
+  final String label;
+  final String initialValue;
+
+  @override
+  State<StableTextPromptDialog> createState() => _StableTextPromptDialogState();
+}
+
+class _StableTextPromptDialogState extends State<StableTextPromptDialog> {
+  late final TextEditingController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  void submit() {
+    Navigator.of(context).pop(controller.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
       content: TextField(
         controller: controller,
         autofocus: true,
-        decoration: InputDecoration(labelText: label),
+        decoration: InputDecoration(labelText: widget.label),
+        onSubmitted: (_) => submit(),
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(onPressed: submit, child: const Text('確認')),
+      ],
+    );
+  }
+}
+
+class StableFolderNamePromptDialog extends StatefulWidget {
+  const StableFolderNamePromptDialog({
+    super.key,
+    required this.title,
+    required this.label,
+    this.initialValue = '',
+  });
+
+  final String title;
+  final String label;
+  final String initialValue;
+
+  @override
+  State<StableFolderNamePromptDialog> createState() =>
+      _StableFolderNamePromptDialogState();
+}
+
+class _StableFolderNamePromptDialogState
+    extends State<StableFolderNamePromptDialog> {
+  late final TextEditingController controller;
+  bool limitExceeded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = TextEditingController(
+      text: limitFolderNameForStorage(widget.initialValue),
+    );
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  void updateLimitExceeded(String value) {
+    final exceeded = !folderNameWithinLengthLimit(value);
+    if (limitExceeded != exceeded) {
+      setState(() => limitExceeded = exceeded);
+    }
+  }
+
+  void submit() {
+    final value = controller.text.trim();
+    if (!folderNameWithinLengthLimit(value)) {
+      if (!limitExceeded) {
+        setState(() => limitExceeded = true);
+      }
+      return;
+    }
+    Navigator.of(context).pop(controller.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        decoration: InputDecoration(
+          labelText: widget.label,
+          helperText: '最多 18 個半形字或 12 個全形字',
+          errorText: limitExceeded ? '資料夾名稱已達長度上限' : null,
+        ),
+        onChanged: updateLimitExceeded,
+        onSubmitted: (_) => submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
           child: const Text('取消'),
         ),
         FilledButton(
-          onPressed: () => Navigator.pop(context, controller.text.trim()),
+          onPressed: limitExceeded ? null : submit,
           child: const Text('確認'),
         ),
       ],
-    ),
-  );
-  controller.dispose();
-  return result;
+    );
+  }
 }
 
 Future<String?> chooseFolder(
@@ -7389,7 +7963,7 @@ Future<String?> chooseFolder(
             ),
             TextButton.icon(
               onPressed: () async {
-                final name = await promptForText(
+                final name = await promptForFolderName(
                   context,
                   title: '新增資料夾',
                   label: '資料夾名稱',
@@ -7397,7 +7971,10 @@ Future<String?> chooseFolder(
                 if (name == null || name.trim().isEmpty) {
                   return;
                 }
-                final newFolder = joinFolderPath(currentFolder, name);
+                final newFolder = joinFolderPath(
+                  currentFolder,
+                  limitFolderNameForStorage(name),
+                );
                 store.createNoteFolder(newFolder);
                 setLocalState(() => currentFolder = newFolder);
               },
@@ -9652,6 +10229,100 @@ String normalizeFolderPath(String value) {
       .map((part) => part.trim())
       .where((part) => part.isNotEmpty)
       .join('/');
+}
+
+String limitFolderPathForStorage(String value) {
+  return normalizeFolderPath(value)
+      .split('/')
+      .map(limitFolderNameForStorage)
+      .where((part) => part.isNotEmpty)
+      .join('/');
+}
+
+String limitFolderNameForStorage(String value) {
+  return _limitFolderName(value.trim(), addEllipsis: false);
+}
+
+String limitedFolderNameForDisplay(String value) {
+  return _limitFolderName(value.trim(), addEllipsis: true);
+}
+
+String folderNameForPathTitle(String value) {
+  final normalized = value.trim();
+  final buffer = StringBuffer();
+  var count = 0;
+  for (final rune in normalized.runes) {
+    if (count >= 5) {
+      break;
+    }
+    buffer.write(String.fromCharCode(rune));
+    count++;
+  }
+  if (count < normalized.runes.length) {
+    buffer.write('…');
+  }
+  return buffer.toString();
+}
+
+bool folderNameWithinLengthLimit(String value) {
+  return folderNameLengthUnits(value.trim()) <= folderNameMaxUnits;
+}
+
+int folderNameLengthUnits(String value) {
+  var units = 0;
+  for (final rune in value.trim().runes) {
+    units += folderNameLengthUnitsForRune(rune);
+  }
+  return units;
+}
+
+int folderNameLengthUnitsForRune(int rune) => rune > 0xff ? 3 : 2;
+
+String _limitFolderName(String value, {required bool addEllipsis}) {
+  const ellipsisUnits = 2;
+  var usedUnits = 0;
+  final buffer = StringBuffer();
+  final normalized = value.trim();
+  for (final rune in normalized.runes) {
+    final charUnits = folderNameLengthUnitsForRune(rune);
+    final limit = addEllipsis
+        ? folderNameMaxUnits - ellipsisUnits
+        : folderNameMaxUnits;
+    if (usedUnits + charUnits > limit) {
+      if (addEllipsis && buffer.isNotEmpty) {
+        buffer.write('…');
+      }
+      return buffer.toString();
+    }
+    buffer.write(String.fromCharCode(rune));
+    usedUnits += charUnits;
+  }
+  return buffer.toString();
+}
+
+const folderNameMaxUnits = 36;
+
+class FolderNameLengthInputFormatter extends TextInputFormatter {
+  const FolderNameLengthInputFormatter({
+    required this.onLimitExceeded,
+    required this.onWithinLimit,
+  });
+
+  final VoidCallback onLimitExceeded;
+  final VoidCallback onWithinLimit;
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    if (folderNameWithinLengthLimit(newValue.text)) {
+      onWithinLimit();
+      return newValue;
+    }
+    onLimitExceeded();
+    return oldValue;
+  }
 }
 
 String folderBaseName(String value) {

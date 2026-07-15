@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -35,6 +37,182 @@ void main() {
     expect(find.byIcon(Icons.flag_outlined), findsOneWidget);
     expect(find.byIcon(Icons.account_tree_outlined), findsOneWidget);
     expect(find.byIcon(Icons.stacked_bar_chart), findsOneWidget);
+  });
+
+  testWidgets('dismisses expanded FAB menu when tapping page body', (
+    tester,
+  ) async {
+    var dismissed = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DismissFabMenuLayer(
+          isOpen: true,
+          onDismiss: () => dismissed++,
+          child: const Scaffold(body: Center(child: Text('頁面內容'))),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('頁面內容'));
+    await tester.pump();
+
+    expect(dismissed, 1);
+  });
+
+  testWidgets('folder name dialog recovers after length warning', (
+    tester,
+  ) async {
+    String? picked;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: FilledButton(
+                onPressed: () async {
+                  picked = await promptForFolderName(
+                    context,
+                    title: '新增資料夾',
+                    label: '資料夾名稱',
+                  );
+                },
+                child: const Text('開啟'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('開啟'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'abcdefghijklmnopqrs');
+    await tester.pump();
+
+    expect(find.text('資料夾名稱已達長度上限'), findsOneWidget);
+    await tester.tap(find.text('確認'));
+    await tester.pump();
+    expect(picked, isNull);
+    expect(find.byType(StableFolderNamePromptDialog), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), '專案資料夾');
+    await tester.pump();
+
+    expect(find.text('資料夾名稱已達長度上限'), findsNothing);
+    await tester.tap(find.text('確認'));
+    await tester.pumpAndSettle();
+
+    expect(picked, '專案資料夾');
+  });
+
+  test('new note without user content is not considered savable', () {
+    expect(
+      newNoteHasSavableContent(
+        title: '',
+        body: '',
+        tags: const [],
+        templateType: NoteTemplateType.general,
+        templateData: defaultNoteTemplateData(NoteTemplateType.general),
+        style: defaultNoteStyle(),
+        images: const [],
+        attachments: const [],
+        background: defaultNoteBackground(),
+      ),
+      isFalse,
+    );
+    expect(
+      newNoteHasSavableContent(
+        title: '只有標題',
+        body: '',
+        tags: const ['重要'],
+        templateType: NoteTemplateType.general,
+        templateData: defaultNoteTemplateData(NoteTemplateType.general),
+        style: defaultNoteStyle(),
+        images: const [],
+        attachments: const [],
+        background: defaultNoteBackground(),
+      ),
+      isFalse,
+    );
+    expect(
+      newNoteHasSavableContent(
+        title: '',
+        body: '',
+        tags: const [],
+        templateType: NoteTemplateType.plan,
+        templateData: defaultNoteTemplateData(NoteTemplateType.plan),
+        style: defaultNoteStyle(),
+        images: const [],
+        attachments: const [],
+        background: defaultNoteBackground(),
+      ),
+      isFalse,
+    );
+  });
+
+  test('new note with real content is considered savable', () {
+    expect(
+      newNoteHasSavableContent(
+        title: '',
+        body: '今天的想法',
+        tags: const [],
+        templateType: NoteTemplateType.general,
+        templateData: defaultNoteTemplateData(NoteTemplateType.general),
+        style: defaultNoteStyle(),
+        images: const [],
+        attachments: const [],
+        background: defaultNoteBackground(),
+      ),
+      isTrue,
+    );
+    expect(
+      newNoteHasSavableContent(
+        title: '',
+        body: '',
+        tags: const [],
+        templateType: NoteTemplateType.general,
+        templateData: defaultNoteTemplateData(NoteTemplateType.general),
+        style: defaultNoteStyle(),
+        images: const [
+          {'id': 'img-1'},
+        ],
+        attachments: const [],
+        background: defaultNoteBackground(),
+      ),
+      isTrue,
+    );
+  });
+
+  testWidgets('blank new note closes without creating a note', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded();
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: const MaterialApp(
+            home: NoteEditorPage(
+              initialFolder: '測試資料夾',
+              initialTemplateType: NoteTemplateType.plan,
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.tap(find.byIcon(Icons.arrow_back).first);
+      await tester.pump();
+
+      expect(store.notes, isEmpty);
+      expect(find.text('內容為空，不儲存'), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
   });
 
   test('rich toolbar applies inline style to selected content', () {
@@ -460,6 +638,308 @@ void main() {
     expect(noteFontFamilyValues, contains(shaonvValue));
     expect(noteFontFamilyLabel(shaonvValue), '少女體');
     expect(noteResolvedFontFamily(shaonvValue), 'MyNoteInstalledDeviceFont1');
+  });
+
+  test(
+    'app store restores backup when primary local data cannot be parsed',
+    () async {
+      final backupNote = NoteItem(
+        id: 'n-backup',
+        title: '備份筆記',
+        body: '不可遺失',
+        category: '',
+        tags: const [],
+        createdAt: DateTime(2026, 7, 15),
+        updatedAt: DateTime(2026, 7, 15),
+      );
+      final backupRaw = jsonEncode({
+        'notes': [noteToJson(backupNote)],
+        'schedules': [],
+        'subscriptions': [],
+        'financeEntries': [],
+        'savingsAccounts': [],
+        'todos': [],
+        'noteFolders': [],
+      });
+      SharedPreferences.setMockInitialValues({
+        'my_note_local_v1': '{broken-json',
+        'my_note_local_v1_backup': backupRaw,
+      });
+
+      final store = await AppStore.load();
+      final prefs = await SharedPreferences.getInstance();
+
+      try {
+        expect(store.notes, hasLength(1));
+        expect(store.notes.single.title, '備份筆記');
+        expect(prefs.getString('my_note_local_v1'), backupRaw);
+      } finally {
+        store.dispose();
+      }
+    },
+  );
+
+  test(
+    'app store does not overwrite existing raw data after load failure',
+    () async {
+      const brokenRaw = '{broken-json';
+      SharedPreferences.setMockInitialValues({'my_note_local_v1': brokenRaw});
+
+      final store = await AppStore.load();
+      final prefs = await SharedPreferences.getInstance();
+
+      try {
+        store.addTodo('不應覆寫舊資料');
+        await Future<void>.delayed(const Duration(milliseconds: 450));
+
+        expect(prefs.getString('my_note_local_v1'), brokenRaw);
+        expect(prefs.getString('my_note_local_v1_recovery'), brokenRaw);
+      } finally {
+        store.dispose();
+      }
+    },
+  );
+
+  test('app store ignores legacy seed backup during recovery', () async {
+    final legacyRaw = jsonEncode({
+      'notes': [
+        {
+          'id': 'n1',
+          'title': '產品發想：All-in-one 個人管理筆記本',
+          'body': '第一版先完成地端功能',
+          'category': '專案',
+          'tags': ['flutter'],
+          'createdAt': DateTime(2026, 7, 15).toIso8601String(),
+          'updatedAt': DateTime(2026, 7, 15).toIso8601String(),
+          'isPinned': true,
+        },
+        {
+          'id': 'n2',
+          'title': '專案規劃',
+          'body': '建立筆記、行程、訂閱與記帳的第一版資料模型。',
+          'category': '專案',
+          'tags': ['shopping'],
+          'createdAt': DateTime(2026, 7, 15).toIso8601String(),
+          'updatedAt': DateTime(2026, 7, 15).toIso8601String(),
+        },
+      ],
+      'schedules': [
+        {
+          'id': 's2',
+          'title': '週末採買',
+          'start': DateTime(2026, 7, 18, 9).toIso8601String(),
+          'end': DateTime(2026, 7, 18, 10).toIso8601String(),
+          'location': '',
+          'notes': '',
+          'remindBeforeMinutes': 60,
+        },
+      ],
+      'subscriptions': [
+        {
+          'id': 'sub1',
+          'name': 'ChatGPT',
+          'amount': 20,
+          'cycle': 'monthly',
+          'nextPaymentDate': DateTime(2026, 7, 20).toIso8601String(),
+          'paymentMethod': '信用卡',
+          'category': '專案',
+          'reminderDays': 3,
+          'isActive': true,
+        },
+      ],
+      'financeEntries': [],
+      'savingsAccounts': [],
+      'todos': [
+        {'id': 't1', 'title': '完成筆記模板整理', 'done': false},
+      ],
+      'noteFolders': ['專案', '學習'],
+    });
+    SharedPreferences.setMockInitialValues({
+      'my_note_local_v1': '{broken-json',
+      'my_note_local_v1_backup': legacyRaw,
+    });
+
+    final store = await AppStore.load();
+    final prefs = await SharedPreferences.getInstance();
+
+    try {
+      expect(store.notes, isEmpty);
+      expect(store.schedules, isEmpty);
+      expect(store.subscriptions, isEmpty);
+      expect(store.todos, isEmpty);
+      expect(prefs.getString('my_note_local_v1'), '{broken-json');
+      expect(prefs.getString('my_note_local_v1_recovery'), '{broken-json');
+    } finally {
+      store.dispose();
+    }
+  });
+
+  test(
+    'app store treats mixed legacy seed and user data as recoverable',
+    () async {
+      final mixedRaw = jsonEncode({
+        'notes': [
+          {
+            'id': 'n1',
+            'title': '產品發想：All-in-one 個人管理筆記本',
+            'body': '第一版先完成地端功能',
+            'category': '專案',
+            'tags': ['flutter'],
+            'createdAt': DateTime(2026, 7, 15).toIso8601String(),
+            'updatedAt': DateTime(2026, 7, 15).toIso8601String(),
+          },
+          {
+            'id': 'n-user',
+            'title': '我的真實筆記',
+            'body': '',
+            'category': '',
+            'tags': [],
+            'createdAt': DateTime(2026, 7, 16).toIso8601String(),
+            'updatedAt': DateTime(2026, 7, 16).toIso8601String(),
+          },
+        ],
+        'schedules': [],
+        'subscriptions': [],
+        'financeEntries': [],
+        'savingsAccounts': [],
+        'todos': [],
+        'noteFolders': [],
+      });
+      SharedPreferences.setMockInitialValues({
+        'my_note_local_v1': '{broken-json',
+        'my_note_local_v1_backup': mixedRaw,
+      });
+
+      final store = await AppStore.load();
+
+      try {
+        expect(store.notes.map((note) => note.title), contains('我的真實筆記'));
+      } finally {
+        store.dispose();
+      }
+    },
+  );
+
+  test(
+    'app store writes the latest successful state into backup snapshots',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final store = await AppStore.load();
+      final prefs = await SharedPreferences.getInstance();
+
+      try {
+        store.createNoteFolder('測試資料夾');
+        await Future<void>.delayed(const Duration(milliseconds: 180));
+
+        final backupRaw = prefs.getString('my_note_local_v1_backup');
+        expect(backupRaw, isNotNull);
+        final backup = jsonDecode(backupRaw!) as Map<String, dynamic>;
+        expect(backup['noteFolders'], contains('測試資料夾'));
+
+        final historyRaw = prefs.getString('my_note_local_v1_backup_history');
+        expect(historyRaw, isNotNull);
+        expect(historyRaw, contains('測試資料夾'));
+      } finally {
+        store.dispose();
+      }
+    },
+  );
+
+  test(
+    'app store recovers user data from backup history when latest backup is seed',
+    () async {
+      final legacyRaw = jsonEncode({
+        'notes': [
+          {
+            'id': 'n1',
+            'title': '產品發想：All-in-one 個人管理筆記本',
+            'body': '第一版先完成地端功能',
+            'category': '專案',
+            'tags': ['flutter'],
+            'createdAt': DateTime(2026, 7, 15).toIso8601String(),
+            'updatedAt': DateTime(2026, 7, 15).toIso8601String(),
+          },
+        ],
+        'schedules': [],
+        'subscriptions': [],
+        'financeEntries': [],
+        'savingsAccounts': [],
+        'todos': [],
+        'noteFolders': ['專案'],
+      });
+      final userRaw = jsonEncode({
+        'notes': [],
+        'schedules': [],
+        'subscriptions': [],
+        'financeEntries': [],
+        'savingsAccounts': [],
+        'todos': [],
+        'noteFolders': ['新資料夾', '連續測試'],
+      });
+      SharedPreferences.setMockInitialValues({
+        'my_note_local_v1': '{broken-json',
+        'my_note_local_v1_backup': legacyRaw,
+        'my_note_local_v1_backup_history': jsonEncode([
+          {
+            'savedAt': DateTime(2026, 7, 15, 10).toIso8601String(),
+            'raw': legacyRaw,
+          },
+          {
+            'savedAt': DateTime(2026, 7, 15, 11).toIso8601String(),
+            'raw': userRaw,
+          },
+        ]),
+      });
+
+      final store = await AppStore.load();
+
+      try {
+        expect(store.noteFolders, containsAll(['新資料夾', '連續測試']));
+        expect(store.noteFolders, isNot(contains('專案')));
+      } finally {
+        store.dispose();
+      }
+    },
+  );
+
+  test('folder names are limited by fullwidth and halfwidth length', () {
+    expect(
+      limitFolderNameForStorage('abcdefghijklmnopqrst'),
+      'abcdefghijklmnopqr',
+    );
+    expect(limitFolderNameForStorage('資料夾名稱超過十二個全形字元'), '資料夾名稱超過十二個全形');
+    expect(
+      limitedFolderNameForDisplay('abcdefghijklmnopqrst'),
+      'abcdefghijklmnopq…',
+    );
+    expect(folderNameForPathTitle('資料夾名稱很長'), '資料夾名稱…');
+    expect(folderNameForPathTitle('abcdefghi'), 'abcde…');
+    expect(folderNameForPathTitle('短名'), '短名');
+  });
+
+  test('folder name formatter rejects input beyond the length limit', () {
+    var exceeded = false;
+    final formatter = FolderNameLengthInputFormatter(
+      onLimitExceeded: () => exceeded = true,
+      onWithinLimit: () => exceeded = false,
+    );
+    const oldValue = TextEditingValue(text: 'abcdefghijklmnopqr');
+
+    final result = formatter.formatEditUpdate(
+      oldValue,
+      const TextEditingValue(text: 'abcdefghijklmnopqrs'),
+    );
+
+    expect(result.text, oldValue.text);
+    expect(exceeded, isTrue);
+
+    final recovered = formatter.formatEditUpdate(
+      oldValue,
+      const TextEditingValue(text: 'valid-folder'),
+    );
+
+    expect(recovered.text, 'valid-folder');
+    expect(exceeded, isFalse);
   });
 
   testWidgets('rich toolbar formats selected text from editor field', (

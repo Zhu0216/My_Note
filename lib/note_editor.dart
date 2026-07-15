@@ -1,5 +1,60 @@
 part of 'main.dart';
 
+bool newNoteHasSavableContent({
+  required String title,
+  required String body,
+  required List<String> tags,
+  required NoteTemplateType templateType,
+  required Map<String, dynamic> templateData,
+  required Map<String, dynamic> style,
+  required List<Map<String, dynamic>> images,
+  required List<Map<String, dynamic>> attachments,
+  required Map<String, dynamic> background,
+}) {
+  if (!noteEditorHasContent(
+    body: body,
+    templateType: templateType,
+    templateData: templateData,
+    images: images,
+    attachments: attachments,
+  )) {
+    return false;
+  }
+  final trimmedTitle = title.trim();
+  if (trimmedTitle.isNotEmpty && trimmedTitle != '未命名筆記') {
+    return true;
+  }
+  if (body.trim().isNotEmpty || tags.isNotEmpty) {
+    return true;
+  }
+  if (images.isNotEmpty || attachments.isNotEmpty) {
+    return true;
+  }
+  if (jsonEncode(style) != jsonEncode(defaultNoteStyle()) ||
+      jsonEncode(background) != jsonEncode(defaultNoteBackground())) {
+    return true;
+  }
+  if (templateType == NoteTemplateType.general) {
+    return false;
+  }
+  return jsonEncode(templateData) !=
+      jsonEncode(defaultNoteTemplateData(templateType));
+}
+
+bool noteEditorHasContent({
+  required String body,
+  required NoteTemplateType templateType,
+  required Map<String, dynamic> templateData,
+  required List<Map<String, dynamic>> images,
+  required List<Map<String, dynamic>> attachments,
+}) {
+  if (body.trim().isNotEmpty || images.isNotEmpty || attachments.isNotEmpty) {
+    return true;
+  }
+  return jsonEncode(templateData) !=
+      jsonEncode(defaultNoteTemplateData(templateType));
+}
+
 class NoteEditorPage extends StatefulWidget {
   const NoteEditorPage({
     super.key,
@@ -175,17 +230,17 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     final nextTags = splitTags(tags.text);
     final nextTemplateData = currentNoteTemplateData();
     if (note == null) {
-      return (nextTitle.isNotEmpty && nextTitle != '未命名筆記') ||
-          nextBody.trim().isNotEmpty ||
-          nextFolder.isNotEmpty ||
-          nextTags.isNotEmpty ||
-          templateType != NoteTemplateType.general ||
-          jsonEncode(nextTemplateData) !=
-              jsonEncode(defaultNoteTemplateData(templateType)) ||
-          jsonEncode(noteStyle) != jsonEncode(defaultNoteStyle()) ||
-          noteImages.isNotEmpty ||
-          noteAttachments.isNotEmpty ||
-          jsonEncode(noteBackground) != jsonEncode(defaultNoteBackground());
+      return newNoteHasSavableContent(
+        title: nextTitle,
+        body: nextBody,
+        tags: nextTags,
+        templateType: templateType,
+        templateData: nextTemplateData,
+        style: noteStyle,
+        images: noteImages,
+        attachments: noteAttachments,
+        background: noteBackground,
+      );
     }
     return nextTitle != note.title ||
         nextBody != initialEditorBody ||
@@ -218,6 +273,19 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     if (didSave) {
       return;
     }
+    final nextBody = body.text;
+    final nextTemplateData = currentNoteTemplateData();
+    if (!noteEditorHasContent(
+      body: nextBody,
+      templateType: templateType,
+      templateData: nextTemplateData,
+      images: noteImages,
+      attachments: noteAttachments,
+    )) {
+      didSave = true;
+      showToast(context, '內容為空，不儲存');
+      return;
+    }
     if (!hasChanges) {
       didSave = true;
       return;
@@ -225,8 +293,6 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     final store = AppStoreScope.of(context);
     final now = DateTime.now();
     final note = widget.note;
-    final nextBody = body.text;
-    final nextTemplateData = currentNoteTemplateData();
     store.upsertNote(
       NoteItem(
         id: note?.id ?? store.newId('n'),
