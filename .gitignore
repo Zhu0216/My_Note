@@ -41,10 +41,7 @@ analyze_result.txt
 .tools/
 .codex/
 .agents/
-test/
 scripts/
-ios/RunnerTests/
-macos/RunnerTests/
 
 # Local logs and generated diagnostics
 *.log
