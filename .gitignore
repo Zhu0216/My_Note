@@ -31,6 +31,7 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+analyze_result.txt
 /coverage/
 
 # Local tool/cache directories
