@@ -545,6 +545,12 @@ class AppStore extends ChangeNotifier {
         await prefs.setString(_recoveryStorageKey, raw);
         return AppStore.seeded();
       }
+      final migratedRaw = jsonEncode(loaded.toJson());
+      if (migratedRaw != raw) {
+        await _writeBackupSnapshot(prefs, raw);
+        await prefs.setString(_storageKey, migratedRaw);
+        await _writeBackupSnapshot(prefs, migratedRaw);
+      }
       return loaded;
     }
 
@@ -562,8 +568,10 @@ class AppStore extends ChangeNotifier {
       if (recovered == null || !_rawHasRecoverableUserContent(snapshot)) {
         continue;
       }
-      await prefs.setString(_storageKey, snapshot);
+      final migratedSnapshot = jsonEncode(recovered.toJson());
       await _writeBackupSnapshot(prefs, snapshot);
+      await prefs.setString(_storageKey, migratedSnapshot);
+      await _writeBackupSnapshot(prefs, migratedSnapshot);
       return recovered;
     }
     return null;
@@ -1367,7 +1375,7 @@ NoteItem noteFromJson(Map<String, dynamic> data) {
       data['templateData'],
       fallback: defaultNoteTemplateData(templateType),
     ),
-    style: readStringMap(data['style'], fallback: defaultNoteStyle()),
+    style: migratedNoteStyle(data['style']),
     images: readMapList(data['images']),
     attachments: readMapList(data['attachments']),
     background: readStringMap(
@@ -1855,8 +1863,26 @@ Map<String, dynamic> defaultNoteStyle() {
     'fontFamily': 'System',
     'fontSize': 16.0,
     'color': '#202522',
-    'lineHeight': 1.45,
+    'lineHeight': 1.5,
   };
+}
+
+const noteLineHeightValues = <double>[1.0, 1.25, 1.5, 1.75, 2.0];
+
+double nearestNoteLineHeight(double value) {
+  return noteLineHeightValues.reduce(
+    (closest, candidate) => (candidate - value).abs() < (closest - value).abs()
+        ? candidate
+        : closest,
+  );
+}
+
+Map<String, dynamic> migratedNoteStyle(Object? value) {
+  final style = readStringMap(value, fallback: defaultNoteStyle());
+  style['lineHeight'] = nearestNoteLineHeight(
+    readDouble(style['lineHeight'], fallback: 1.5),
+  );
+  return style;
 }
 
 Map<String, dynamic> defaultNoteBackground() {
@@ -4449,156 +4475,157 @@ class _NotesPageState extends State<NotesPage>
           ],
           child: Column(
             children: [
-            if (batchMode)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                child: showingTrash
-                    ? TrashBatchActionBar(
-                        selectedCount: selectedNoteIds.length,
-                        onRestore: selectedNoteIds.isEmpty
-                            ? null
-                            : () => restoreSelectedTrashNotes(store),
-                        onDelete: selectedNoteIds.isEmpty
-                            ? null
-                            : () => permanentlyDeleteSelectedTrashNotes(store),
-                        onDone: exitBatchMode,
-                      )
-                    : BatchActionBar(
-                        selectedCount: selectedItemCount,
-                        canRename: selectedItemCount == 1,
-                        onDelete: selectedItemCount == 0
-                            ? null
-                            : () => deleteSelectedItems(store),
-                        onMove: selectedItemCount == 0
-                            ? null
-                            : () => moveSelectedItems(store),
-                        onRename: selectedItemCount == 1
-                            ? () => renameSelectedItem(store)
-                            : null,
-                        onDone: exitBatchMode,
-                      ),
-              ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
-                children: [
-                  if (showFilters) ...[
-                    TextField(
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.search),
-                        hintText: '搜尋標題、內文、標籤',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (value) => setState(() => query = value),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        DropdownMenu<String>(
-                          initialSelection: folder,
-                          label: const Text('資料夾'),
-                          dropdownMenuEntries: folders
-                              .map(
-                                (item) => DropdownMenuEntry(
-                                  value: item,
-                                  label: item.isEmpty ? '未分類' : item,
-                                ),
-                              )
-                              .toList(),
-                          onSelected: (value) =>
-                              setState(() => folder = value ?? '所有筆記'),
+              if (batchMode)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                  child: showingTrash
+                      ? TrashBatchActionBar(
+                          selectedCount: selectedNoteIds.length,
+                          onRestore: selectedNoteIds.isEmpty
+                              ? null
+                              : () => restoreSelectedTrashNotes(store),
+                          onDelete: selectedNoteIds.isEmpty
+                              ? null
+                              : () =>
+                                    permanentlyDeleteSelectedTrashNotes(store),
+                          onDone: exitBatchMode,
+                        )
+                      : BatchActionBar(
+                          selectedCount: selectedItemCount,
+                          canRename: selectedItemCount == 1,
+                          onDelete: selectedItemCount == 0
+                              ? null
+                              : () => deleteSelectedItems(store),
+                          onMove: selectedItemCount == 0
+                              ? null
+                              : () => moveSelectedItems(store),
+                          onRename: selectedItemCount == 1
+                              ? () => renameSelectedItem(store)
+                              : null,
+                          onDone: exitBatchMode,
                         ),
-                        DropdownMenu<NotesDateFilter>(
-                          initialSelection: dateFilter,
-                          label: const Text('日期篩選'),
-                          dropdownMenuEntries: NotesDateFilter.values
-                              .map(
-                                (item) => DropdownMenuEntry(
-                                  value: item,
-                                  label: noteDateFilterLabel(item),
-                                ),
-                              )
-                              .toList(),
-                          onSelected: (value) => setState(
-                            () => dateFilter = value ?? NotesDateFilter.all,
+                ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+                  children: [
+                    if (showFilters) ...[
+                      TextField(
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.search),
+                          hintText: '搜尋標題、內文、標籤',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (value) => setState(() => query = value),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          DropdownMenu<String>(
+                            initialSelection: folder,
+                            label: const Text('資料夾'),
+                            dropdownMenuEntries: folders
+                                .map(
+                                  (item) => DropdownMenuEntry(
+                                    value: item,
+                                    label: item.isEmpty ? '未分類' : item,
+                                  ),
+                                )
+                                .toList(),
+                            onSelected: (value) =>
+                                setState(() => folder = value ?? '所有筆記'),
                           ),
-                        ),
-                      ],
+                          DropdownMenu<NotesDateFilter>(
+                            initialSelection: dateFilter,
+                            label: const Text('日期篩選'),
+                            dropdownMenuEntries: NotesDateFilter.values
+                                .map(
+                                  (item) => DropdownMenuEntry(
+                                    value: item,
+                                    label: noteDateFilterLabel(item),
+                                  ),
+                                )
+                                .toList(),
+                            onSelected: (value) => setState(
+                              () => dateFilter = value ?? NotesDateFilter.all,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    NotesSortSummary(
+                      sortField: sortField,
+                      sortDirection: sortDirection,
+                      viewMode: viewMode,
+                      selectedTemplates: templateFilters,
+                      onSortChanged: (field, direction) {
+                        setState(() {
+                          sortField = field;
+                          sortDirection = direction;
+                        });
+                      },
+                      onViewModeChanged: (mode) =>
+                          setState(() => viewMode = mode),
+                      onTemplateToggled: (type) {
+                        setState(() {
+                          if (!templateFilters.add(type)) {
+                            templateFilters.remove(type);
+                          }
+                        });
+                      },
                     ),
                     const SizedBox(height: 16),
+                    if (notes.isEmpty && childFolders.isEmpty)
+                      EmptyState(
+                        icon: Icons.note_alt_outlined,
+                        text: showingTrash ? '垃圾桶沒有筆記' : '還沒有筆記',
+                      )
+                    else ...[
+                      if (childFolders.isNotEmpty)
+                        NotesFolderGrid(
+                          folders: childFolders,
+                          selectedFolders: selectedFolderPaths,
+                          onTap: handleFolderTap,
+                          onLongPress: enterBatchModeWithFolder,
+                        ),
+                      if (pinnedNotes.isNotEmpty)
+                        NotesGroupContainer(
+                          notes: pinnedNotes,
+                          mode: viewMode,
+                          batchMode: batchMode,
+                          selectedNoteIds: selectedNoteIds,
+                          onSelectionChanged: toggleSelected,
+                          onTap: handleNoteTap,
+                          onLongPress: enterBatchModeWith,
+                          readOnly: showingTrash,
+                          onDelete: showingTrash
+                              ? null
+                              : (note) => store.deleteNote(note),
+                        ),
+                      if (regularNotes.isNotEmpty)
+                        NotesGroupContainer(
+                          notes: regularNotes,
+                          mode: viewMode,
+                          batchMode: batchMode,
+                          selectedNoteIds: selectedNoteIds,
+                          onSelectionChanged: toggleSelected,
+                          onTap: handleNoteTap,
+                          onLongPress: enterBatchModeWith,
+                          readOnly: showingTrash,
+                          onDelete: showingTrash
+                              ? null
+                              : (note) => store.deleteNote(note),
+                        ),
+                    ],
                   ],
-                  NotesSortSummary(
-                    sortField: sortField,
-                    sortDirection: sortDirection,
-                    viewMode: viewMode,
-                    selectedTemplates: templateFilters,
-                    onSortChanged: (field, direction) {
-                      setState(() {
-                        sortField = field;
-                        sortDirection = direction;
-                      });
-                    },
-                    onViewModeChanged: (mode) =>
-                        setState(() => viewMode = mode),
-                    onTemplateToggled: (type) {
-                      setState(() {
-                        if (!templateFilters.add(type)) {
-                          templateFilters.remove(type);
-                        }
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  if (notes.isEmpty && childFolders.isEmpty)
-                    EmptyState(
-                      icon: Icons.note_alt_outlined,
-                      text: showingTrash ? '垃圾桶沒有筆記' : '還沒有筆記',
-                    )
-                  else ...[
-                    if (childFolders.isNotEmpty)
-                      NotesFolderGrid(
-                        folders: childFolders,
-                        selectedFolders: selectedFolderPaths,
-                        onTap: handleFolderTap,
-                        onLongPress: enterBatchModeWithFolder,
-                      ),
-                    if (pinnedNotes.isNotEmpty)
-                      NotesGroupContainer(
-                        notes: pinnedNotes,
-                        mode: viewMode,
-                        batchMode: batchMode,
-                        selectedNoteIds: selectedNoteIds,
-                        onSelectionChanged: toggleSelected,
-                        onTap: handleNoteTap,
-                        onLongPress: enterBatchModeWith,
-                        readOnly: showingTrash,
-                        onDelete: showingTrash
-                            ? null
-                            : (note) => store.deleteNote(note),
-                      ),
-                    if (regularNotes.isNotEmpty)
-                      NotesGroupContainer(
-                        notes: regularNotes,
-                        mode: viewMode,
-                        batchMode: batchMode,
-                        selectedNoteIds: selectedNoteIds,
-                        onSelectionChanged: toggleSelected,
-                        onTap: handleNoteTap,
-                        onLongPress: enterBatchModeWith,
-                        readOnly: showingTrash,
-                        onDelete: showingTrash
-                            ? null
-                            : (note) => store.deleteNote(note),
-                      ),
-                  ],
-                ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -9168,161 +9195,223 @@ Future<void> showSubscriptionEditor(
   BuildContext context, {
   SubscriptionItem? subscription,
 }) async {
-  final store = AppStoreScope.of(context);
-  final name = TextEditingController(text: subscription?.name ?? '');
-  final amount = TextEditingController(
-    text: subscription == null ? '' : subscription.amount.toStringAsFixed(0),
-  );
-  final paymentMethod = TextEditingController(text: '信用卡');
-  final category = TextEditingController(text: subscription?.category ?? '訂閱');
-  var cycle = subscription?.cycle ?? SubscriptionCycle.monthly;
-  var date =
-      subscription?.nextPaymentDate ??
-      DateTime.now().add(const Duration(days: 30));
-  var reminderDays = subscription?.reminderDays ?? 3;
-  var active = subscription?.isActive ?? true;
-
-  await showModalBottomSheet<void>(
+  await showDialog<void>(
     context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (context) {
-      return StatefulBuilder(
-        builder: (context, setLocalState) => Padding(
-          padding: EdgeInsets.fromLTRB(
-            16,
-            0,
-            16,
-            MediaQuery.viewInsetsOf(context).bottom + 16,
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  subscription == null ? '新增訂閱' : '編輯訂閱',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: name,
-                  decoration: const InputDecoration(
-                    labelText: '訂閱名稱',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: amount,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: const InputDecoration(
-                    labelText: '金額',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SegmentedButton<SubscriptionCycle>(
-                  segments: const [
-                    ButtonSegment(
-                      value: SubscriptionCycle.monthly,
-                      label: Text('月'),
-                    ),
-                    ButtonSegment(
-                      value: SubscriptionCycle.yearly,
-                      label: Text('年'),
-                    ),
-                    ButtonSegment(
-                      value: SubscriptionCycle.custom,
-                      label: Text('自訂'),
-                    ),
-                  ],
-                  selected: {cycle},
-                  onSelectionChanged: (value) =>
-                      setLocalState(() => cycle = value.first),
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.event_repeat),
-                  title: Text('下次付款日'),
-                  onTap: () async {
-                    final picked = await showAppDatePicker(
-                      context: context,
-                      firstDate: DateTime(2024),
-                      lastDate: DateTime(2035),
-                      initialDate: date,
-                    );
-                    if (picked != null) setLocalState(() => date = picked);
-                  },
-                ),
-                TextField(
-                  controller: paymentMethod,
-                  decoration: const InputDecoration(
-                    labelText: '付款方式',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: category,
-                  decoration: const InputDecoration(
-                    labelText: '分類',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                DropdownMenu<int>(
-                  initialSelection: reminderDays,
-                  label: const Text('提醒天數'),
-                  dropdownMenuEntries: const [
-                    DropdownMenuEntry(value: 1, label: '1 天前'),
-                    DropdownMenuEntry(value: 3, label: '3 天前'),
-                    DropdownMenuEntry(value: 5, label: '5 天前'),
-                    DropdownMenuEntry(value: 7, label: '7 天前'),
-                  ],
-                  onSelected: (value) =>
-                      setLocalState(() => reminderDays = value ?? reminderDays),
-                ),
-                SwitchListTile(
-                  value: active,
-                  onChanged: (value) => setLocalState(() => active = value),
-                  title: const Text('啟用訂閱'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: () {
-                      store.upsertSubscription(
-                        SubscriptionItem(
-                          id: subscription?.id ?? store.newId('sub'),
-                          name: name.text.trim().isEmpty
-                              ? '未命名訂閱'
-                              : name.text.trim(),
-                          amount: double.tryParse(amount.text) ?? 0,
-                          cycle: cycle,
-                          nextPaymentDate: date,
-                          paymentMethod: paymentMethod.text.trim(),
-                          category: category.text.trim(),
-                          reminderDays: reminderDays,
-                          isActive: active,
-                        ),
-                      );
-                      Navigator.pop(context);
-                    },
-                    icon: const Icon(Icons.save),
-                    label: const Text('儲存'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    },
+    builder: (dialogContext) => SubscriptionEditorDialog(
+      store: AppStoreScope.read(context),
+      subscription: subscription,
+    ),
   );
+}
+
+class SubscriptionEditorDialog extends StatefulWidget {
+  const SubscriptionEditorDialog({
+    super.key,
+    required this.store,
+    this.subscription,
+  });
+
+  final AppStore store;
+  final SubscriptionItem? subscription;
+
+  @override
+  State<SubscriptionEditorDialog> createState() =>
+      _SubscriptionEditorDialogState();
+}
+
+class _SubscriptionEditorDialogState extends State<SubscriptionEditorDialog> {
+  late final TextEditingController nameController;
+  late final TextEditingController amountController;
+  late final TextEditingController paymentMethodController;
+  late final TextEditingController categoryController;
+  late SubscriptionCycle cycle;
+  late DateTime date;
+  late int reminderDays;
+  late bool active;
+
+  @override
+  void initState() {
+    super.initState();
+    final subscription = widget.subscription;
+    nameController = TextEditingController(text: subscription?.name ?? '');
+    amountController = TextEditingController(
+      text: subscription == null ? '' : subscription.amount.toStringAsFixed(0),
+    );
+    paymentMethodController = TextEditingController(
+      text: subscription?.paymentMethod ?? '信用卡',
+    );
+    categoryController = TextEditingController(
+      text: subscription?.category ?? '訂閱',
+    );
+    cycle = subscription?.cycle ?? SubscriptionCycle.monthly;
+    date =
+        subscription?.nextPaymentDate ??
+        DateTime.now().add(const Duration(days: 30));
+    reminderDays = subscription?.reminderDays ?? 3;
+    active = subscription?.isActive ?? true;
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    amountController.dispose();
+    paymentMethodController.dispose();
+    categoryController.dispose();
+    super.dispose();
+  }
+
+  void submit() {
+    final subscription = widget.subscription;
+    final item = SubscriptionItem(
+      id: subscription?.id ?? widget.store.newId('sub'),
+      name: nameController.text.trim().isEmpty
+          ? '未命名訂閱'
+          : nameController.text.trim(),
+      amount: double.tryParse(amountController.text) ?? 0,
+      cycle: cycle,
+      nextPaymentDate: date,
+      paymentMethod: paymentMethodController.text.trim(),
+      category: categoryController.text.trim(),
+      reminderDays: reminderDays,
+      isActive: active,
+    );
+    FocusManager.instance.primaryFocus?.unfocus();
+    Navigator.of(context).pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.store.upsertSubscription(item);
+    });
+  }
+
+  Future<void> pickDate() async {
+    final picked = await showAppDatePicker(
+      context: context,
+      firstDate: DateTime(2024),
+      lastDate: DateTime(2035),
+      initialDate: date,
+    );
+    if (picked != null && mounted) {
+      setState(() => date = picked);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isNew = widget.subscription == null;
+    return AlertDialog(
+      title: Text(isNew ? '新增訂閱' : '編輯訂閱'),
+      scrollable: true,
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              autofocus: true,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: '訂閱名稱',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: amountController,
+              keyboardType: TextInputType.number,
+              inputFormatters: moneyInputFormatters(),
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: '金額',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: SegmentedButton<SubscriptionCycle>(
+                segments: const [
+                  ButtonSegment(
+                    value: SubscriptionCycle.monthly,
+                    label: Text('月'),
+                  ),
+                  ButtonSegment(
+                    value: SubscriptionCycle.yearly,
+                    label: Text('年'),
+                  ),
+                  ButtonSegment(
+                    value: SubscriptionCycle.custom,
+                    label: Text('自訂'),
+                  ),
+                ],
+                selected: {cycle},
+                onSelectionChanged: (value) =>
+                    setState(() => cycle = value.first),
+              ),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.event_repeat),
+              title: const Text('下次付款日'),
+              subtitle: Text(formatDate(date)),
+              trailing: const Icon(Icons.edit_calendar),
+              onTap: pickDate,
+            ),
+            TextField(
+              controller: paymentMethodController,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: '付款方式',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: categoryController,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: '分類',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownMenu<int>(
+              initialSelection: reminderDays,
+              label: const Text('提醒天數'),
+              dropdownMenuEntries: const [
+                DropdownMenuEntry(value: 1, label: '1 天前'),
+                DropdownMenuEntry(value: 3, label: '3 天前'),
+                DropdownMenuEntry(value: 5, label: '5 天前'),
+                DropdownMenuEntry(value: 7, label: '7 天前'),
+              ],
+              onSelected: (value) =>
+                  setState(() => reminderDays = value ?? reminderDays),
+            ),
+            SwitchListTile(
+              value: active,
+              onChanged: (value) => setState(() => active = value),
+              title: const Text('啟用訂閱'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton.icon(
+          onPressed: () {
+            FocusManager.instance.primaryFocus?.unfocus();
+            Navigator.of(context).pop();
+          },
+          icon: const Icon(Icons.close),
+          label: const Text('取消'),
+        ),
+        FilledButton.icon(
+          onPressed: submit,
+          icon: const Icon(Icons.check),
+          label: const Text('確認'),
+        ),
+      ],
+    );
+  }
 }
 
 Future<void> showQuickAddMenu(BuildContext context) async {
@@ -9400,60 +9489,86 @@ Future<void> showQuickAddMenu(BuildContext context) async {
 }
 
 Future<void> showBudgetEditor(BuildContext context) async {
-  final store = AppStoreScope.of(context);
-  final controller = TextEditingController(
-    text: store.monthlyBudget.toStringAsFixed(0),
-  );
-  await showModalBottomSheet<void>(
+  await showDialog<void>(
     context: context,
-    showDragHandle: true,
-    builder: (context) => SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          0,
-          16,
-          16 + MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '調整月預算',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: '月預算',
-                prefixText: r'$ ',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () {
-                  store.updateBudget(double.tryParse(controller.text) ?? 0);
-                  Navigator.pop(context);
-                },
-                icon: const Icon(Icons.check),
-                label: const Text('套用'),
-              ),
-            ),
-          ],
+    builder: (dialogContext) =>
+        BudgetEditorDialog(store: AppStoreScope.read(context)),
+  );
+}
+
+class BudgetEditorDialog extends StatefulWidget {
+  const BudgetEditorDialog({super.key, required this.store});
+
+  final AppStore store;
+
+  @override
+  State<BudgetEditorDialog> createState() => _BudgetEditorDialogState();
+}
+
+class _BudgetEditorDialogState extends State<BudgetEditorDialog> {
+  late final TextEditingController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = TextEditingController(
+      text: widget.store.monthlyBudget.toStringAsFixed(0),
+    );
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  void submit() {
+    final nextBudget = double.tryParse(controller.text) ?? 0;
+    FocusManager.instance.primaryFocus?.unfocus();
+    Navigator.of(context).pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.store.updateBudget(nextBudget);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('調整月預算'),
+      scrollable: true,
+      content: SizedBox(
+        width: 360,
+        child: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          inputFormatters: moneyInputFormatters(),
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => submit(),
+          decoration: const InputDecoration(
+            labelText: '月預算',
+            prefixText: r'$ ',
+            border: OutlineInputBorder(),
+          ),
         ),
       ),
-    ),
-  );
-  controller.dispose();
+      actions: [
+        TextButton.icon(
+          onPressed: () {
+            FocusManager.instance.primaryFocus?.unfocus();
+            Navigator.of(context).pop();
+          },
+          icon: const Icon(Icons.close),
+          label: const Text('取消'),
+        ),
+        FilledButton.icon(
+          onPressed: submit,
+          icon: const Icon(Icons.check),
+          label: const Text('確認'),
+        ),
+      ],
+    );
+  }
 }
 
 Future<void> showSavingsAccountEditor(

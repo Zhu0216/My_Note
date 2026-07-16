@@ -415,20 +415,10 @@ void main() {
     }
   });
 
-  test('rich toolbar font size options cover 10 to 30 by step 2', () {
-    expect(RichToolbarFontSizeButton.values, const [
-      10,
-      12,
-      14,
-      16,
-      18,
-      20,
-      22,
-      24,
-      26,
-      28,
-      30,
-    ]);
+  test('rich toolbar font size wheel starts at 16', () {
+    final values = RichToolbarFontSizeButton.wheelValuesFor(16);
+    expect(values.first, 16);
+    expect(values.where((value) => value <= 14), isEmpty);
   });
 
   testWidgets('rich toolbar font size wheel slides and opens input', (
@@ -468,7 +458,7 @@ void main() {
 
     expect(currentSize, 18.0);
     expect(find.text('18'), findsOneWidget);
-    expect(find.text('14'), findsOneWidget);
+    expect(find.text('14'), findsNothing);
     expect(find.text('16'), findsOneWidget);
     expect(find.text('20'), findsOneWidget);
     expect(find.text('22'), findsOneWidget);
@@ -672,7 +662,7 @@ void main() {
       try {
         expect(store.notes, hasLength(1));
         expect(store.notes.single.title, '備份筆記');
-        expect(prefs.getString('my_note_local_v1'), backupRaw);
+        expect(prefs.getString('my_note_local_v1'), jsonEncode(store.toJson()));
       } finally {
         store.dispose();
       }
@@ -1158,7 +1148,7 @@ void main() {
     await tester.pump();
 
     final textField = tester.widget<TextField>(find.byType(TextField).last);
-    expect(textField.cursorHeight, closeTo(28.0 * 1.45, 0.001));
+    expect(textField.cursorHeight, closeTo(28.0 * 1.5, 0.001));
   });
 
   testWidgets(
@@ -1197,7 +1187,7 @@ void main() {
 
       expect(
         tester.widget<TextField>(find.byType(TextField).last).cursorHeight,
-        closeTo(16.0 * 1.45, 0.001),
+        closeTo(16.0 * 1.5, 0.001),
       );
 
       controller.setInlineAttribute(RichNoteAttribute.fontSize, 30.0);
@@ -1205,7 +1195,7 @@ void main() {
 
       expect(
         tester.widget<TextField>(find.byType(TextField).last).cursorHeight,
-        closeTo(30.0 * 1.45, 0.001),
+        closeTo(30.0 * 1.5, 0.001),
       );
     },
   );

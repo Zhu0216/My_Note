@@ -3873,6 +3873,7 @@ class _GeneralRichTextEditorPanelState
       fontFamily: flowCaretFontFamilyForBlock(block, bodyStyle),
       fontSize: flowMaxFontSizeForBlock(block, bodyStyle),
       height: bodyStyle.height,
+      leadingDistribution: TextLeadingDistribution.even,
       forceStrutHeight: false,
     );
   }
@@ -4202,58 +4203,89 @@ class _GeneralRichTextEditorPanelState
                                                   bodyStyle,
                                                 ) *
                                                 (bodyStyle.height ?? 1.25);
+                                            final showEmptyHint = widget
+                                                .controller
+                                                .text
+                                                .trim()
+                                                .isEmpty;
                                             return KeyedSubtree(
                                               key: flowTextKeyFor(block),
-                                              child: TextField(
-                                                controller: controller,
-                                                focusNode: focusNode,
-                                                readOnly: widget.readOnly,
-                                                cursorHeight: cursorHeight,
-                                                strutStyle:
-                                                    flowStrutStyleForBlock(
-                                                      block,
-                                                      bodyStyle,
-                                                    ),
-                                                maxLines: null,
-                                                minLines:
-                                                    blocks.length == 1 &&
-                                                        block.text.isEmpty
-                                                    ? 10
-                                                    : 1,
-                                                style: textFieldStyle,
-                                                onChanged: widget.readOnly
-                                                    ? null
-                                                    : (value) =>
-                                                          replaceFlowTextBlock(
-                                                            block,
-                                                            value,
-                                                          ),
-                                                onTap: widget.readOnly
-                                                    ? null
-                                                    : () {
-                                                        debugPrint(
-                                                          'PARAGRAPH_TAP',
-                                                        );
-                                                        clearEmbedSelection();
-                                                        syncFlowSelection(
+                                              child: Stack(
+                                                children: [
+                                                  TextField(
+                                                    controller: controller,
+                                                    focusNode: focusNode,
+                                                    readOnly: widget.readOnly,
+                                                    cursorHeight: cursorHeight,
+                                                    strutStyle:
+                                                        flowStrutStyleForBlock(
                                                           block,
-                                                        );
-                                                      },
-                                                decoration: InputDecoration(
-                                                  hintText:
-                                                      widget.controller.text
-                                                          .trim()
-                                                          .isEmpty
-                                                      ? '開始輸入筆記內容'
-                                                      : null,
-                                                  border: InputBorder.none,
-                                                  enabledBorder:
-                                                      InputBorder.none,
-                                                  focusedBorder:
-                                                      InputBorder.none,
-                                                  filled: false,
-                                                  isCollapsed: true,
-                                                ),
+                                                          bodyStyle,
+                                                        ),
+                                                    maxLines: null,
+                                                    minLines:
+                                                        blocks.length == 1 &&
+                                                            block.text.isEmpty
+                                                        ? 10
+                                                        : 1,
+                                                    style: textFieldStyle,
+                                                    onChanged: widget.readOnly
+                                                        ? null
+                                                        : (value) =>
+                                                              replaceFlowTextBlock(
+                                                                block,
+                                                                value,
+                                                              ),
+                                                    onTap: widget.readOnly
+                                                        ? null
+                                                        : () {
+                                                            debugPrint(
+                                                              'PARAGRAPH_TAP',
+                                                            );
+                                                            clearEmbedSelection();
+                                                            syncFlowSelection(
+                                                              block,
+                                                            );
+                                                          },
+                                                    decoration:
+                                                        const InputDecoration(
+                                                          border:
+                                                              InputBorder.none,
+                                                          enabledBorder:
+                                                              InputBorder.none,
+                                                          focusedBorder:
+                                                              InputBorder.none,
+                                                          filled: false,
+                                                          isCollapsed: true,
+                                                        ),
+                                                  ),
+                                                  if (showEmptyHint)
+                                                    Positioned(
+                                                      top: 0,
+                                                      left: 0,
+                                                      right: 0,
+                                                      height: cursorHeight,
+                                                      child: IgnorePointer(
+                                                        child: FittedBox(
+                                                          fit: BoxFit.scaleDown,
+                                                          alignment: Alignment
+                                                              .centerLeft,
+                                                          child: Text(
+                                                            '開始輸入筆記內容',
+                                                            maxLines: 1,
+                                                            softWrap: false,
+                                                            style: textFieldStyle
+                                                                .copyWith(
+                                                                  height: 1,
+                                                                  color: Theme.of(
+                                                                    context,
+                                                                  ).colorScheme.onSurfaceVariant,
+                                                                ),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                ],
                                               ),
                                             );
                                           },
@@ -5814,7 +5846,7 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
       widget.controller.selectionAttributeValue(RichNoteAttribute.fontSize),
       fallback: readDouble(widget.style['fontSize'], fallback: 16),
     ).round();
-    final lineHeight = readDouble(widget.style['lineHeight'], fallback: 1.45);
+    final lineHeight = readDouble(widget.style['lineHeight'], fallback: 1.5);
     return DecoratedBox(
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerHighest,
@@ -5938,10 +5970,10 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
                     ),
                     const RichToolbarDivider(),
                     RichToolbarMenuButton<double>(
-                      label: lineHeight.toStringAsFixed(2),
-                      tooltip: '行距',
-                      values: const [1.2, 1.45, 1.7, 2.0],
-                      labelBuilder: (value) => value.toStringAsFixed(2),
+                      label: noteLineHeightLabel(lineHeight),
+                      tooltip: '行高',
+                      values: noteLineHeightValues,
+                      labelBuilder: noteLineHeightLabel,
                       onSelected: (value) => runAction(
                         () => widget.onStyleChanged({
                           ...widget.style,
@@ -6275,16 +6307,14 @@ class RichToolbarFontSizeButton extends StatefulWidget {
     required this.onSelected,
   });
 
-  static const values = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30];
-
   final double currentSize;
   final String tooltip;
   final ValueChanged<double> onSelected;
 
   static List<double> wheelValuesFor(double currentSize) {
-    final current = currentSize.roundToDouble().clamp(6.0, 96.0).toDouble();
+    final current = currentSize.roundToDouble().clamp(16.0, 96.0).toDouble();
     final items = <double>{
-      for (var value = 6; value <= 96; value += 2) value.toDouble(),
+      for (var value = 16; value <= 96; value += 2) value.toDouble(),
       current,
     }.toList()..sort();
     return items;
@@ -6321,7 +6351,7 @@ class _RichToolbarFontSizeButtonState extends State<RichToolbarFontSizeButton> {
     if (picked == null) {
       return;
     }
-    widget.onSelected(picked.clamp(6.0, 96.0).toDouble());
+    widget.onSelected(picked.clamp(16.0, 96.0).toDouble());
   }
 
   void selectByDirection(int direction) {
@@ -6846,7 +6876,7 @@ class NoteEditorToolbar extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                '字型、大小、顏色、行高',
+                '字型、顏色、行高',
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
                   color: const Color(0xff687386),
                 ),
@@ -6879,22 +6909,6 @@ class NoteEditorToolbar extends StatelessWidget {
                   }
                 },
               ),
-              DropdownMenu<double>(
-                initialSelection: readDouble(style['fontSize'], fallback: 16),
-                label: const Text('大小'),
-                width: 112,
-                dropdownMenuEntries: const [
-                  DropdownMenuEntry(value: 14, label: '14'),
-                  DropdownMenuEntry(value: 16, label: '16'),
-                  DropdownMenuEntry(value: 18, label: '18'),
-                  DropdownMenuEntry(value: 22, label: '22'),
-                ],
-                onSelected: (value) {
-                  if (value != null) {
-                    onStyleChanged({...style, 'fontSize': value});
-                  }
-                },
-              ),
               DropdownMenu<String>(
                 initialSelection: readString(
                   style['color'],
@@ -6917,15 +6931,16 @@ class NoteEditorToolbar extends StatelessWidget {
               DropdownMenu<double>(
                 initialSelection: readDouble(
                   style['lineHeight'],
-                  fallback: 1.45,
+                  fallback: 1.5,
                 ),
                 label: const Text('行高'),
                 width: 112,
                 dropdownMenuEntries: const [
-                  DropdownMenuEntry(value: 1.2, label: '1.2'),
-                  DropdownMenuEntry(value: 1.45, label: '1.45'),
-                  DropdownMenuEntry(value: 1.7, label: '1.7'),
-                  DropdownMenuEntry(value: 2.0, label: '2.0'),
+                  DropdownMenuEntry(value: 1.0, label: '1'),
+                  DropdownMenuEntry(value: 1.25, label: '1.25'),
+                  DropdownMenuEntry(value: 1.5, label: '1.5'),
+                  DropdownMenuEntry(value: 1.75, label: '1.75'),
+                  DropdownMenuEntry(value: 2.0, label: '2'),
                 ],
                 onSelected: (value) {
                   if (value != null) {
@@ -7385,10 +7400,17 @@ TextStyle noteBodyTextStyle(
       color: usesDefaultColor && context != null
           ? Theme.of(context).colorScheme.onSurface
           : colorFromHex(colorValue),
-      height: readDouble(style['lineHeight'], fallback: 1.45),
+      height: readDouble(style['lineHeight'], fallback: 1.5),
+      leadingDistribution: TextLeadingDistribution.even,
     ),
     family,
   );
+}
+
+String noteLineHeightLabel(double value) {
+  return value == value.roundToDouble()
+      ? value.toStringAsFixed(0)
+      : value.toStringAsFixed(2).replaceFirst(RegExp(r'0$'), '');
 }
 
 Color effectiveNoteBackgroundColor(
