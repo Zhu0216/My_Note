@@ -158,6 +158,7 @@ class NoteTemplatePickerCard extends StatelessWidget {
 }
 
 class _NoteEditorPageState extends State<NoteEditorPage> {
+  final generalEditorKey = GlobalKey<_GeneralRichTextEditorPanelState>();
   late final TextEditingController title;
   late final RichNoteTextController body;
   late final TextEditingController tags;
@@ -335,6 +336,9 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   }
 
   Future<void> requestExit() async {
+    if (generalEditorKey.currentState?.handleBackAction() ?? false) {
+      return;
+    }
     if (readOnly) {
       Navigator.pop(context);
       return;
@@ -824,6 +828,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                 ? Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
                     child: GeneralRichTextEditorPanel(
+                      key: generalEditorKey,
                       controller: body,
                       readOnly: readOnly,
                       style: noteStyle,
@@ -3152,6 +3157,7 @@ class GeneralRichTextEditorPanel extends StatefulWidget {
 
 class _GeneralRichTextEditorPanelState
     extends State<GeneralRichTextEditorPanel> {
+  final imageToolbarKey = GlobalKey<_ModernRichImageEditToolbarState>();
   String? selectedEmbedType;
   String? selectedEmbedId;
   final FocusNode bodyFocusNode = FocusNode(debugLabel: 'rich-note-body');
@@ -3420,6 +3426,17 @@ class _GeneralRichTextEditorPanelState
         imageMoveEnabled = false;
       });
     }
+  }
+
+  bool handleBackAction() {
+    if (imageToolbarKey.currentState?.closeTransientToolbar() ?? false) {
+      return true;
+    }
+    if (selectedEmbedType != null || selectedEmbedId != null) {
+      clearEmbedSelection();
+      return true;
+    }
+    return false;
   }
 
   void updateImage(Map<String, dynamic> image) {
@@ -4057,6 +4074,7 @@ class _GeneralRichTextEditorPanelState
         if (!widget.readOnly) ...[
           if (selectedImage != null)
             ModernRichImageEditToolbar(
+              key: imageToolbarKey,
               image: selectedImage!,
               moveEnabled: imageMoveEnabled,
               onImageChanged: updateImage,
@@ -5317,6 +5335,19 @@ class _ModernRichImageEditToolbarState
     return current == current.roundToDouble()
         ? current.toStringAsFixed(0)
         : current.toStringAsFixed(1);
+  }
+
+  bool closeTransientToolbar() {
+    if (!showColorToolbar && !showBorderToolbar) {
+      return false;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      showColorToolbar = false;
+      showBorderToolbar = false;
+      borderWidthController.text = formattedBorderWidth;
+    });
+    return true;
   }
 
   void setValue(String key, Object value) {

@@ -25,6 +25,72 @@ void main() {
     }
   });
 
+  testWidgets('system back closes the home FAB before leaving home', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded();
+
+    try {
+      await tester.pumpWidget(MyNoteApp(store: store));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.tap(find.byTooltip('快速新增'));
+      await tester.pumpAndSettle();
+      expect(find.text('新增筆記'), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(HomePage), findsOneWidget);
+      expect(find.text('新增筆記'), findsNothing);
+      expect(find.text('是否退出？'), findsNothing);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  testWidgets('system back returns a main section to home', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded();
+
+    try {
+      await tester.pumpWidget(MyNoteApp(store: store));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.tap(find.text('筆記').last);
+      await tester.pumpAndSettle();
+      expect(find.text('所有筆記'), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(HomePage), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  test('notes fixed back route follows folder parents', () {
+    expect(notesBackTarget('A/B/C'), 'A/B');
+    expect(notesBackTarget('A/B'), 'A');
+    expect(notesBackTarget('A'), '所有筆記');
+    expect(notesBackTarget(''), '所有筆記');
+    expect(notesBackTarget('所有筆記'), isNull);
+    expect(notesBackTarget('A/B', showingTrash: true), '所有筆記');
+  });
+
+  test('notes only appear in their directly assigned folder', () {
+    expect(noteBelongsToFolder('A', 'A'), isTrue);
+    expect(noteBelongsToFolder('A/B', 'A/B'), isTrue);
+    expect(noteBelongsToFolder('A/B', 'A'), isFalse);
+    expect(noteBelongsToFolder('A/B/C', 'A'), isFalse);
+    expect(noteBelongsToFolder('', ''), isTrue);
+    expect(noteBelongsToFolder('A', ''), isFalse);
+  });
+
   testWidgets('shows note template choices before opening an editor', (
     tester,
   ) async {
@@ -1347,6 +1413,82 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ModernRichImageEditToolbar), findsOneWidget);
+  });
+
+  testWidgets('note back closes image subtools before leaving the editor', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded();
+    final controller = RichNoteTextController(
+      text: 'before\n$richNoteEmbedObject\nafter',
+      marks: const [
+        RichNoteMark(
+          start: 7,
+          end: 8,
+          attributes: {
+            RichNoteAttribute.embedType: richNoteEmbedTypeImage,
+            RichNoteAttribute.embedId: 'image-back-test',
+          },
+        ),
+      ],
+    );
+    final images = <Map<String, dynamic>>[
+      {
+        'id': 'image-back-test',
+        'name': 'back-test.png',
+        'width': 120.0,
+        'height': 80.0,
+        'alignment': NoteImageAlignment.center.name,
+      },
+    ];
+    final note = NoteItem(
+      id: 'note-back-test',
+      title: '返回測試',
+      body: controller.text,
+      category: 'A/B',
+      tags: const [],
+      createdAt: DateTime(2026, 7, 19),
+      updatedAt: DateTime(2026, 7, 19),
+      templateData: generalNoteTemplateData(
+        defaultNoteTemplateData(NoteTemplateType.general),
+        controller,
+        images,
+        const [],
+      ),
+      images: images,
+    );
+    controller.dispose();
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(home: NoteEditorPage(note: note)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(InlineRichImageBlock));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('框線顏色'));
+      await tester.pumpAndSettle();
+      expect(find.byType(RichToolbarColorChoiceButton), findsWidgets);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(ModernRichImageEditToolbar), findsOneWidget);
+      expect(find.byType(RichToolbarColorChoiceButton), findsNothing);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(ModernRichImageEditToolbar), findsNothing);
+      expect(find.byType(RichTextTemplateToolbar), findsOneWidget);
+      expect(find.byType(NoteEditorPage), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
   });
 
   testWidgets('trailing empty image input block remains editable', (

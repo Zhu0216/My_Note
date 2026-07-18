@@ -2036,42 +2036,98 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   static const int homeIndex = 2;
 
+  final notesPageKey = GlobalKey<_NotesPageState>();
+  final homePageKey = GlobalKey<_HomePageState>();
   int selectedIndex = homeIndex;
+
+  void selectPage(int index) {
+    if (index == selectedIndex) {
+      return;
+    }
+    setState(() => selectedIndex = index);
+  }
+
+  void openNotesLocation(String folder, {bool showTrash = false}) {
+    void applyLocation() {
+      notesPageKey.currentState?.openBackTarget(folder, showTrash: showTrash);
+    }
+
+    if (selectedIndex == 0 && notesPageKey.currentState != null) {
+      applyLocation();
+      return;
+    }
+    setState(() => selectedIndex = 0);
+    WidgetsBinding.instance.addPostFrameCallback((_) => applyLocation());
+  }
+
+  Future<void> handleSystemBack() async {
+    if (selectedIndex == 0 &&
+        (notesPageKey.currentState?.handleAppBack() ?? false)) {
+      return;
+    }
+    if (selectedIndex == homeIndex &&
+        (homePageKey.currentState?.handleAppBack() ?? false)) {
+      return;
+    }
+    if (selectedIndex != homeIndex) {
+      setState(() => selectedIndex = homeIndex);
+      return;
+    }
+    final shouldExit = await showExitConfirmDialog(context);
+    if (shouldExit && mounted) {
+      SystemNavigator.pop();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final pages = [
-      const NotesPage(),
+      NotesPage(key: notesPageKey),
       const CalendarPage(),
-      HomePage(onNavigate: (index) => setState(() => selectedIndex = index)),
+      HomePage(key: homePageKey, onNavigate: selectPage),
       const FinancePage(),
       const SettingsPage(),
     ];
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) async {
-        if (didPop) {
-          return;
-        }
-        if (selectedIndex != homeIndex) {
-          setState(() => selectedIndex = homeIndex);
-          return;
-        }
-        final shouldExit = await showExitConfirmDialog(context);
-        if (shouldExit && context.mounted) {
-          SystemNavigator.pop();
-        }
-      },
-      child: Scaffold(
-        body: SafeArea(child: pages[selectedIndex]),
-        bottomNavigationBar: AppBottomNavigation(
-          selectedIndex: selectedIndex,
-          onSelected: (index) => setState(() => selectedIndex = index),
+    return AppNavigationScope(
+      onNavigate: selectPage,
+      onOpenNotesLocation: openNotesLocation,
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop) {
+            unawaited(handleSystemBack());
+          }
+        },
+        child: Scaffold(
+          body: SafeArea(child: pages[selectedIndex]),
+          bottomNavigationBar: AppBottomNavigation(
+            selectedIndex: selectedIndex,
+            onSelected: selectPage,
+          ),
         ),
       ),
     );
   }
+}
+
+class AppNavigationScope extends InheritedWidget {
+  const AppNavigationScope({
+    super.key,
+    required this.onNavigate,
+    required this.onOpenNotesLocation,
+    required super.child,
+  });
+
+  final ValueChanged<int> onNavigate;
+  final void Function(String folder, {bool showTrash}) onOpenNotesLocation;
+
+  static AppNavigationScope? maybeOf(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<AppNavigationScope>();
+  }
+
+  @override
+  bool updateShouldNotify(AppNavigationScope oldWidget) => false;
 }
 
 class AppBottomNavigation extends StatelessWidget {
@@ -2308,8 +2364,19 @@ class _HomePageState extends State<HomePage>
   }
 
   void closeQuickAdd() {
+    if (!quickAddOpen) {
+      return;
+    }
     setState(() => quickAddOpen = false);
     quickAddFabController.reverse();
+  }
+
+  bool handleAppBack() {
+    if (!quickAddOpen) {
+      return false;
+    }
+    closeQuickAdd();
+    return true;
   }
 
   Future<void> handleQuickAdd(String value) async {
@@ -4188,6 +4255,7 @@ class _NotesPageState extends State<NotesPage>
   bool addMenuOpen = false;
   final Set<String> selectedNoteIds = {};
   final Set<String> selectedFolderPaths = {};
+  final scaffoldKey = GlobalKey<ScaffoldState>();
   late final AnimationController addFabController;
 
   @override
@@ -4229,6 +4297,7 @@ class _NotesPageState extends State<NotesPage>
       await showNoteEditor(
         context,
         initialFolder: currentFolderContext,
+        returnFolder: folder,
         initialTemplateType: templateType,
       );
     }
@@ -4239,6 +4308,47 @@ class _NotesPageState extends State<NotesPage>
       return '';
     }
     return folder;
+  }
+
+  void openBackTarget(String value, {bool showTrash = false}) {
+    setState(() {
+      showingTrash = showTrash;
+      folder = showTrash ? '所有筆記' : value;
+      batchMode = false;
+      showFilters = false;
+      selectedNoteIds.clear();
+      selectedFolderPaths.clear();
+    });
+    closeAddMenu();
+  }
+
+  bool handleAppBack() {
+    if (scaffoldKey.currentState?.isDrawerOpen ?? false) {
+      scaffoldKey.currentState?.closeDrawer();
+      return true;
+    }
+    if (addMenuOpen) {
+      closeAddMenu();
+      return true;
+    }
+    if (batchMode) {
+      setState(() {
+        batchMode = false;
+        selectedNoteIds.clear();
+        selectedFolderPaths.clear();
+      });
+      return true;
+    }
+    if (showFilters) {
+      setState(() => showFilters = false);
+      return true;
+    }
+    final target = notesBackTarget(folder, showingTrash: showingTrash);
+    if (target == null) {
+      return false;
+    }
+    openBackTarget(target);
+    return true;
   }
 
   String get currentDirectoryTitle {
@@ -4362,9 +4472,7 @@ class _NotesPageState extends State<NotesPage>
       return text.contains(query.toLowerCase()) &&
           (showingTrash ||
               folder == '所有筆記' ||
-              (folder.isEmpty
-                  ? note.category.isEmpty
-                  : folderContains(folder, note.category))) &&
+              noteBelongsToFolder(note.category, folder)) &&
           (templateFilters.isEmpty ||
               templateFilters.contains(note.templateType)) &&
           matchesDateFilter(note, dateFilter);
@@ -4379,6 +4487,7 @@ class _NotesPageState extends State<NotesPage>
     final childFolders = directChildFolders(store.folderPaths);
 
     return Scaffold(
+      key: scaffoldKey,
       backgroundColor: Colors.transparent,
       drawer: NotesNavigationDrawer(
         selectedFolder: folder,
@@ -8595,9 +8704,18 @@ Future<void> showNoteEditor(
   BuildContext context, {
   NoteItem? note,
   String initialFolder = '',
+  String? returnFolder,
   NoteTemplateType initialTemplateType = NoteTemplateType.general,
   bool readOnly = false,
 }) async {
+  final navigation = AppNavigationScope.maybeOf(context);
+  final targetFolder =
+      returnFolder ??
+      (note != null
+          ? note.category
+          : initialFolder.isEmpty
+          ? '所有筆記'
+          : initialFolder);
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (context) => NoteEditorPage(
@@ -8610,6 +8728,10 @@ Future<void> showNoteEditor(
       ),
     ),
   );
+  navigation?.onOpenNotesLocation(
+    targetFolder,
+    showTrash: note?.deletedAt != null,
+  );
 }
 
 Future<void> showScheduleEditor(
@@ -8617,23 +8739,27 @@ Future<void> showScheduleEditor(
   ScheduleItem? event,
   DateTime? initialDate,
 }) async {
+  final navigation = AppNavigationScope.maybeOf(context);
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (context) =>
           ScheduleEditorPage(event: event, initialDate: initialDate),
     ),
   );
+  navigation?.onNavigate(1);
 }
 
 Future<void> showFinanceEditor(
   BuildContext context, {
   FinanceEntry? entry,
 }) async {
+  final navigation = AppNavigationScope.maybeOf(context);
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (context) => FinanceEditorPage(entry: entry),
     ),
   );
+  navigation?.onNavigate(3);
 }
 
 Future<void> showNoteEditorSheet(BuildContext context, {NoteItem? note}) async {
@@ -9195,6 +9321,7 @@ Future<void> showSubscriptionEditor(
   BuildContext context, {
   SubscriptionItem? subscription,
 }) async {
+  final navigation = AppNavigationScope.maybeOf(context);
   await showDialog<void>(
     context: context,
     builder: (dialogContext) => SubscriptionEditorDialog(
@@ -9202,6 +9329,7 @@ Future<void> showSubscriptionEditor(
       subscription: subscription,
     ),
   );
+  navigation?.onNavigate(3);
 }
 
 class SubscriptionEditorDialog extends StatefulWidget {
@@ -9829,9 +9957,11 @@ class QuickAddOption extends StatelessWidget {
 }
 
 Future<void> openTodoEditorPage(BuildContext context, {TodoItem? todo}) async {
+  final navigation = AppNavigationScope.maybeOf(context);
   await Navigator.of(
     context,
   ).push<void>(MaterialPageRoute(builder: (_) => TodoEditorPage(todo: todo)));
+  navigation?.onNavigate(2);
 }
 
 Future<void> showTodoActionSheet(BuildContext context, TodoItem todo) async {
@@ -10454,6 +10584,25 @@ String folderParentPath(String value) {
     return '';
   }
   return parts.take(parts.length - 1).join('/');
+}
+
+String? notesBackTarget(String folder, {bool showingTrash = false}) {
+  if (showingTrash) {
+    return '所有筆記';
+  }
+  final normalized = normalizeFolderPath(folder);
+  if (folder == '所有筆記') {
+    return null;
+  }
+  if (normalized.isEmpty) {
+    return '所有筆記';
+  }
+  final parent = folderParentPath(normalized);
+  return parent.isEmpty ? '所有筆記' : parent;
+}
+
+bool noteBelongsToFolder(String category, String folder) {
+  return normalizeFolderPath(category) == normalizeFolderPath(folder);
 }
 
 String joinFolderPath(String parent, String child) {
