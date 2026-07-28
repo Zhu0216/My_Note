@@ -91,6 +91,234 @@ void main() {
     expect(noteBelongsToFolder('A', ''), isFalse);
   });
 
+  test('calendar period helpers preserve valid dates and week boundaries', () {
+    expect(shiftCalendarMonth(DateTime(2026, 1, 31), 1), DateTime(2026, 2, 28));
+    expect(
+      shiftCalendarMonth(DateTime(2026, 12, 15), 1),
+      DateTime(2027, 1, 15),
+    );
+    expect(calendarWeekStart(DateTime(2026, 7, 28)), DateTime(2026, 7, 26));
+    expect(
+      calendarPeriodLabel(CalendarViewMode.week, DateTime(2026, 7, 28)),
+      '2026/7/26–2026/8/1',
+    );
+  });
+
+  testWidgets('calendar arrows and horizontal swipe change visible month', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded();
+    final now = DateTime.now();
+    final nextMonth = shiftCalendarMonth(now, 1);
+    final followingMonth = shiftCalendarMonth(now, 2);
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: const MaterialApp(home: CalendarPage()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('${now.year}年${now.month}月'), findsOneWidget);
+      await tester.tap(find.byTooltip('下一個期間'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('${nextMonth.year}年${nextMonth.month}月'),
+        findsOneWidget,
+      );
+
+      await tester.drag(find.byType(MonthStrip), const Offset(-300, 0));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('${followingMonth.year}年${followingMonth.month}月'),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.text('${followingMonth.year}年${followingMonth.month}月'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(CalendarMonthPickerDialog), findsOneWidget);
+
+      final pickedMonth = followingMonth.month == 1 ? 2 : 1;
+      await tester.tap(find.text('$pickedMonth月'));
+      await tester.pumpAndSettle();
+      expect(find.text('${followingMonth.year}年$pickedMonth月'), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  testWidgets('calendar list shows all events without a period selector', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded();
+    final now = DateTime.now();
+    final nextMonth = shiftCalendarMonth(now, 1);
+    store.upsertSchedule(
+      ScheduleItem(
+        id: 'list-current-month',
+        title: '本月行程',
+        start: DateTime(now.year, now.month, 2, 10),
+        end: DateTime(now.year, now.month, 2, 11),
+        location: '',
+        notes: '',
+        remindBeforeMinutes: 10,
+      ),
+    );
+    store.upsertSchedule(
+      ScheduleItem(
+        id: 'list-next-month',
+        title: '下月行程',
+        start: DateTime(nextMonth.year, nextMonth.month, 2, 10),
+        end: DateTime(nextMonth.year, nextMonth.month, 2, 11),
+        location: '',
+        notes: '',
+        remindBeforeMinutes: 10,
+      ),
+    );
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: const MaterialApp(home: CalendarPage()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('清單'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CalendarPeriodSelector), findsNothing);
+      expect(find.text('本月行程'), findsOneWidget);
+      expect(find.text('下月行程'), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  testWidgets('tapping the selected day again scrolls to daily schedule', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded();
+    final now = DateTime.now();
+    final targetDay = now.day == 1 ? 2 : 1;
+    final targetDate = DateTime(now.year, now.month, targetDay);
+    await tester.binding.setSurfaceSize(const Size(412, 915));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: const MaterialApp(home: CalendarPage()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final dayCell = find.byKey(
+        ValueKey(
+          'calendar-day-${targetDate.year}-${targetDate.month}-${targetDate.day}',
+        ),
+      );
+      await tester.tap(dayCell);
+      await tester.pumpAndSettle();
+
+      await tester.tap(dayCell);
+      await tester.pumpAndSettle();
+      final addButton = find.byKey(
+        const ValueKey('calendar-add-selected-date'),
+      );
+      final dailySchedule = find.text('當日行程 · ${formatDate(targetDate)}');
+      final calendarBlock = find.byKey(
+        const ValueKey('calendar-visible-period-block'),
+      );
+      final addButtonTop = tester.getTopLeft(addButton).dy;
+      final dailyScheduleTop = tester.getTopLeft(dailySchedule).dy;
+
+      expect(dayCell, findsNothing);
+      expect(calendarBlock, findsNothing);
+      expect(addButtonTop, greaterThanOrEqualTo(110));
+      expect(addButtonTop, lessThan(220));
+      expect(addButtonTop, lessThan(dailyScheduleTop));
+      expect(dailySchedule, findsOneWidget);
+      expect(dailyScheduleTop, lessThan(320));
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  testWidgets('month calendar shows weekdays and event title inside day cell', (
+    tester,
+  ) async {
+    final selectedDate = DateTime(2026, 7, 14);
+    final events = List.generate(
+      4,
+      (index) => ScheduleItem(
+        id: 'calendar-event-$index',
+        title: ['專案進度會議', '需求確認', '設計審查', '不應顯示的第四項'][index],
+        start: DateTime(2026, 7, 14, 10 + index),
+        end: DateTime(2026, 7, 14, 11 + index),
+        location: '',
+        notes: '',
+        remindBeforeMinutes: 10,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 640,
+            child: MonthStrip(
+              events: events,
+              selectedDate: selectedDate,
+              onDateSelected: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    for (final weekday in const ['日', '一', '二', '三', '四', '五', '六']) {
+      expect(find.text(weekday), findsOneWidget);
+    }
+    expect(find.text('專案進度會議'), findsOneWidget);
+    expect(find.text('需求確認'), findsOneWidget);
+    expect(find.text('設計審查'), findsOneWidget);
+    expect(find.text('不應顯示的第四項'), findsNothing);
+    expect(find.text('14'), findsOneWidget);
+
+    final selectedCell = tester.widget<Container>(
+      find.byKey(const ValueKey('calendar-day-2026-7-14')),
+    );
+    final selectedDecoration = selectedCell.decoration! as BoxDecoration;
+    final selectedBorder = selectedDecoration.border! as Border;
+    expect(selectedBorder.top.width, 2);
+
+    final firstEventLabel = tester.widget<Container>(
+      find.byKey(const ValueKey('calendar-event-calendar-event-0')),
+    );
+    final eventDecoration = firstEventLabel.decoration! as BoxDecoration;
+    expect(eventDecoration.color, isNotNull);
+    expect(eventDecoration.border, isNotNull);
+    expect(tester.widget<Text>(find.text('專案進度會議')).maxLines, 1);
+
+    final eventColumn = tester.widget<Column>(
+      find.byKey(const ValueKey('calendar-events-2026-7-14')),
+    );
+    expect(eventColumn.mainAxisAlignment, MainAxisAlignment.center);
+  });
+
   testWidgets('shows note template choices before opening an editor', (
     tester,
   ) async {
