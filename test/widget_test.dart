@@ -319,6 +319,75 @@ void main() {
     expect(eventColumn.mainAxisAlignment, MainAxisAlignment.center);
   });
 
+  testWidgets('week calendar selected date uses an outline without a fill', (
+    tester,
+  ) async {
+    final selectedDate = DateTime(2026, 7, 14);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: WeekStrip(
+            events: const [],
+            selectedDate: selectedDate,
+            onDateSelected: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    final selectedCell = tester.widget<Container>(
+      find.byKey(const ValueKey('calendar-week-day-2026-7-14')),
+    );
+    final decoration = selectedCell.decoration! as BoxDecoration;
+    final border = decoration.border! as Border;
+
+    expect(decoration.color, const Color(0xfff1f3ef));
+    expect(border.top.width, 2);
+    expect(
+      border.top.color,
+      Theme.of(tester.element(find.byType(WeekStrip))).colorScheme.primary,
+    );
+  });
+
+  testWidgets('home schedule view opens the matching daily schedule section', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    final eventDate = DateTime.now().add(const Duration(days: 1));
+    store.upsertSchedule(
+      ScheduleItem(
+        id: 'home-jump-event',
+        title: '首頁跳轉測試',
+        start: DateTime(eventDate.year, eventDate.month, eventDate.day, 9),
+        end: DateTime(eventDate.year, eventDate.month, eventDate.day, 10),
+        location: '',
+        notes: '',
+        remindBeforeMinutes: 10,
+      ),
+    );
+    await tester.binding.setSurfaceSize(const Size(412, 915));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    try {
+      await tester.pumpWidget(MyNoteApp(store: store));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(TextButton, '查看').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('當日行程 · ${formatDate(eventDate)}'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('calendar-add-selected-date')),
+        findsOneWidget,
+      );
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
   testWidgets('shows note template choices before opening an editor', (
     tester,
   ) async {
@@ -1185,6 +1254,177 @@ void main() {
       }
     },
   );
+
+  test(
+    'app store prefers a newer checkpoint over a valid old primary',
+    () async {
+      Map<String, dynamic> state({
+        required String folder,
+        required int revision,
+        required DateTime changedAt,
+      }) {
+        return {
+          'notes': [],
+          'schedules': [],
+          'subscriptions': [],
+          'financeEntries': [],
+          'savingsAccounts': [],
+          'todos': [],
+          'noteFolders': [folder],
+          '_persistence': {
+            'revision': revision,
+            'changedAt': changedAt.toIso8601String(),
+            'action': 'folder.create:$folder',
+          },
+        };
+      }
+
+      final oldRaw = jsonEncode(
+        state(folder: '舊資料夾', revision: 7, changedAt: DateTime(2026, 7, 28, 9)),
+      );
+      final checkpointRaw = jsonEncode(
+        state(
+          folder: '最新資料夾',
+          revision: 8,
+          changedAt: DateTime(2026, 7, 28, 10),
+        ),
+      );
+      SharedPreferences.setMockInitialValues({
+        'my_note_local_v1': oldRaw,
+        'my_note_local_v1_checkpoint': checkpointRaw,
+      });
+
+      final store = await AppStore.load();
+      final prefs = await SharedPreferences.getInstance();
+
+      try {
+        expect(store.noteFolders, ['最新資料夾']);
+        expect(prefs.getString('my_note_local_v1'), jsonEncode(store.toJson()));
+        expect(prefs.getString('my_note_local_v1'), contains('最新資料夾'));
+      } finally {
+        store.dispose();
+      }
+    },
+  );
+
+  test(
+    'app store journals rapid mutations and reloads the latest revision',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final store = await AppStore.load();
+      final note = NoteItem(
+        id: store.newId('n'),
+        title: '立即保存筆記',
+        body: '不能遺失',
+        category: '重要資料',
+        tags: const ['保存'],
+        createdAt: DateTime(2026, 7, 28, 10),
+        updatedAt: DateTime(2026, 7, 28, 10),
+      );
+      final schedule = ScheduleItem(
+        id: store.newId('s'),
+        title: '立即保存行程',
+        start: DateTime(2026, 7, 29, 9),
+        end: DateTime(2026, 7, 29, 10),
+        location: '',
+        notes: '',
+        remindBeforeMinutes: 10,
+      );
+
+      store.createNoteFolder('重要資料');
+      store.upsertNote(note);
+      store.upsertSchedule(schedule);
+      await store.flushPersistence();
+
+      final prefs = await SharedPreferences.getInstance();
+      final journal =
+          jsonDecode(prefs.getString('my_note_local_v1_change_journal')!)
+              as List;
+      final actions = journal
+          .whereType<Map>()
+          .map((entry) => entry['action']?.toString())
+          .toList();
+      final reloaded = await AppStore.load();
+
+      try {
+        expect(actions.first, contains('schedule.upsert'));
+        expect(actions, contains('folder.create:重要資料'));
+        expect(
+          actions.any((action) => action?.contains('note.upsert') ?? false),
+          isTrue,
+        );
+        expect(reloaded.noteFolders, contains('重要資料'));
+        expect(reloaded.notes.single.title, '立即保存筆記');
+        expect(reloaded.schedules.single.title, '立即保存行程');
+        final primary =
+            jsonDecode(prefs.getString('my_note_local_v1')!)
+                as Map<String, dynamic>;
+        final persistence = primary['_persistence'] as Map<String, dynamic>;
+        expect(persistence['revision'], 3);
+      } finally {
+        reloaded.dispose();
+        store.dispose();
+      }
+    },
+  );
+
+  test(
+    'a newer intentionally empty revision does not restore old content',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final store = await AppStore.load();
+
+      store.createNoteFolder('稍後刪除');
+      store.deleteNoteFolder('稍後刪除');
+      await store.flushPersistence();
+
+      final reloaded = await AppStore.load();
+      final prefs = await SharedPreferences.getInstance();
+      try {
+        expect(reloaded.noteFolders, isEmpty);
+        final primary =
+            jsonDecode(prefs.getString('my_note_local_v1')!)
+                as Map<String, dynamic>;
+        final persistence = primary['_persistence'] as Map<String, dynamic>;
+        expect(persistence['revision'], 2);
+        expect(persistence['action'], 'folder.delete:稍後刪除');
+      } finally {
+        reloaded.dispose();
+        store.dispose();
+      }
+    },
+  );
+
+  test('legacy backup timestamp can outrank an older valid primary', () async {
+    Map<String, dynamic> state(String folder) => {
+      'notes': [],
+      'schedules': [],
+      'subscriptions': [],
+      'financeEntries': [],
+      'savingsAccounts': [],
+      'todos': [],
+      'noteFolders': [folder],
+    };
+
+    final primaryRaw = jsonEncode(state('舊主資料'));
+    final newerHistoryRaw = jsonEncode(state('稍後新增的資料夾'));
+    SharedPreferences.setMockInitialValues({
+      'my_note_local_v1': primaryRaw,
+      'my_note_local_v1_backup_history': jsonEncode([
+        {
+          'savedAt': DateTime(2026, 7, 28, 11).toIso8601String(),
+          'raw': newerHistoryRaw,
+        },
+      ]),
+    });
+
+    final store = await AppStore.load();
+    try {
+      expect(store.noteFolders, ['稍後新增的資料夾']);
+    } finally {
+      store.dispose();
+    }
+  });
 
   test('folder names are limited by fullwidth and halfwidth length', () {
     expect(

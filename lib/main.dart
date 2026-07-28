@@ -113,15 +113,43 @@ Future<void> _initializeFirebaseIfConfigured() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 }
 
-class MyNoteApp extends StatelessWidget {
+class MyNoteApp extends StatefulWidget {
   const MyNoteApp({super.key, required this.store});
 
   final AppStore store;
 
   @override
+  State<MyNoteApp> createState() => _MyNoteAppState();
+}
+
+class _MyNoteAppState extends State<MyNoteApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      unawaited(widget.store.flushPersistence());
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(widget.store.flushPersistence());
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AppStoreScope(
-      store: store,
+      store: widget.store,
       child: ShadApp.custom(
         theme: ShadThemeData(
           brightness: Brightness.light,
@@ -461,6 +489,20 @@ class TodoItem {
   int sortOrder;
 }
 
+class _StoredSnapshot {
+  const _StoredSnapshot({
+    required this.raw,
+    required this.source,
+    required this.priority,
+    this.savedAt,
+  });
+
+  final String raw;
+  final String source;
+  final int priority;
+  final DateTime? savedAt;
+}
+
 class AppStore extends ChangeNotifier {
   AppStore._({
     required this.notes,
@@ -476,8 +518,14 @@ class AppStore extends ChangeNotifier {
     required this.hiddenHomeSections,
     required this.hiddenUpcomingItems,
     required this.homeSectionStyles,
+    int persistenceRevision = 0,
+    DateTime? lastChangedAt,
+    String lastChangeAction = 'load',
     bool persistenceLocked = false,
   }) {
+    _persistenceRevision = persistenceRevision;
+    _lastChangedAt = lastChangedAt;
+    _lastChangeAction = lastChangeAction;
     _persistenceLocked = persistenceLocked;
     _syncNoteFolders();
     _removeLegacySeedTodos();
@@ -519,7 +567,11 @@ class AppStore extends ChangeNotifier {
   static const String _backupHistoryStorageKey =
       'my_note_local_v1_backup_history';
   static const String _recoveryStorageKey = 'my_note_local_v1_recovery';
+  static const String _checkpointStorageKey = 'my_note_local_v1_checkpoint';
+  static const String _changeJournalStorageKey =
+      'my_note_local_v1_change_journal';
   static const int _maxBackupSnapshots = 12;
+  static const int _maxChangeJournalEntries = 200;
 
   void _removeLegacySeedTodos() {
     const legacySeedTodoTitles = {'讀書計畫', '完成筆記模板整理', '設定 Firebase 專案'};
@@ -532,50 +584,167 @@ class AppStore extends ChangeNotifier {
 
   static Future<AppStore> load() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_storageKey);
-    if (raw == null) {
-      final recovered = await _recoverFromBackups(prefs);
-      if (recovered != null) {
-        return recovered;
+    final primaryRaw = prefs.getString(_storageKey);
+    final candidates = _readStoredSnapshots(prefs);
+    _StoredSnapshot? selectedSnapshot;
+    AppStore? selectedStore;
+
+    for (final candidate in candidates) {
+      if (_rawIsLegacySeedSnapshot(candidate.raw)) {
+        continue;
+      }
+      final loaded = _tryLoadFromRaw(candidate.raw);
+      if (loaded == null) {
+        continue;
+      }
+      final isPrimaryOrCheckpoint =
+          candidate.source == 'primary' || candidate.source == 'checkpoint';
+      if (!isPrimaryOrCheckpoint &&
+          !_rawHasRecoverableUserContent(candidate.raw)) {
+        continue;
+      }
+      if (selectedSnapshot == null ||
+          _isSnapshotNewer(candidate, selectedSnapshot)) {
+        selectedSnapshot = candidate;
+        selectedStore = loaded;
+      }
+    }
+
+    if (selectedSnapshot == null || selectedStore == null) {
+      if (primaryRaw != null) {
+        await prefs.setString(_recoveryStorageKey, primaryRaw);
+        return AppStore.seeded(persistenceLocked: true);
       }
       return AppStore.seeded();
     }
-    final loaded = _tryLoadFromRaw(raw);
-    if (loaded != null) {
-      if (_rawIsLegacySeedSnapshot(raw)) {
-        await prefs.setString(_recoveryStorageKey, raw);
-        return AppStore.seeded();
-      }
-      final migratedRaw = jsonEncode(loaded.toJson());
-      if (migratedRaw != raw) {
-        await _writeBackupSnapshot(prefs, raw);
-        await prefs.setString(_storageKey, migratedRaw);
-        await _writeBackupSnapshot(prefs, migratedRaw);
-      }
-      return loaded;
-    }
 
-    await prefs.setString(_recoveryStorageKey, raw);
-    final recovered = await _recoverFromBackups(prefs);
-    if (recovered != null) {
-      return recovered;
+    final migratedRaw = jsonEncode(selectedStore.toJson());
+    if (primaryRaw != null &&
+        primaryRaw != migratedRaw &&
+        _rawHasRecoverableUserContent(primaryRaw)) {
+      await _writeBackupSnapshot(prefs, primaryRaw);
     }
-    return AppStore.seeded(persistenceLocked: true);
+    await prefs.setString(_checkpointStorageKey, migratedRaw);
+    await prefs.setString(_storageKey, migratedRaw);
+    await _writeBackupSnapshot(prefs, migratedRaw);
+    return selectedStore;
   }
 
-  static Future<AppStore?> _recoverFromBackups(SharedPreferences prefs) async {
-    for (final snapshot in _readBackupSnapshots(prefs)) {
-      final recovered = _tryLoadFromRaw(snapshot);
-      if (recovered == null || !_rawHasRecoverableUserContent(snapshot)) {
-        continue;
-      }
-      final migratedSnapshot = jsonEncode(recovered.toJson());
-      await _writeBackupSnapshot(prefs, snapshot);
-      await prefs.setString(_storageKey, migratedSnapshot);
-      await _writeBackupSnapshot(prefs, migratedSnapshot);
-      return recovered;
+  static bool _isSnapshotNewer(
+    _StoredSnapshot candidate,
+    _StoredSnapshot current,
+  ) {
+    final candidateRevision = _rawRevision(candidate.raw);
+    final currentRevision = _rawRevision(current.raw);
+    if (candidateRevision != currentRevision) {
+      return candidateRevision > currentRevision;
     }
-    return null;
+    if (candidateRevision == 0) {
+      final candidateScore = _rawContentScore(candidate.raw);
+      final currentScore = _rawContentScore(current.raw);
+      if (candidateScore != currentScore) {
+        return candidateScore > currentScore;
+      }
+    }
+    final candidateTime =
+        _rawChangedAt(candidate.raw) ??
+        candidate.savedAt ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+    final currentTime =
+        _rawChangedAt(current.raw) ??
+        current.savedAt ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+    final timeOrder = candidateTime.compareTo(currentTime);
+    if (timeOrder != 0) {
+      return timeOrder > 0;
+    }
+    return candidate.priority > current.priority;
+  }
+
+  static int _rawContentScore(String raw) {
+    try {
+      final data = jsonDecode(raw);
+      if (data is! Map) {
+        return 0;
+      }
+      var score = 0;
+      for (final key in const [
+        'notes',
+        'schedules',
+        'subscriptions',
+        'financeEntries',
+        'savingsAccounts',
+        'todos',
+        'noteFolders',
+      ]) {
+        final value = data[key];
+        if (value is List) {
+          score += value.length;
+        }
+      }
+      return score;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  static List<_StoredSnapshot> _readStoredSnapshots(SharedPreferences prefs) {
+    final snapshots = <_StoredSnapshot>[];
+
+    void add(
+      String? raw, {
+      required String source,
+      required int priority,
+      DateTime? savedAt,
+    }) {
+      if (raw == null || raw.isEmpty) {
+        return;
+      }
+      snapshots.add(
+        _StoredSnapshot(
+          raw: raw,
+          source: source,
+          priority: priority,
+          savedAt: savedAt,
+        ),
+      );
+    }
+
+    add(
+      prefs.getString(_checkpointStorageKey),
+      source: 'checkpoint',
+      priority: 4,
+    );
+    add(prefs.getString(_storageKey), source: 'primary', priority: 3);
+    add(
+      prefs.getString(_backupStorageKey),
+      source: 'latestBackup',
+      priority: 2,
+    );
+
+    final rawHistory = prefs.getString(_backupHistoryStorageKey);
+    if (rawHistory != null) {
+      try {
+        final decoded = jsonDecode(rawHistory);
+        if (decoded is List) {
+          for (final item in decoded) {
+            if (item is Map && item['raw'] is String) {
+              add(
+                item['raw'] as String,
+                source: 'backupHistory',
+                priority: 1,
+                savedAt: DateTime.tryParse(item['savedAt']?.toString() ?? ''),
+              );
+            } else if (item is String) {
+              add(item, source: 'backupHistory', priority: 1);
+            }
+          }
+        }
+      } catch (_) {
+        // Keep the independently stored primary and checkpoint candidates.
+      }
+    }
+    return snapshots;
   }
 
   static List<String> _readBackupSnapshots(SharedPreferences prefs) {
@@ -615,6 +784,11 @@ class AppStore extends ChangeNotifier {
       return;
     }
     await prefs.setString(_backupStorageKey, raw);
+    final snapshotLimit = raw.length >= 1024 * 1024
+        ? 2
+        : raw.length >= 256 * 1024
+        ? 4
+        : _maxBackupSnapshots;
     final history = <Map<String, dynamic>>[
       {'savedAt': DateTime.now().toIso8601String(), 'raw': raw},
     ];
@@ -626,7 +800,7 @@ class AppStore extends ChangeNotifier {
         'savedAt': DateTime.now().toIso8601String(),
         'raw': snapshot,
       });
-      if (history.length >= _maxBackupSnapshots) {
+      if (history.length >= snapshotLimit) {
         break;
       }
     }
@@ -636,6 +810,10 @@ class AppStore extends ChangeNotifier {
   static AppStore? _tryLoadFromRaw(String raw) {
     try {
       final data = jsonDecode(raw) as Map<String, dynamic>;
+      final persistence = data['_persistence'];
+      final persistenceData = persistence is Map
+          ? Map<String, dynamic>.from(persistence)
+          : const <String, dynamic>{};
       return AppStore._(
         notes: listOf(data['notes'], noteFromJson),
         schedules: listOf(data['schedules'], scheduleFromJson),
@@ -657,7 +835,46 @@ class AppStore extends ChangeNotifier {
           data['hiddenUpcomingItems'],
         ).toSet(),
         homeSectionStyles: readHomeSectionStyles(data['homeSectionStyles']),
+        persistenceRevision:
+            (persistenceData['revision'] as num?)?.toInt() ?? 0,
+        lastChangedAt: DateTime.tryParse(
+          persistenceData['changedAt']?.toString() ?? '',
+        ),
+        lastChangeAction:
+            persistenceData['action']?.toString() ?? 'legacy.load',
       );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static int _rawRevision(String raw) {
+    try {
+      final data = jsonDecode(raw);
+      if (data is! Map) {
+        return 0;
+      }
+      final persistence = data['_persistence'];
+      if (persistence is! Map) {
+        return 0;
+      }
+      return (persistence['revision'] as num?)?.toInt() ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  static DateTime? _rawChangedAt(String raw) {
+    try {
+      final data = jsonDecode(raw);
+      if (data is! Map) {
+        return null;
+      }
+      final persistence = data['_persistence'];
+      if (persistence is! Map) {
+        return null;
+      }
+      return DateTime.tryParse(persistence['changedAt']?.toString() ?? '');
     } catch (_) {
       return null;
     }
@@ -677,9 +894,12 @@ class AppStore extends ChangeNotifier {
   final Map<HomeSectionId, HomeSectionStyle> homeSectionStyles;
   double monthlyBudget;
   int _nextId = 100;
-  Timer? _saveDebounce;
+  Future<void> _persistenceQueue = Future<void>.value();
   Timer? _todoCleanupTimer;
   bool _persistenceLocked = false;
+  int _persistenceRevision = 0;
+  DateTime? _lastChangedAt;
+  String _lastChangeAction = 'load';
 
   String newId(String prefix) => '$prefix${_nextId++}';
 
@@ -725,35 +945,109 @@ class AppStore extends ChangeNotifier {
         for (final entry in homeSectionStyles.entries)
           entry.key.name: entry.value.name,
       },
+      '_persistence': {
+        'revision': _persistenceRevision,
+        'changedAt': _lastChangedAt?.toIso8601String(),
+        'action': _lastChangeAction,
+      },
     };
   }
 
-  Future<void> _save() async {
+  Future<void> _persistSnapshot({
+    required String raw,
+    required String action,
+    required int revision,
+    required DateTime changedAt,
+  }) async {
     if (_persistenceLocked) {
       return;
     }
     final prefs = await SharedPreferences.getInstance();
     final currentRaw = prefs.getString(_storageKey);
-    final nextRaw = jsonEncode(toJson());
-    if (_storeHasNoUserContent(toJson()) &&
+    await prefs.setString(_checkpointStorageKey, raw);
+    await _appendChangeJournal(
+      prefs,
+      raw: raw,
+      action: action,
+      revision: revision,
+      changedAt: changedAt,
+    );
+    if (currentRaw != null &&
+        currentRaw != raw &&
         _rawHasRecoverableUserContent(currentRaw)) {
-      if (currentRaw != null) {
-        await _writeBackupSnapshot(prefs, currentRaw);
-      }
-      return;
-    }
-    if (currentRaw != null && _rawHasRecoverableUserContent(currentRaw)) {
       await _writeBackupSnapshot(prefs, currentRaw);
     }
-    await prefs.setString(_storageKey, nextRaw);
-    await _writeBackupSnapshot(prefs, nextRaw);
+    await prefs.setString(_storageKey, raw);
+    await _writeBackupSnapshot(prefs, raw);
   }
 
-  void _commit() {
-    notifyListeners();
-    _saveDebounce?.cancel();
-    _saveDebounce = Timer(const Duration(milliseconds: 100), _save);
+  static Future<void> _appendChangeJournal(
+    SharedPreferences prefs, {
+    required String raw,
+    required String action,
+    required int revision,
+    required DateTime changedAt,
+  }) async {
+    final entries = <Map<String, dynamic>>[];
+    final existingRaw = prefs.getString(_changeJournalStorageKey);
+    if (existingRaw != null) {
+      try {
+        final decoded = jsonDecode(existingRaw);
+        if (decoded is List) {
+          entries.addAll(
+            decoded.whereType<Map>().map(
+              (item) => Map<String, dynamic>.from(item),
+            ),
+          );
+        }
+      } catch (_) {
+        // A damaged journal must never block the state checkpoint.
+      }
+    }
+    final data = jsonDecode(raw) as Map<String, dynamic>;
+    entries.insert(0, {
+      'revision': revision,
+      'changedAt': changedAt.toIso8601String(),
+      'action': action,
+      'counts': {
+        'notes': (data['notes'] as List?)?.length ?? 0,
+        'folders': (data['noteFolders'] as List?)?.length ?? 0,
+        'schedules': (data['schedules'] as List?)?.length ?? 0,
+        'todos': (data['todos'] as List?)?.length ?? 0,
+        'subscriptions': (data['subscriptions'] as List?)?.length ?? 0,
+        'financeEntries': (data['financeEntries'] as List?)?.length ?? 0,
+        'savingsAccounts': (data['savingsAccounts'] as List?)?.length ?? 0,
+      },
+    });
+    if (entries.length > _maxChangeJournalEntries) {
+      entries.removeRange(_maxChangeJournalEntries, entries.length);
+    }
+    await prefs.setString(_changeJournalStorageKey, jsonEncode(entries));
   }
+
+  void _commit([String action = 'state.update']) {
+    _persistenceRevision++;
+    _lastChangedAt = DateTime.now();
+    _lastChangeAction = action;
+    final raw = jsonEncode(toJson());
+    final revision = _persistenceRevision;
+    final changedAt = _lastChangedAt!;
+    notifyListeners();
+    _persistenceQueue = _persistenceQueue
+        .catchError((_) {
+          // A prior failed write must not prevent later checkpoints.
+        })
+        .then(
+          (_) => _persistSnapshot(
+            raw: raw,
+            action: action,
+            revision: revision,
+            changedAt: changedAt,
+          ),
+        );
+  }
+
+  Future<void> flushPersistence() => _persistenceQueue;
 
   void _scheduleCompletedTodoCleanup() {
     _todoCleanupTimer?.cancel();
@@ -778,7 +1072,7 @@ class AppStore extends ChangeNotifier {
     if (before != todos.length) {
       _normalizeTodoOrder();
       if (notify) {
-        _commit();
+        _commit('todo.cleanup.completed');
       }
     }
   }
@@ -793,9 +1087,8 @@ class AppStore extends ChangeNotifier {
 
   @override
   void dispose() {
-    _saveDebounce?.cancel();
     _todoCleanupTimer?.cancel();
-    _save();
+    unawaited(flushPersistence());
     super.dispose();
   }
 
@@ -924,7 +1217,7 @@ class AppStore extends ChangeNotifier {
     } else {
       notes.add(note);
     }
-    _commit();
+    _commit('note.upsert:${note.id}');
   }
 
   void createNoteFolder(String name, {bool notify = true}) {
@@ -935,7 +1228,7 @@ class AppStore extends ChangeNotifier {
     if (!noteFolders.contains(folder)) {
       noteFolders.add(folder);
       if (notify) {
-        _commit();
+        _commit('folder.create:$folder');
       }
     }
   }
@@ -946,7 +1239,7 @@ class AppStore extends ChangeNotifier {
       note.deletedAt = now;
       note.updatedAt = now;
     }
-    _commit();
+    _commit('note.trash:${ids.join(',')}');
   }
 
   void restoreNotesById(Set<String> ids) {
@@ -958,14 +1251,14 @@ class AppStore extends ChangeNotifier {
         createNoteFolder(note.category, notify: false);
       }
     }
-    _commit();
+    _commit('note.restore:${ids.join(',')}');
   }
 
   void permanentlyDeleteNotesById(Set<String> ids) {
     notes.removeWhere(
       (item) => ids.contains(item.id) && item.deletedAt != null,
     );
-    _commit();
+    _commit('note.delete.permanent:${ids.join(',')}');
   }
 
   void moveNotesToFolder(Set<String> ids, String folder) {
@@ -977,7 +1270,7 @@ class AppStore extends ChangeNotifier {
       note.category = target;
       note.updatedAt = DateTime.now();
     }
-    _commit();
+    _commit('note.move:${ids.join(',')}:$target');
   }
 
   void moveNoteToFolder(NoteItem note, String folder) {
@@ -991,7 +1284,7 @@ class AppStore extends ChangeNotifier {
     }
     note.title = value;
     note.updatedAt = DateTime.now();
-    _commit();
+    _commit('note.rename:${note.id}:$value');
   }
 
   void renameNoteFolder(String oldName, String newName) {
@@ -1025,7 +1318,7 @@ class AppStore extends ChangeNotifier {
     noteFolders
       ..clear()
       ..addAll(unique);
-    _commit();
+    _commit('folder.rename:$oldPath:$newPath');
   }
 
   void moveNoteFolder(String oldName, String targetParent) {
@@ -1060,7 +1353,7 @@ class AppStore extends ChangeNotifier {
     noteFolders
       ..clear()
       ..addAll(unique);
-    _commit();
+    _commit('folder.move:$oldPath:$newPath');
   }
 
   void deleteNoteFolder(String folder) {
@@ -1076,7 +1369,7 @@ class AppStore extends ChangeNotifier {
       note.updatedAt = now;
     }
     noteFolders.removeWhere((folder) => folderContains(path, folder));
-    _commit();
+    _commit('folder.delete:$path');
   }
 
   void _syncNoteFolders() {
@@ -1101,18 +1394,18 @@ class AppStore extends ChangeNotifier {
   void toggleNotePinned(NoteItem note) {
     note.isPinned = !note.isPinned;
     note.updatedAt = DateTime.now();
-    _commit();
+    _commit('note.pin:${note.id}:${note.isPinned}');
   }
 
   void deleteNote(NoteItem note) {
     note.deletedAt = DateTime.now();
     note.updatedAt = DateTime.now();
-    _commit();
+    _commit('note.trash:${note.id}');
   }
 
   void clearTrashNotes() {
     notes.removeWhere((item) => item.deletedAt != null);
-    _commit();
+    _commit('note.trash.clear');
   }
 
   void upsertSchedule(ScheduleItem item) {
@@ -1122,12 +1415,12 @@ class AppStore extends ChangeNotifier {
     } else {
       schedules.add(item);
     }
-    _commit();
+    _commit('schedule.upsert:${item.id}:${item.title}');
   }
 
   void deleteSchedule(ScheduleItem item) {
     schedules.removeWhere((schedule) => schedule.id == item.id);
-    _commit();
+    _commit('schedule.delete:${item.id}:${item.title}');
   }
 
   void upsertSubscription(SubscriptionItem item) {
@@ -1137,12 +1430,12 @@ class AppStore extends ChangeNotifier {
     } else {
       subscriptions.add(item);
     }
-    _commit();
+    _commit('subscription.upsert:${item.id}:${item.name}');
   }
 
   void deleteSubscription(SubscriptionItem item) {
     subscriptions.removeWhere((sub) => sub.id == item.id);
-    _commit();
+    _commit('subscription.delete:${item.id}:${item.name}');
   }
 
   void upsertFinanceEntry(FinanceEntry item) {
@@ -1152,12 +1445,12 @@ class AppStore extends ChangeNotifier {
     } else {
       financeEntries.add(item);
     }
-    _commit();
+    _commit('finance.upsert:${item.id}');
   }
 
   void deleteFinanceEntry(FinanceEntry item) {
     financeEntries.removeWhere((entry) => entry.id == item.id);
-    _commit();
+    _commit('finance.delete:${item.id}');
   }
 
   void upsertSavingsAccount(SavingsAccount account) {
@@ -1167,12 +1460,12 @@ class AppStore extends ChangeNotifier {
     } else {
       savingsAccounts.add(account);
     }
-    _commit();
+    _commit('savings.upsert:${account.id}:${account.name}');
   }
 
   void deleteSavingsAccount(SavingsAccount account) {
     savingsAccounts.removeWhere((item) => item.id == account.id);
-    _commit();
+    _commit('savings.delete:${account.id}:${account.name}');
   }
 
   void toggleTodo(TodoItem todo) {
@@ -1181,7 +1474,7 @@ class AppStore extends ChangeNotifier {
     if (!todo.done) {
       todo.sortOrder = _nextActiveTodoSortOrder();
     }
-    _commit();
+    _commit('todo.toggle:${todo.id}:${todo.done}');
   }
 
   void upsertTodo(TodoItem todo) {
@@ -1194,7 +1487,7 @@ class AppStore extends ChangeNotifier {
     } else {
       todos.add(todo);
     }
-    _commit();
+    _commit('todo.upsert:${todo.id}:${todo.title}');
   }
 
   int _nextActiveTodoSortOrder() {
@@ -1216,7 +1509,7 @@ class AppStore extends ChangeNotifier {
     for (var index = 0; index < active.length; index++) {
       active[index].sortOrder = (index + 1) * 1000;
     }
-    _commit();
+    _commit('todo.reorder');
   }
 
   void addTodo(
@@ -1238,17 +1531,17 @@ class AppStore extends ChangeNotifier {
         sortOrder: _nextActiveTodoSortOrder(),
       ),
     );
-    _commit();
+    _commit('todo.add:${todos.last.id}:${todos.last.title}');
   }
 
   void deleteTodo(TodoItem todo) {
     todos.removeWhere((item) => item.id == todo.id);
-    _commit();
+    _commit('todo.delete:${todo.id}:${todo.title}');
   }
 
   void updateBudget(double value) {
     monthlyBudget = value;
-    _commit();
+    _commit('budget.update:$value');
   }
 
   void toggleHomeSection(HomeSectionId section) {
@@ -1257,7 +1550,7 @@ class AppStore extends ChangeNotifier {
     } else {
       collapsedHomeSections.add(section);
     }
-    _commit();
+    _commit('home.section.collapse:${section.name}');
   }
 
   void moveHomeSection(HomeSectionId section, int delta) {
@@ -1269,7 +1562,7 @@ class AppStore extends ChangeNotifier {
     homeSectionOrder
       ..removeAt(index)
       ..insert(target, section);
-    _commit();
+    _commit('home.section.move:${section.name}:$delta');
   }
 
   void reorderHomeSections(int oldIndex, int newIndex) {
@@ -1285,7 +1578,7 @@ class AppStore extends ChangeNotifier {
     }
     final section = homeSectionOrder.removeAt(oldIndex);
     homeSectionOrder.insert(newIndex, section);
-    _commit();
+    _commit('home.section.reorder');
   }
 
   void toggleHomeSectionVisible(HomeSectionId section) {
@@ -1294,7 +1587,7 @@ class AppStore extends ChangeNotifier {
     } else {
       hiddenHomeSections.add(section);
     }
-    _commit();
+    _commit('home.section.visible:${section.name}');
   }
 
   void setUpcomingItemHidden(String key, bool hidden) {
@@ -1303,12 +1596,12 @@ class AppStore extends ChangeNotifier {
     } else {
       hiddenUpcomingItems.remove(key);
     }
-    _commit();
+    _commit('home.upcoming.hidden:$key:$hidden');
   }
 
   void setHomeSectionStyle(HomeSectionId section, HomeSectionStyle style) {
     homeSectionStyles[section] = style;
-    _commit();
+    _commit('home.section.style:${section.name}:${style.name}');
   }
 }
 
@@ -2038,6 +2331,7 @@ class _AppShellState extends State<AppShell> {
   static const int homeIndex = 2;
 
   final notesPageKey = GlobalKey<_NotesPageState>();
+  final calendarPageKey = GlobalKey<_CalendarPageState>();
   final homePageKey = GlobalKey<_HomePageState>();
   int selectedIndex = homeIndex;
 
@@ -2061,6 +2355,19 @@ class _AppShellState extends State<AppShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) => applyLocation());
   }
 
+  void openCalendarDailySchedule(DateTime date) {
+    void applyDate() {
+      calendarPageKey.currentState?.openDailySchedule(date);
+    }
+
+    if (selectedIndex == 1 && calendarPageKey.currentState != null) {
+      applyDate();
+      return;
+    }
+    setState(() => selectedIndex = 1);
+    WidgetsBinding.instance.addPostFrameCallback((_) => applyDate());
+  }
+
   Future<void> handleSystemBack() async {
     if (selectedIndex == 0 &&
         (notesPageKey.currentState?.handleAppBack() ?? false)) {
@@ -2076,6 +2383,7 @@ class _AppShellState extends State<AppShell> {
     }
     final shouldExit = await showExitConfirmDialog(context);
     if (shouldExit && mounted) {
+      await AppStoreScope.read(context).flushPersistence();
       SystemNavigator.pop();
     }
   }
@@ -2084,7 +2392,7 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     final pages = [
       NotesPage(key: notesPageKey),
-      const CalendarPage(),
+      CalendarPage(key: calendarPageKey),
       HomePage(key: homePageKey, onNavigate: selectPage),
       const FinancePage(),
       const SettingsPage(),
@@ -2093,6 +2401,7 @@ class _AppShellState extends State<AppShell> {
     return AppNavigationScope(
       onNavigate: selectPage,
       onOpenNotesLocation: openNotesLocation,
+      onOpenCalendarDailySchedule: openCalendarDailySchedule,
       child: PopScope(
         canPop: false,
         onPopInvokedWithResult: (didPop, result) {
@@ -2117,11 +2426,13 @@ class AppNavigationScope extends InheritedWidget {
     super.key,
     required this.onNavigate,
     required this.onOpenNotesLocation,
+    required this.onOpenCalendarDailySchedule,
     required super.child,
   });
 
   final ValueChanged<int> onNavigate;
   final void Function(String folder, {bool showTrash}) onOpenNotesLocation;
+  final ValueChanged<DateTime> onOpenCalendarDailySchedule;
 
   static AppNavigationScope? maybeOf(BuildContext context) {
     return context.dependOnInheritedWidgetOfExactType<AppNavigationScope>();
@@ -2549,7 +2860,12 @@ Widget homeSectionAction(
   return switch (section) {
     HomeSectionId.metrics => const SizedBox.shrink(),
     HomeSectionId.schedule => TextButton.icon(
-      onPressed: () => onNavigate(1),
+      onPressed: () {
+        final store = AppStoreScope.read(context);
+        AppNavigationScope.maybeOf(
+          context,
+        )?.onOpenCalendarDailySchedule(homeScheduleTargetDate(store));
+      },
       icon: const Icon(Icons.chevron_right),
       label: const Text('查看'),
     ),
@@ -2569,6 +2885,17 @@ Widget homeSectionAction(
       icon: const Icon(Icons.add_task),
     ),
   };
+}
+
+DateTime homeScheduleTargetDate(AppStore store) {
+  final now = DateTime.now();
+  final hasTodayEvent = store.schedules.any(
+    (event) => isSameDate(event.start, now),
+  );
+  if (hasTodayEvent) {
+    return now;
+  }
+  return store.upcomingSchedules.firstOrNull?.start ?? now;
 }
 
 Widget buildHomeSectionContent(
@@ -2665,6 +2992,9 @@ class ScheduleHomeSection extends StatelessWidget {
                 title: event.title,
                 subtitle:
                     '$eventLabel\n${formatTime(event.start)} - ${formatTime(event.end)}',
+                onTap: () => AppNavigationScope.maybeOf(
+                  context,
+                )?.onOpenCalendarDailySchedule(event.start),
               ),
             ),
         ],
@@ -2690,6 +3020,9 @@ class ScheduleHomeSection extends StatelessWidget {
               subtitle: Text(
                 '${formatTime(event.start)} - ${formatTime(event.end)}  ${event.location}',
               ),
+              onTap: () => AppNavigationScope.maybeOf(
+                context,
+              )?.onOpenCalendarDailySchedule(event.start),
             ),
         ],
       ),
@@ -5512,6 +5845,16 @@ class _CalendarPageState extends State<CalendarPage> {
       lastExplicitlySelectedDate = date;
       reserveDailyScheduleScrollSpace = false;
     });
+  }
+
+  void openDailySchedule(DateTime date) {
+    setState(() {
+      mode = CalendarViewMode.month;
+      selectedDate = DateTime(date.year, date.month, date.day);
+      lastExplicitlySelectedDate = selectedDate;
+      reserveDailyScheduleScrollSpace = true;
+    });
+    scrollToDailySchedule();
   }
 
   void scrollToDailySchedule() {
@@ -8729,15 +9072,22 @@ class WeekStrip extends StatelessWidget {
               onTap: () => onDateSelected(date),
               borderRadius: BorderRadius.circular(6),
               child: Container(
+                key: ValueKey(
+                  'calendar-week-day-${date.year}-${date.month}-${date.day}',
+                ),
                 height: 96,
                 margin: EdgeInsets.only(right: index == 6 ? 0 : 2),
                 padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 6),
                 decoration: BoxDecoration(
-                  color: selected
-                      ? Theme.of(context).colorScheme.primary
-                      : isToday
+                  color: isToday && !selected
                       ? Theme.of(context).colorScheme.primaryContainer
                       : const Color(0xfff1f3ef),
+                  border: Border.all(
+                    color: selected
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.transparent,
+                    width: selected ? 2 : 1,
+                  ),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Column(
@@ -8746,7 +9096,7 @@ class WeekStrip extends StatelessWidget {
                       weekdayLabel(date.weekday),
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: selected
-                            ? Theme.of(context).colorScheme.onPrimary
+                            ? Theme.of(context).colorScheme.primary
                             : null,
                         fontWeight: FontWeight.w700,
                       ),
@@ -8757,7 +9107,7 @@ class WeekStrip extends StatelessWidget {
                         fontSize: 12,
                         fontWeight: FontWeight.w800,
                         color: selected
-                            ? Theme.of(context).colorScheme.onPrimary
+                            ? Theme.of(context).colorScheme.primary
                             : null,
                       ),
                     ),
@@ -8773,7 +9123,7 @@ class WeekStrip extends StatelessWidget {
                               fontSize: 9,
                               height: 1.15,
                               color: selected
-                                  ? Theme.of(context).colorScheme.onPrimary
+                                  ? Theme.of(context).colorScheme.primary
                                   : null,
                             ),
                           ),

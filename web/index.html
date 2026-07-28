@@ -1,6 +1,16 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <script>
+    (() => {
+      const loopbackHosts = new Set(["127.0.0.1", "[::1]"]);
+      if (loopbackHosts.has(window.location.hostname)) {
+        const canonicalUrl = new URL(window.location.href);
+        canonicalUrl.hostname = "localhost";
+        window.location.replace(canonicalUrl.toString());
+      }
+    })();
+  </script>
   <!--
     If you are serving your web app in a path other than the root, change the
     href value below to reflect the base path you are serving from.
