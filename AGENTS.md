@@ -20,6 +20,15 @@ Priority order:
 
 Do not invent new product features when the backlog is complete. When all TODO items are complete, end the current run; check again at the next scheduled wake-up.
 
+## Backlog execution contract
+
+- `docs/grill_me_spec.md` and `docs/grill_me_backlog.md` are the durable Grill Me specification and execution queue. Read both during every autonomous run.
+- Creating, reconciling, or committing specification/backlog documents is setup work, not completion of a development run. If any safe `PLANNED`, `IN PROGRESS`, or `NEEDS VERIFICATION` item remains, continue in the same run and perform implementation or acceptance work on the highest-priority actionable item.
+- A documentation-only commit, successful fetch, clean analysis, repeated test run, or build does not satisfy the requirement to continue development while actionable backlog work remains.
+- Each run must name the selected backlog ID before work begins and update its status and evidence before ending. Do not claim that TODOs are empty unless every non-deferred backlog item is `DONE` with current acceptance evidence.
+- Continue through additional independent actionable items in the same wake-up while time and usage remain. End only for the explicit stop conditions in this file; completing one logical task by itself is not a stop condition.
+- Never describe changes that existed before the run as work completed by that run. Record the starting commit and starting working-tree state, then attribute only the new diff created during the run.
+
 ## Autonomous permissions and approval boundaries
 
 Codex may autonomously implement specified requirements, fix bugs and existing project errors, add or improve relevant tests, perform small or medium refactors, add free Flutter/Dart dependencies, remove verified dead code under the deletion safeguards below, improve the Log page, and create/commit/push task branches.
@@ -78,9 +87,9 @@ Do not claim success without recording the actual results in the Log. For the sa
 
 Every six hours:
 
-1. Read `D:\log\index.html`.
+1. Read `docs/grill_me_spec.md`, `docs/grill_me_backlog.md`, and `D:\log\index.html`.
 2. Run `git fetch` without discarding local work.
 3. Inspect working-tree changes and commits since the previous checkpoint to detect human edits; preserve and prioritize the newest explicit human direction.
-4. Continue the highest-priority safe unfinished task using the rules above.
+4. State the selected backlog ID, then continue the highest-priority safe unfinished task using the rules above. After setup/documentation work, immediately proceed to implementation or acceptance work in the same run.
 5. Update the Log with decisions, files changed, validation, commit/push status, X510 `PASS`/`FAIL`/`SKIPPED`, blockers, and the next task.
 6. End that run when TODOs are empty, a blocker or approval boundary prevents safe progress, no safe work remains, or usage is unavailable. Wake again six hours later unless the automation is explicitly disabled.
