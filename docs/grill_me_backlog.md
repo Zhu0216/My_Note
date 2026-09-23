@@ -117,13 +117,17 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-001 — Persist typed record links
 
-- Status: `IN PROGRESS`
+- Status: `DONE`
 - User-visible behavior: records retain links to notes, plans, mind maps, life
   projects, todos, schedules, finance entries, subscriptions, and accounts.
 - Acceptance: links round-trip through save/export/import and do not duplicate.
 - Dependencies: P0-005.
-- Evidence: `RelatedItemLink` exists in uncommitted schema code; source records
-  and persistence are not wired.
+- Evidence: notes, schedules, subscriptions, finance entries, accounts, and
+  todos now own deduplicated `RelatedItemLink` collections. Plan nodes,
+  mind-map nodes, and life-sheet items use the same normalization. Every link
+  serializes through local save/export/import, and import validation rejects
+  unknown, duplicate, or dangling targets. The focused round-trip test covers
+  all nine relationship types and every root record family.
 
 ### P1-002 — Common relationship picker and reverse links
 

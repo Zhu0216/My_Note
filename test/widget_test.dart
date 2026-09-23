@@ -259,6 +259,166 @@ void main() {
     );
   });
 
+  test(
+    'typed record links deduplicate and round-trip through export',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final source = AppStore.seeded(persistenceLocked: true);
+      final now = DateTime(2026, 9, 23, 9);
+      const noteLink = RelatedItemLink(
+        type: RelatedItemType.note,
+        targetId: 'note-general',
+      );
+      for (final note in <NoteItem>[
+        NoteItem(
+          id: 'note-general',
+          title: '筆記',
+          body: '',
+          category: '',
+          tags: const [],
+          createdAt: now,
+          updatedAt: now,
+          links: const [noteLink, noteLink],
+        ),
+        NoteItem(
+          id: 'note-plan',
+          title: '計畫',
+          body: '',
+          category: '',
+          tags: const [],
+          createdAt: now,
+          updatedAt: now,
+          templateType: NoteTemplateType.plan,
+        ),
+        NoteItem(
+          id: 'note-mind',
+          title: '心智圖',
+          body: '',
+          category: '',
+          tags: const [],
+          createdAt: now,
+          updatedAt: now,
+          templateType: NoteTemplateType.mindMap,
+        ),
+        NoteItem(
+          id: 'note-life',
+          title: '人生試算表',
+          body: '',
+          category: '',
+          tags: const [],
+          createdAt: now,
+          updatedAt: now,
+          templateType: NoteTemplateType.lifeSheet,
+        ),
+      ]) {
+        source.upsertNote(note);
+      }
+      source.upsertSchedule(
+        ScheduleItem(
+          id: 'schedule',
+          title: '行程',
+          start: now,
+          end: now.add(const Duration(hours: 1)),
+          location: '',
+          notes: '',
+          remindBeforeMinutes: 10,
+          links: const [noteLink],
+        ),
+      );
+      source.upsertSubscription(
+        SubscriptionItem(
+          id: 'subscription',
+          name: '訂閱',
+          amount: 100,
+          cycle: SubscriptionCycle.monthly,
+          nextPaymentDate: now,
+          paymentMethod: '',
+          category: '',
+          reminderDays: 3,
+          links: const [noteLink],
+        ),
+      );
+      source.upsertFinanceEntry(
+        FinanceEntry(
+          id: 'finance',
+          type: EntryType.expense,
+          title: '記帳',
+          amount: 10,
+          category: '',
+          account: 'account',
+          date: now,
+          note: '',
+          links: const [noteLink],
+        ),
+      );
+      source.upsertSavingsAccount(
+        SavingsAccount(
+          id: 'account',
+          name: '帳戶',
+          amount: 1000,
+          links: const [noteLink],
+        ),
+      );
+      source.upsertTodo(
+        TodoItem(
+          id: 'todo',
+          title: '待辦',
+          links: const [
+            noteLink,
+            RelatedItemLink(type: RelatedItemType.plan, targetId: 'note-plan'),
+            RelatedItemLink(
+              type: RelatedItemType.mindMap,
+              targetId: 'note-mind',
+            ),
+            RelatedItemLink(
+              type: RelatedItemType.lifeProject,
+              targetId: 'note-life',
+            ),
+            RelatedItemLink(type: RelatedItemType.todo, targetId: 'todo'),
+            RelatedItemLink(
+              type: RelatedItemType.schedule,
+              targetId: 'schedule',
+            ),
+            RelatedItemLink(type: RelatedItemType.finance, targetId: 'finance'),
+            RelatedItemLink(
+              type: RelatedItemType.subscription,
+              targetId: 'subscription',
+            ),
+            RelatedItemLink(type: RelatedItemType.account, targetId: 'account'),
+          ],
+        ),
+      );
+
+      final restored = AppStore.seeded(persistenceLocked: true);
+      await restored.importBundle(await source.exportBundle());
+
+      expect(
+        restored.notes.firstWhere((note) => note.id == 'note-general').links,
+        hasLength(1),
+      );
+      expect(restored.schedules.single.links.single.targetId, 'note-general');
+      expect(
+        restored.subscriptions.single.links.single.targetId,
+        'note-general',
+      );
+      expect(
+        restored.financeEntries.single.links.single.targetId,
+        'note-general',
+      );
+      expect(
+        restored.savingsAccounts.single.links.single.targetId,
+        'note-general',
+      );
+      expect(
+        restored.todos.single.links,
+        hasLength(RelatedItemType.values.length),
+      );
+
+      source.dispose();
+      restored.dispose();
+    },
+  );
+
   test('recovery history lists a valid snapshot and restores it', () async {
     SharedPreferences.setMockInitialValues({});
     final store = await AppStore.load();

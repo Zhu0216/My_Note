@@ -218,6 +218,7 @@ class LocalDataValidator {
     }
 
     for (final note in notes) {
+      _validateLinks(note['links'], referenceIds, '筆記');
       final templateData = note['templateData'];
       if (templateData == null) continue;
       if (templateData is! Map) {
@@ -237,6 +238,21 @@ class LocalDataValidator {
         default:
           _validateLinks(template['links'], referenceIds, '筆記');
       }
+    }
+    for (final schedule in _maps(data['schedules'])) {
+      _validateLinks(schedule['links'], referenceIds, '行程');
+    }
+    for (final subscription in _maps(data['subscriptions'])) {
+      _validateLinks(subscription['links'], referenceIds, '訂閱');
+    }
+    for (final entry in _maps(data['financeEntries'])) {
+      _validateLinks(entry['links'], referenceIds, '記帳');
+    }
+    for (final account in _maps(data['savingsAccounts'])) {
+      _validateLinks(account['links'], referenceIds, '帳戶');
+    }
+    for (final todo in _maps(data['todos'])) {
+      _validateLinks(todo['links'], referenceIds, '待辦');
     }
   }
 
@@ -288,8 +304,8 @@ class LocalDataValidator {
     Map<String, dynamic> template,
     Map<RelatedItemType, Set<String>> references,
   ) {
+    if (template['schema'] != MindMapDocument.schema) return;
     final nodes = _maps(template['nodes']);
-    if (nodes.isEmpty && template['schema'] != MindMapDocument.schema) return;
     final nodeById = _uniqueMaps(nodes, '心智圖節點');
     final rootId = _requiredId(template['rootNodeId'], '心智圖中心主題');
     if (!nodeById.containsKey(rootId)) {
@@ -319,6 +335,7 @@ class LocalDataValidator {
     Map<String, dynamic> template,
     Map<RelatedItemType, Set<String>> references,
   ) {
+    if (template['schema'] != LifeProjectDocument.schema) return;
     final items = _maps(template['items']);
     _uniqueMaps(items, '人生試算表項目');
     for (final item in items) {

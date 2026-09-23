@@ -33,6 +33,20 @@ class RelatedItemLink {
       );
 }
 
+List<RelatedItemLink> normalizeRelatedItemLinks(
+  Iterable<RelatedItemLink>? links,
+) {
+  final unique = <String, RelatedItemLink>{};
+  for (final link in links ?? const <RelatedItemLink>[]) {
+    if (link.targetId.trim().isEmpty) continue;
+    unique.putIfAbsent('${link.type.name}:${link.targetId}', () => link);
+  }
+  return unique.values.toList();
+}
+
+List<RelatedItemLink> readRelatedItemLinks(Object? value) =>
+    normalizeRelatedItemLinks(readMapList(value).map(RelatedItemLink.fromJson));
+
 enum PlanNodeType { phase, task }
 
 class PlanNode {
@@ -49,7 +63,7 @@ class PlanNode {
     this.linkedScheduleId,
     this.showOnHome = false,
     List<RelatedItemLink>? links,
-  }) : links = links ?? <RelatedItemLink>[];
+  }) : links = normalizeRelatedItemLinks(links);
 
   final String id;
   String title;
@@ -96,7 +110,7 @@ class PlanNode {
       linkedTodoId: readOptionalString(data['linkedTodoId']),
       linkedScheduleId: readOptionalString(data['linkedScheduleId']),
       showOnHome: data['showOnHome'] == true,
-      links: readMapList(data['links']).map(RelatedItemLink.fromJson).toList(),
+      links: readRelatedItemLinks(data['links']),
     );
   }
 }
@@ -185,7 +199,7 @@ class MindMapNode {
     this.expanded = true,
     this.locked = false,
     List<RelatedItemLink>? links,
-  }) : links = links ?? <RelatedItemLink>[];
+  }) : links = normalizeRelatedItemLinks(links);
 
   final String id;
   String title;
@@ -221,7 +235,7 @@ class MindMapNode {
     color: readString(data['color'], fallback: '#7C8B5F'),
     expanded: data['expanded'] != false,
     locked: data['locked'] == true,
-    links: readMapList(data['links']).map(RelatedItemLink.fromJson).toList(),
+    links: readRelatedItemLinks(data['links']),
   );
 }
 
@@ -335,7 +349,7 @@ class LifeProjectItem {
     List<String>? accountIds,
     List<RelatedItemLink>? links,
   }) : accountIds = accountIds ?? <String>[],
-       links = links ?? <RelatedItemLink>[];
+       links = normalizeRelatedItemLinks(links);
 
   final String id;
   String name;
@@ -385,7 +399,7 @@ class LifeProjectItem {
     weight: readDouble(data['weight'], fallback: 1).clamp(0.01, 1000),
     sortOrder: readInt(data['sortOrder'], fallback: fallbackOrder),
     accountIds: readStringList(data['accountIds']),
-    links: readMapList(data['links']).map(RelatedItemLink.fromJson).toList(),
+    links: readRelatedItemLinks(data['links']),
   );
 }
 

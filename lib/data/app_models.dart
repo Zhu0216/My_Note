@@ -50,11 +50,13 @@ class NoteItem {
     List<Map<String, dynamic>>? images,
     List<Map<String, dynamic>>? attachments,
     Map<String, dynamic>? background,
+    List<RelatedItemLink>? links,
   }) : templateData = templateData ?? defaultNoteTemplateData(templateType),
        style = style ?? defaultNoteStyle(),
        images = images ?? <Map<String, dynamic>>[],
        attachments = attachments ?? <Map<String, dynamic>>[],
-       background = background ?? defaultNoteBackground();
+       background = background ?? defaultNoteBackground(),
+       links = normalizeRelatedItemLinks(links);
 
   final String id;
   String title;
@@ -71,6 +73,7 @@ class NoteItem {
   List<Map<String, dynamic>> images;
   List<Map<String, dynamic>> attachments;
   Map<String, dynamic> background;
+  List<RelatedItemLink> links;
 }
 
 class ScheduleItem {
@@ -82,7 +85,8 @@ class ScheduleItem {
     required this.location,
     required this.notes,
     required this.remindBeforeMinutes,
-  });
+    List<RelatedItemLink>? links,
+  }) : links = normalizeRelatedItemLinks(links);
 
   final String id;
   String title;
@@ -91,6 +95,7 @@ class ScheduleItem {
   String location;
   String notes;
   int remindBeforeMinutes;
+  List<RelatedItemLink> links;
 }
 
 class SubscriptionItem {
@@ -104,7 +109,8 @@ class SubscriptionItem {
     required this.category,
     required this.reminderDays,
     this.isActive = true,
-  });
+    List<RelatedItemLink>? links,
+  }) : links = normalizeRelatedItemLinks(links);
 
   final String id;
   String name;
@@ -115,6 +121,7 @@ class SubscriptionItem {
   String category;
   int reminderDays;
   bool isActive;
+  List<RelatedItemLink> links;
 }
 
 class FinanceEntry {
@@ -127,7 +134,8 @@ class FinanceEntry {
     required this.account,
     required this.date,
     required this.note,
-  });
+    List<RelatedItemLink>? links,
+  }) : links = normalizeRelatedItemLinks(links);
 
   final String id;
   EntryType type;
@@ -137,16 +145,23 @@ class FinanceEntry {
   String account;
   DateTime date;
   String note;
+  List<RelatedItemLink> links;
 }
 
 /// Legacy name retained during migration. [amount] will become opening balance
 /// once finance accounts calculate their live balance from ledger entries.
 class SavingsAccount {
-  SavingsAccount({required this.id, required this.name, required this.amount});
+  SavingsAccount({
+    required this.id,
+    required this.name,
+    required this.amount,
+    List<RelatedItemLink>? links,
+  }) : links = normalizeRelatedItemLinks(links);
 
   final String id;
   String name;
   double amount;
+  List<RelatedItemLink> links;
 }
 
 class TodoItem {
@@ -159,7 +174,8 @@ class TodoItem {
     this.reminderTime,
     this.completedAt,
     this.sortOrder = 0,
-  });
+    List<RelatedItemLink>? links,
+  }) : links = normalizeRelatedItemLinks(links);
 
   final String id;
   String title;
@@ -169,4 +185,5 @@ class TodoItem {
   TimeOfDay? reminderTime;
   DateTime? completedAt;
   int sortOrder;
+  List<RelatedItemLink> links;
 }

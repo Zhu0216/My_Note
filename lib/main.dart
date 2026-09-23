@@ -1592,6 +1592,7 @@ Map<String, dynamic> noteToJson(NoteItem note) {
     'images': note.images,
     'attachments': note.attachments,
     'background': note.background,
+    'links': note.links.map((link) => link.toJson()).toList(),
   };
 }
 
@@ -1623,6 +1624,7 @@ NoteItem noteFromJson(Map<String, dynamic> data) {
       data['background'],
       fallback: defaultNoteBackground(),
     ),
+    links: readRelatedItemLinks(data['links']),
   );
 }
 
@@ -1635,6 +1637,7 @@ Map<String, dynamic> scheduleToJson(ScheduleItem item) {
     'location': item.location,
     'notes': item.notes,
     'remindBeforeMinutes': item.remindBeforeMinutes,
+    'links': item.links.map((link) => link.toJson()).toList(),
   };
 }
 
@@ -1648,6 +1651,7 @@ ScheduleItem scheduleFromJson(Map<String, dynamic> data) {
     location: readString(data['location']),
     notes: readString(data['notes']),
     remindBeforeMinutes: readInt(data['remindBeforeMinutes'], fallback: 30),
+    links: readRelatedItemLinks(data['links']),
   );
 }
 
@@ -1662,6 +1666,7 @@ Map<String, dynamic> subscriptionToJson(SubscriptionItem item) {
     'category': item.category,
     'reminderDays': item.reminderDays,
     'isActive': item.isActive,
+    'links': item.links.map((link) => link.toJson()).toList(),
   };
 }
 
@@ -1680,6 +1685,7 @@ SubscriptionItem subscriptionFromJson(Map<String, dynamic> data) {
     category: readString(data['category'], fallback: '其他'),
     reminderDays: readInt(data['reminderDays'], fallback: 3),
     isActive: data['isActive'] != false,
+    links: readRelatedItemLinks(data['links']),
   );
 }
 
@@ -1693,6 +1699,7 @@ Map<String, dynamic> financeEntryToJson(FinanceEntry item) {
     'account': item.account,
     'date': item.date.toIso8601String(),
     'note': item.note,
+    'links': item.links.map((link) => link.toJson()).toList(),
   };
 }
 
@@ -1706,11 +1713,17 @@ FinanceEntry financeEntryFromJson(Map<String, dynamic> data) {
     account: readString(data['account'], fallback: '其他'),
     date: readDate(data['date']),
     note: readString(data['note']),
+    links: readRelatedItemLinks(data['links']),
   );
 }
 
 Map<String, dynamic> savingsAccountToJson(SavingsAccount item) {
-  return {'id': item.id, 'name': item.name, 'amount': item.amount};
+  return {
+    'id': item.id,
+    'name': item.name,
+    'amount': item.amount,
+    'links': item.links.map((link) => link.toJson()).toList(),
+  };
 }
 
 SavingsAccount savingsAccountFromJson(Map<String, dynamic> data) {
@@ -1718,6 +1731,7 @@ SavingsAccount savingsAccountFromJson(Map<String, dynamic> data) {
     id: readString(data['id'], fallback: 'sa-local'),
     name: readString(data['name'], fallback: '未命名帳戶'),
     amount: readDouble(data['amount']),
+    links: readRelatedItemLinks(data['links']),
   );
 }
 
@@ -1733,6 +1747,7 @@ Map<String, dynamic> todoToJson(TodoItem item) {
         : '${item.reminderTime!.hour}:${item.reminderTime!.minute}',
     'completedAt': item.completedAt?.toIso8601String(),
     'sortOrder': item.sortOrder,
+    'links': item.links.map((link) => link.toJson()).toList(),
   };
 }
 
@@ -1746,6 +1761,7 @@ TodoItem todoFromJson(Map<String, dynamic> data) {
     reminderTime: readTimeOfDay(data['reminderTime']),
     completedAt: readOptionalDate(data['completedAt']),
     sortOrder: readInt(data['sortOrder']),
+    links: readRelatedItemLinks(data['links']),
   );
 }
 
