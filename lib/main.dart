@@ -7,7 +7,6 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_box_transform/flutter_box_transform.dart' as fbt;
@@ -18,7 +17,6 @@ import 'data/my_note_data.dart';
 import 'ui/app_navigation.dart';
 import 'ui/app_store_scope.dart';
 import 'ui/basic_display.dart';
-import 'ui/calendar_helpers.dart';
 import 'ui/calendar_components.dart';
 import 'ui/formatters.dart';
 import 'ui/finance_charts.dart';
@@ -27,6 +25,7 @@ import 'ui/prompt_dialogs.dart';
 import 'ui/shared_components.dart';
 import 'services/note_file_service.dart';
 import 'features/settings/settings_page.dart';
+import 'features/calendar/calendar_page.dart';
 
 export 'data/my_note_data.dart';
 export 'ui/app_navigation.dart';
@@ -41,11 +40,11 @@ export 'ui/prompt_dialogs.dart';
 export 'ui/shared_components.dart';
 export 'services/note_file_service.dart';
 export 'features/settings/settings_page.dart';
+export 'features/calendar/calendar_page.dart';
 
 part 'note_editor.dart';
 part 'features/home/home_page.dart';
 part 'features/notes/notes_page.dart';
-part 'features/calendar/calendar_page.dart';
 part 'features/finance/finance_page.dart';
 part 'ui/display_components.dart';
 
@@ -458,7 +457,7 @@ class _AppShellState extends State<AppShell> {
   static const int homeIndex = 2;
 
   final notesPageKey = GlobalKey<_NotesPageState>();
-  final calendarPageKey = GlobalKey<_CalendarPageState>();
+  final calendarPageKey = GlobalKey<CalendarPageState>();
   final homePageKey = GlobalKey<_HomePageState>();
   int selectedIndex = homeIndex;
 
@@ -519,7 +518,7 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     final pages = [
       NotesPage(key: notesPageKey),
-      CalendarPage(key: calendarPageKey),
+      CalendarPage(key: calendarPageKey, onEditSchedule: showScheduleEditor),
       HomePage(key: homePageKey, onNavigate: selectPage),
       const FinancePage(),
       const SettingsPage(),
@@ -2344,14 +2343,4 @@ String? notesBackTarget(String folder, {bool showingTrash = false}) {
 
 bool noteBelongsToFolder(String category, String folder) {
   return normalizeFolderPath(category) == normalizeFolderPath(folder);
-}
-
-Future<DateTime?> showCalendarMonthPicker(
-  BuildContext context, {
-  required DateTime initialMonth,
-}) {
-  return showDialog<DateTime>(
-    context: context,
-    builder: (context) => CalendarMonthPickerDialog(initialMonth: initialMonth),
-  );
 }

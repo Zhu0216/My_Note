@@ -1,13 +1,31 @@
-part of '../../main.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+
+import '../../data/my_note_data.dart';
+import '../../ui/app_store_scope.dart';
+import '../../ui/basic_display.dart';
+import '../../ui/calendar_components.dart';
+import '../../ui/calendar_helpers.dart';
+import '../../ui/formatters.dart';
+import '../../ui/shared_components.dart';
+
+typedef ScheduleEditorLauncher =
+    Future<void> Function(
+      BuildContext context, {
+      ScheduleItem? event,
+      DateTime? initialDate,
+    });
 
 class CalendarPage extends StatefulWidget {
-  const CalendarPage({super.key});
+  const CalendarPage({super.key, this.onEditSchedule});
+
+  final ScheduleEditorLauncher? onEditSchedule;
 
   @override
-  State<CalendarPage> createState() => _CalendarPageState();
+  State<CalendarPage> createState() => CalendarPageState();
 }
 
-class _CalendarPageState extends State<CalendarPage> {
+class CalendarPageState extends State<CalendarPage> {
   CalendarViewMode mode = CalendarViewMode.month;
   DateTime selectedDate = DateTime.now();
   DateTime? lastExplicitlySelectedDate;
@@ -102,6 +120,16 @@ class _CalendarPageState extends State<CalendarPage> {
     });
   }
 
+  Future<void> editSchedule({
+    ScheduleItem? event,
+    DateTime? initialDate,
+  }) async {
+    final launcher = widget.onEditSchedule;
+    if (launcher != null) {
+      await launcher(context, event: event, initialDate: initialDate);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = AppStoreScope.of(context);
@@ -114,7 +142,7 @@ class _CalendarPageState extends State<CalendarPage> {
       backgroundColor: Colors.transparent,
       floatingActionButton: AddBubbleButton(
         tooltip: '新增行程',
-        onPressed: () => showScheduleEditor(context, initialDate: selectedDate),
+        onPressed: () => editSchedule(initialDate: selectedDate),
         heroTag: 'calendar-add',
       ),
       body: AppPage(
@@ -183,7 +211,11 @@ class _CalendarPageState extends State<CalendarPage> {
               ),
             ] else ...[
               const SizedBox(height: 10),
-              ScheduleGroupedList(events: events),
+              ScheduleGroupedList(
+                events: events,
+                onEdit: (event) => editSchedule(event: event),
+                onDelete: store.deleteSchedule,
+              ),
             ],
             if (mode != CalendarViewMode.list) ...[
               const SizedBox(height: 12),
@@ -198,8 +230,7 @@ class _CalendarPageState extends State<CalendarPage> {
                       shape: const StadiumBorder(),
                       padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
-                    onPressed: () =>
-                        showScheduleEditor(context, initialDate: selectedDate),
+                    onPressed: () => editSchedule(initialDate: selectedDate),
                     icon: const Icon(Icons.add),
                     label: const Text('新增行程'),
                   ),
@@ -217,7 +248,7 @@ class _CalendarPageState extends State<CalendarPage> {
                     padding: const EdgeInsets.only(bottom: 10),
                     child: ScheduleTile(
                       event: event,
-                      onTap: () => showScheduleEditor(context, event: event),
+                      onTap: () => editSchedule(event: event),
                       onDelete: () => store.deleteSchedule(event),
                     ),
                   ),

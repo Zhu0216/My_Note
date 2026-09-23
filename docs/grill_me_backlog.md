@@ -106,7 +106,8 @@ the current behavior has not been independently accepted for this v1 baseline.
   after each extraction. Home/dashboard/todo/upcoming now live under
   `lib/features/home/`, while the notes browser, folder navigation, filters,
   batch actions, and note cards live under `lib/features/notes/`. Calendar
-  month/week/list pages now live under `lib/features/calendar/`; finance
+  month/week/list pages now use the standalone focused-import
+  `lib/features/calendar/calendar_page.dart` library; finance
   dashboard, budget, account, chart, and record views live under
   `lib/features/finance/`; local backup/import/recovery settings now use the
   standalone focused-import `lib/features/settings/settings_page.dart` library.

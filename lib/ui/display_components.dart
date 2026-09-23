@@ -143,59 +143,6 @@ class MetricSummaryCell extends StatelessWidget {
   }
 }
 
-class ScheduleGroupedList extends StatelessWidget {
-  const ScheduleGroupedList({super.key, required this.events});
-
-  final List<ScheduleItem> events;
-
-  @override
-  Widget build(BuildContext context) {
-    final store = AppStoreScope.of(context);
-    if (events.isEmpty) {
-      return const EmptyState(icon: Icons.event_busy, text: '尚無行程');
-    }
-
-    final grouped = <DateTime, List<ScheduleItem>>{};
-    for (final event in events) {
-      final day = DateTime(
-        event.start.year,
-        event.start.month,
-        event.start.day,
-      );
-      grouped.putIfAbsent(day, () => []).add(event);
-    }
-    final days = grouped.keys.toList()..sort();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SectionHeader(title: '行程清單'),
-        for (final day in days) ...[
-          Padding(
-            padding: const EdgeInsets.only(top: 8, bottom: 8),
-            child: Chip(
-              label: Text(
-                isSameDate(day, DateTime.now()) ? '今日' : formatDate(day),
-              ),
-              visualDensity: VisualDensity.compact,
-            ),
-          ),
-          for (final event
-              in grouped[day]!..sort((a, b) => a.start.compareTo(b.start)))
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: ScheduleTile(
-                event: event,
-                onTap: () => showScheduleEditor(context, event: event),
-                onDelete: () => store.deleteSchedule(event),
-              ),
-            ),
-        ],
-      ],
-    );
-  }
-}
-
 class NoteTile extends StatelessWidget {
   const NoteTile({
     super.key,
