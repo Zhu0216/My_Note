@@ -1,4 +1,9 @@
-part of '../main.dart';
+import 'package:flutter/material.dart';
+
+import '../data/my_note_data.dart';
+import 'calendar_helpers.dart';
+import 'formatters.dart';
+import 'shared_components.dart';
 
 class ScheduleTile extends StatelessWidget {
   const ScheduleTile({
