@@ -110,8 +110,10 @@ the current behavior has not been independently accepted for this v1 baseline.
   dashboard, budget, account, chart, and record views live under
   `lib/features/finance/`; local backup/import/recovery settings live under
   `lib/features/settings/`. Common page shells, FAB menus, action buttons, and
-  swipe-delete components moved to `lib/ui/shared_components.dart`. Remaining:
-  extract the remaining shared display/editor helpers and replace transitional
+  swipe-delete components moved to `lib/ui/shared_components.dart`; metric,
+  section, schedule, note-list/grid, selection, and sort display widgets moved
+  to `lib/ui/display_components.dart`. Remaining: extract dialogs, calendar and
+  finance visualization helpers, and replace transitional
   feature parts with focused imports where dependencies permit.
 
 ### P0-007 — Data integrity validation
