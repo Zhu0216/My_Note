@@ -112,8 +112,9 @@ the current behavior has not been independently accepted for this v1 baseline.
   `lib/features/settings/`. Common page shells, FAB menus, action buttons, and
   swipe-delete components moved to `lib/ui/shared_components.dart`; metric,
   section, schedule, note-list/grid, selection, and sort display widgets moved
-  to `lib/ui/display_components.dart`. Remaining: extract dialogs, calendar and
-  finance visualization helpers, and replace transitional
+  to `lib/ui/display_components.dart`; stable text/folder input dialogs moved
+  to `lib/ui/prompt_dialogs.dart`. Remaining: extract calendar and finance
+  visualization helpers, and replace transitional
   feature parts with focused imports where dependencies permit.
 
 ### P0-007 — Data integrity validation
