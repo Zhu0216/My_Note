@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:firebase_core/firebase_core.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -27,6 +26,7 @@ import 'ui/folder_names.dart';
 import 'ui/prompt_dialogs.dart';
 import 'ui/shared_components.dart';
 import 'services/note_file_service.dart';
+import 'features/settings/settings_page.dart';
 
 export 'data/my_note_data.dart';
 export 'ui/app_navigation.dart';
@@ -40,13 +40,13 @@ export 'ui/folder_names.dart';
 export 'ui/prompt_dialogs.dart';
 export 'ui/shared_components.dart';
 export 'services/note_file_service.dart';
+export 'features/settings/settings_page.dart';
 
 part 'note_editor.dart';
 part 'features/home/home_page.dart';
 part 'features/notes/notes_page.dart';
 part 'features/calendar/calendar_page.dart';
 part 'features/finance/finance_page.dart';
-part 'features/settings/settings_page.dart';
 part 'ui/display_components.dart';
 
 const appLocale = Locale('zh', 'TW');
@@ -327,12 +327,6 @@ class ShadcnActionButton extends StatelessWidget {
       ),
     );
   }
-}
-
-void showToast(BuildContext context, String message) {
-  ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(message)));
 }
 
 Widget appPickerBuilder(BuildContext context, Widget? child) {

@@ -1,4 +1,14 @@
-part of '../../main.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+
+import '../../data/my_note_data.dart';
+import '../../services/note_file_service.dart';
+import '../../ui/app_store_scope.dart';
+import '../../ui/formatters.dart';
+import '../../ui/shared_components.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});

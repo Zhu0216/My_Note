@@ -108,8 +108,9 @@ the current behavior has not been independently accepted for this v1 baseline.
   batch actions, and note cards live under `lib/features/notes/`. Calendar
   month/week/list pages now live under `lib/features/calendar/`; finance
   dashboard, budget, account, chart, and record views live under
-  `lib/features/finance/`; local backup/import/recovery settings live under
-  `lib/features/settings/`. Common page shells, FAB menus, action buttons, and
+  `lib/features/finance/`; local backup/import/recovery settings now use the
+  standalone focused-import `lib/features/settings/settings_page.dart` library.
+  Common page shells, FAB menus, action buttons, and
   swipe-delete components moved to the standalone focused-import library
   `lib/ui/shared_components.dart`; generic section headers and empty states use
   the focused `lib/ui/basic_display.dart` library; metric,
