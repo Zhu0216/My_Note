@@ -108,7 +108,8 @@ the current behavior has not been independently accepted for this v1 baseline.
   batch actions, and note cards live under `lib/features/notes/`. Calendar
   month/week/list pages now live under `lib/features/calendar/`; finance
   dashboard, budget, account, chart, and record views live under
-  `lib/features/finance/`. Remaining: split settings and shared UI helpers, then replace
+  `lib/features/finance/`; local backup/import/recovery settings live under
+  `lib/features/settings/`. Remaining: extract shared UI/helpers and replace
   transitional feature parts with focused imports where dependencies permit.
 
 ### P0-007 — Data integrity validation
