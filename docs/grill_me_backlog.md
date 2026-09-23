@@ -112,8 +112,9 @@ the current behavior has not been independently accepted for this v1 baseline.
   `lib/features/settings/`. Common page shells, FAB menus, action buttons, and
   swipe-delete components moved to `lib/ui/shared_components.dart`; metric,
   section, schedule, note-list/grid, selection, and sort display widgets moved
-  to `lib/ui/display_components.dart`; stable text/folder input dialogs moved
-  to `lib/ui/prompt_dialogs.dart`; schedule/finance rows and calendar period,
+  to `lib/ui/display_components.dart`; stable text/folder input dialogs and
+  folder-name constraints now use focused imports from
+  `lib/ui/prompt_dialogs.dart` and `lib/ui/folder_names.dart`; schedule/finance rows and calendar period,
   swipe, month-picker, month-grid, and week-strip widgets moved to
   `lib/ui/calendar_components.dart`; finance bar/ring charts and painters moved
   to the standalone `lib/ui/finance_charts.dart`, backed by focused pure display

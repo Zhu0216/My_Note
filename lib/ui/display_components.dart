@@ -980,35 +980,3 @@ String sortDirectionSymbol(SortDirection direction) {
     SortDirection.descending => '↓',
   };
 }
-
-Future<String?> promptForText(
-  BuildContext context, {
-  required String title,
-  required String label,
-  String initialValue = '',
-}) async {
-  return showDialog<String>(
-    context: context,
-    builder: (context) => StableTextPromptDialog(
-      title: title,
-      label: label,
-      initialValue: initialValue,
-    ),
-  );
-}
-
-Future<String?> promptForFolderName(
-  BuildContext context, {
-  required String title,
-  required String label,
-  String initialValue = '',
-}) async {
-  return showDialog<String>(
-    context: context,
-    builder: (context) => StableFolderNamePromptDialog(
-      title: title,
-      label: label,
-      initialValue: initialValue,
-    ),
-  );
-}
