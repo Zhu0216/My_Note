@@ -111,7 +111,8 @@ the current behavior has not been independently accepted for this v1 baseline.
   `lib/features/finance/`; local backup/import/recovery settings live under
   `lib/features/settings/`. Common page shells, FAB menus, action buttons, and
   swipe-delete components moved to the standalone focused-import library
-  `lib/ui/shared_components.dart`; metric,
+  `lib/ui/shared_components.dart`; generic section headers and empty states use
+  the focused `lib/ui/basic_display.dart` library; metric,
   section, schedule, note-list/grid, selection, and sort display widgets moved
   to `lib/ui/display_components.dart`; stable text/folder input dialogs and
   folder-name constraints now use focused imports from

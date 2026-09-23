@@ -21,6 +21,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import 'firebase_options.dart';
 import 'data/my_note_data.dart';
 import 'ui/app_navigation.dart';
+import 'ui/basic_display.dart';
 import 'ui/calendar_helpers.dart';
 import 'ui/formatters.dart';
 import 'ui/finance_charts.dart';
@@ -30,6 +31,7 @@ import 'ui/shared_components.dart';
 
 export 'data/my_note_data.dart';
 export 'ui/app_navigation.dart';
+export 'ui/basic_display.dart';
 export 'ui/calendar_helpers.dart';
 export 'ui/formatters.dart';
 export 'ui/finance_charts.dart';
