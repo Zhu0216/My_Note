@@ -23,10 +23,12 @@ import 'ui/folder_names.dart';
 import 'ui/note_template_metadata.dart';
 import 'ui/prompt_dialogs.dart';
 import 'ui/shared_components.dart';
+import 'ui/todo_display.dart';
 import 'services/note_file_service.dart';
 import 'features/settings/settings_page.dart';
 import 'features/calendar/calendar_page.dart';
 import 'features/finance/finance_page.dart';
+import 'features/home/home_page.dart';
 
 export 'data/my_note_data.dart';
 export 'ui/app_navigation.dart';
@@ -41,13 +43,14 @@ export 'ui/folder_names.dart';
 export 'ui/note_template_metadata.dart';
 export 'ui/prompt_dialogs.dart';
 export 'ui/shared_components.dart';
+export 'ui/todo_display.dart';
 export 'services/note_file_service.dart';
 export 'features/settings/settings_page.dart';
 export 'features/calendar/calendar_page.dart';
 export 'features/finance/finance_page.dart';
+export 'features/home/home_page.dart';
 
 part 'note_editor.dart';
-part 'features/home/home_page.dart';
 part 'features/notes/notes_page.dart';
 
 const appLocale = Locale('zh', 'TW');
@@ -460,7 +463,7 @@ class _AppShellState extends State<AppShell> {
 
   final notesPageKey = GlobalKey<_NotesPageState>();
   final calendarPageKey = GlobalKey<CalendarPageState>();
-  final homePageKey = GlobalKey<_HomePageState>();
+  final homePageKey = GlobalKey<HomePageState>();
   int selectedIndex = homeIndex;
 
   void selectPage(int index) {
@@ -521,7 +524,18 @@ class _AppShellState extends State<AppShell> {
     final pages = [
       NotesPage(key: notesPageKey),
       CalendarPage(key: calendarPageKey, onEditSchedule: showScheduleEditor),
-      HomePage(key: homePageKey, onNavigate: selectPage),
+      HomePage(
+        key: homePageKey,
+        onNavigate: selectPage,
+        actions: HomeFeatureActions(
+          editNote: showNoteEditor,
+          editTodo: openTodoEditorPage,
+          showTodoActions: showTodoActionSheet,
+          editFinance: showFinanceEditor,
+          editSubscription: showSubscriptionEditor,
+          editSchedule: showScheduleEditor,
+        ),
+      ),
       FinancePage(
         actions: FinanceFeatureActions(
           editEntry: showFinanceEditor,
@@ -2201,50 +2215,6 @@ Future<void> showTodoDialog(BuildContext context, {TodoItem? todo}) async {
     ),
   );
   controller.dispose();
-}
-
-String todoSubtitle(TodoItem todo) {
-  final parts = <String>[];
-  parts.add(todo.dueDate == null ? '無限期' : formatDate(todo.dueDate!));
-  if (todo.reminderEnabled) {
-    final time = todo.reminderTime == null
-        ? '已提醒'
-        : formatTimeOfDayValue(todo.reminderTime!);
-    parts.add('提醒 $time');
-  }
-  return parts.join('  ');
-}
-
-String todoDueLabel(TodoItem todo) {
-  return todo.dueDate == null ? '無限期' : formatDate(todo.dueDate!);
-}
-
-String todoCompletedLabel(TodoItem todo) {
-  final completedAt = todo.completedAt;
-  if (completedAt == null) {
-    return '已完成';
-  }
-  return '完成 ${formatTime(completedAt)}';
-}
-
-String todoReminderTimeLabel(TodoItem todo) {
-  final time = todo.reminderTime;
-  if (time == null) {
-    return '已開啟';
-  }
-  return formatTimeOfDayValue(time);
-}
-
-TextStyle todoTitleStyle(TodoItem todo) {
-  return TextStyle(
-    decoration: todo.done ? TextDecoration.lineThrough : null,
-    color: todo.done ? Colors.black45 : null,
-    fontWeight: FontWeight.w700,
-  );
-}
-
-String formatTodoReminderTime(BuildContext context, TimeOfDay time) {
-  return formatTimeOfDayValue(time);
 }
 
 List<String> splitTags(String value) {

@@ -103,8 +103,10 @@ the current behavior has not been independently accepted for this v1 baseline.
   owns its library boundary in `lib/data/my_note_data.dart`; `main.dart` uses a
   focused import/export instead of treating data files as parts of the app
   entrypoint. Analysis, the full 64-test suite, and Flutter Web build passed
-  after each extraction. Home/dashboard/todo/upcoming now live under
-  `lib/features/home/`, while the notes browser, folder navigation, filters,
+  after each extraction. Home/dashboard/todo/upcoming now use the standalone
+  focused-import `lib/features/home/home_page.dart` library, with editor actions
+  injected by the composition root and todo labels/styles supplied by
+  `lib/ui/todo_display.dart`; the notes browser, folder navigation, filters,
   batch actions, and note cards live under `lib/features/notes/`. Calendar
   month/week/list pages now use the standalone focused-import
   `lib/features/calendar/calendar_page.dart` library; finance dashboard,

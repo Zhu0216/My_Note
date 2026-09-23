@@ -1,15 +1,72 @@
-part of '../../main.dart';
+import 'dart:async';
 
-class HomePage extends StatefulWidget {
-  const HomePage({super.key, required this.onNavigate});
+import 'package:flutter/material.dart';
 
-  final ValueChanged<int> onNavigate;
+import '../../data/my_note_data.dart';
+import '../../ui/app_navigation.dart';
+import '../../ui/app_store_scope.dart';
+import '../../ui/basic_display.dart';
+import '../../ui/display_components.dart';
+import '../../ui/formatters.dart';
+import '../../ui/shared_components.dart';
+import '../../ui/todo_display.dart';
 
-  @override
-  State<HomePage> createState() => _HomePageState();
+typedef HomeNoteEditor =
+    Future<void> Function(BuildContext context, {NoteItem? note});
+typedef HomeTodoEditor =
+    Future<void> Function(BuildContext context, {TodoItem? todo});
+
+class HomeFeatureActions {
+  const HomeFeatureActions({
+    required this.editNote,
+    required this.editTodo,
+    required this.showTodoActions,
+    required this.editFinance,
+    required this.editSubscription,
+    required this.editSchedule,
+  });
+
+  final HomeNoteEditor editNote;
+  final HomeTodoEditor editTodo;
+  final Future<void> Function(BuildContext context, TodoItem todo)
+  showTodoActions;
+  final Future<void> Function(BuildContext context) editFinance;
+  final Future<void> Function(BuildContext context) editSubscription;
+  final Future<void> Function(BuildContext context) editSchedule;
 }
 
-class _HomePageState extends State<HomePage>
+class HomeFeatureActionsScope extends InheritedWidget {
+  const HomeFeatureActionsScope({
+    super.key,
+    required this.actions,
+    required super.child,
+  });
+
+  final HomeFeatureActions actions;
+
+  static HomeFeatureActions of(BuildContext context) {
+    final scope = context
+        .dependOnInheritedWidgetOfExactType<HomeFeatureActionsScope>();
+    assert(scope != null, 'HomeFeatureActionsScope is missing.');
+    return scope!.actions;
+  }
+
+  @override
+  bool updateShouldNotify(HomeFeatureActionsScope oldWidget) =>
+      actions != oldWidget.actions;
+}
+
+class HomePage extends StatefulWidget {
+  const HomePage({super.key, required this.onNavigate, required this.actions});
+
+  final ValueChanged<int> onNavigate;
+  final HomeFeatureActions actions;
+
+  @override
+  State<HomePage> createState() => HomePageState();
+}
+
+class HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin {
   late final AnimationController quickAddFabController;
   bool quickAddOpen = false;
@@ -58,19 +115,19 @@ class _HomePageState extends State<HomePage>
     closeQuickAdd();
     switch (value) {
       case 'note':
-        await showNoteEditor(context);
+        await widget.actions.editNote(context);
         break;
       case 'todo':
-        await openTodoEditorPage(context);
+        await widget.actions.editTodo(context);
         break;
       case 'finance':
-        await showFinanceEditor(context);
+        await widget.actions.editFinance(context);
         break;
       case 'subscription':
-        await showSubscriptionEditor(context);
+        await widget.actions.editSubscription(context);
         break;
       case 'schedule':
-        await showScheduleEditor(context);
+        await widget.actions.editSchedule(context);
         break;
     }
   }
@@ -79,66 +136,72 @@ class _HomePageState extends State<HomePage>
   Widget build(BuildContext context) {
     final store = AppStoreScope.of(context);
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionMenu(
-        isOpen: quickAddOpen,
-        controller: quickAddFabController,
-        tooltip: '快速新增',
-        onToggle: toggleQuickAdd,
-        items: [
-          FloatingActionMenuItem(
-            icon: Icons.notes,
-            label: '新增筆記',
-            value: 'note',
-            onSelected: handleQuickAdd,
-          ),
-          FloatingActionMenuItem(
-            icon: Icons.add_task,
-            label: '新增待辦事項',
-            value: 'todo',
-            onSelected: handleQuickAdd,
-          ),
-          FloatingActionMenuItem(
-            icon: Icons.payments_outlined,
-            label: '新增記帳',
-            value: 'finance',
-            onSelected: handleQuickAdd,
-          ),
-          FloatingActionMenuItem(
-            icon: Icons.subscriptions_outlined,
-            label: '新增訂閱費用',
-            value: 'subscription',
-            onSelected: handleQuickAdd,
-          ),
-          FloatingActionMenuItem(
-            icon: Icons.event_note,
-            label: '新增行程',
-            value: 'schedule',
-            onSelected: handleQuickAdd,
-          ),
-        ],
-      ),
-      body: DismissFabMenuLayer(
-        isOpen: quickAddOpen,
-        onDismiss: closeQuickAdd,
-        child: AppPage(
-          title: 'My Note',
-          subtitle: 'All-in-one 個人管理筆記本',
-          actions: [
-            IconButton(
-              tooltip: '調整首頁',
-              onPressed: () => showHomeLayoutSettings(context),
-              icon: const Icon(Icons.more_horiz),
+    return HomeFeatureActionsScope(
+      actions: widget.actions,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        floatingActionButton: FloatingActionMenu(
+          isOpen: quickAddOpen,
+          controller: quickAddFabController,
+          tooltip: '快速新增',
+          onToggle: toggleQuickAdd,
+          items: [
+            FloatingActionMenuItem(
+              icon: Icons.notes,
+              label: '新增筆記',
+              value: 'note',
+              onSelected: handleQuickAdd,
+            ),
+            FloatingActionMenuItem(
+              icon: Icons.add_task,
+              label: '新增待辦事項',
+              value: 'todo',
+              onSelected: handleQuickAdd,
+            ),
+            FloatingActionMenuItem(
+              icon: Icons.payments_outlined,
+              label: '新增記帳',
+              value: 'finance',
+              onSelected: handleQuickAdd,
+            ),
+            FloatingActionMenuItem(
+              icon: Icons.subscriptions_outlined,
+              label: '新增訂閱費用',
+              value: 'subscription',
+              onSelected: handleQuickAdd,
+            ),
+            FloatingActionMenuItem(
+              icon: Icons.event_note,
+              label: '新增行程',
+              value: 'schedule',
+              onSelected: handleQuickAdd,
             ),
           ],
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
-            children: [
-              for (final section in store.homeSectionOrder)
-                if (!store.hiddenHomeSections.contains(section))
-                  HomeSection(section: section, onNavigate: widget.onNavigate),
+        ),
+        body: DismissFabMenuLayer(
+          isOpen: quickAddOpen,
+          onDismiss: closeQuickAdd,
+          child: AppPage(
+            title: 'My Note',
+            subtitle: 'All-in-one 個人管理筆記本',
+            actions: [
+              IconButton(
+                tooltip: '調整首頁',
+                onPressed: () => showHomeLayoutSettings(context),
+                icon: const Icon(Icons.more_horiz),
+              ),
             ],
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+              children: [
+                for (final section in store.homeSectionOrder)
+                  if (!store.hiddenHomeSections.contains(section))
+                    HomeSection(
+                      section: section,
+                      onNavigate: widget.onNavigate,
+                    ),
+              ],
+            ),
           ),
         ),
       ),
@@ -254,7 +317,7 @@ Widget homeSectionAction(
     ),
     HomeSectionId.todos => IconButton(
       tooltip: '新增待辦事項',
-      onPressed: () => openTodoEditorPage(context),
+      onPressed: () => HomeFeatureActionsScope.of(context).editTodo(context),
       icon: const Icon(Icons.add_task),
     ),
   };
@@ -622,7 +685,9 @@ Future<void> showUpcomingDetails(
           TextButton.icon(
             onPressed: () {
               Navigator.pop(context);
-              showNoteEditor(context, note: item.sourceNote);
+              HomeFeatureActionsScope.of(
+                context,
+              ).editNote(context, note: item.sourceNote);
             },
             icon: const Icon(Icons.open_in_new),
             label: const Text('開啟計畫'),
@@ -708,7 +773,9 @@ class NotesHomeSection extends StatelessWidget {
                   icon: note.isPinned ? Icons.push_pin : Icons.notes,
                   title: note.title,
                   subtitle: note.category,
-                  onTap: () => showNoteEditor(context, note: note),
+                  onTap: () => HomeFeatureActionsScope.of(
+                    context,
+                  ).editNote(context, note: note),
                 ),
               ),
             ),
@@ -723,7 +790,9 @@ class NotesHomeSection extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 10),
             child: NoteTile(
               note: note,
-              onTap: () => showNoteEditor(context, note: note),
+              onTap: () => HomeFeatureActionsScope.of(
+                context,
+              ).editNote(context, note: note),
               onDelete: () => store.deleteNote(note),
             ),
           ),
@@ -777,7 +846,8 @@ class _TodoHomeSectionState extends State<TodoHomeSection> {
               ),
               IconButton(
                 tooltip: '新增待辦事項',
-                onPressed: () => openTodoEditorPage(context),
+                onPressed: () =>
+                    HomeFeatureActionsScope.of(context).editTodo(context),
                 icon: const Icon(Icons.add_task),
               ),
               Icon(widget.collapsed ? Icons.expand_more : Icons.expand_less),
@@ -957,7 +1027,9 @@ class _EditableTodoRowState extends State<EditableTodoRow> {
       context,
     ).textTheme.labelSmall?.copyWith(color: Colors.black54);
     return InkWell(
-      onLongPress: () => showTodoActionSheet(context, widget.todo),
+      onLongPress: () => HomeFeatureActionsScope.of(
+        context,
+      ).showTodoActions(context, widget.todo),
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
@@ -1079,7 +1151,8 @@ class TodoCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: () => store.toggleTodo(todo),
-        onLongPress: () => showTodoActionSheet(context, todo),
+        onLongPress: () =>
+            HomeFeatureActionsScope.of(context).showTodoActions(context, todo),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(8, 8, 12, 12),
           child: Row(
