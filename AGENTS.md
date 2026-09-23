@@ -28,6 +28,8 @@ Do not invent new product features when the backlog is complete. When all TODO i
 - Each run must name the selected backlog ID before work begins and update its status and evidence before ending. Do not claim that TODOs are empty unless every non-deferred backlog item is `DONE` with current acceptance evidence.
 - Continue through additional independent actionable items in the same wake-up while time and usage remain. End only for the explicit stop conditions in this file; completing one logical task by itself is not a stop condition.
 - Never describe changes that existed before the run as work completed by that run. Record the starting commit and starting working-tree state, then attribute only the new diff created during the run.
+- Before sending a final response, run this explicit stop gate and record its outcome internally: `(all non-deferred backlog items DONE) OR (approval required) OR (no safe independent item) OR (same blocker exhausted three approaches) OR (usage unavailable)`. If every condition is false, a final response is prohibited: re-read the backlog, select the next item, and continue tool work in the same run.
+- After committing one backlog item, do not summarize or hand off merely because the commit succeeded. Update its evidence, select the next actionable backlog ID, and begin that item immediately.
 
 ## Autonomous permissions and approval boundaries
 
@@ -67,14 +69,14 @@ Never buy credits, automatically reload paid tokens, or consume a banked reset t
 
 ## Validation and failure handling
 
-For every logical task, run the relevant subset and normally all of:
+For every code-changing logical task, run the relevant subset of:
 
 1. `dart format .`
 2. `flutter analyze`
 3. relevant `flutter test` targets (or the full suite when scope is broad)
 4. `flutter build web` when web behavior, shared UI, dependencies, or release buildability may be affected
 
-Do not claim success without recording the actual results in the Log. For the same blocking problem, try at most three materially different solutions. If all three fail, record a blocker with attempts and evidence, then move to another independent task. Stop the run when no safe independent work remains, approval is required, usage is unavailable, or all TODOs are complete.
+For verification-only backlog items that create no application-code diff, run the smallest direct acceptance check that proves the stated criterion; do not automatically repeat the full test suite, Web build, Git push, or X510 deployment unless that evidence is actually required. Do not claim success without recording the actual results in the Log. For the same blocking problem, try at most three materially different solutions. If all three fail, record a blocker with attempts and evidence, then move to another independent task. Stop the run when no safe independent work remains, approval is required, usage is unavailable, or all TODOs are complete.
 
 ## X510 device validation
 
