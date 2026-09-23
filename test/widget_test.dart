@@ -7,6 +7,68 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:my_note/main.dart';
 
 void main() {
+  test('template documents migrate legacy data into structured v2 records', () {
+    final plan = PlanDocument.fromJson({
+      'phase': '第一階段',
+      'tasks': [
+        {'title': '已完成任務', 'done': true},
+        {'title': '未完成任務', 'done': false},
+      ],
+    });
+    expect(plan.nodes, hasLength(3));
+    expect(plan.childrenOf('legacy-phase'), hasLength(2));
+    expect(plan.progressOf('legacy-phase'), closeTo(0.5, 0.001));
+
+    final mindMap = MindMapDocument.fromJson({
+      'topic': '中心主題',
+      'nodes': [
+        {'title': '中心主題', 'x': 0, 'y': 0},
+        {'title': '分支', 'x': 100, 'y': 10},
+      ],
+    });
+    expect(mindMap.rootNodeId, mindMap.nodes.first.id);
+    expect(mindMap.nodes.first.title, '中心主題');
+
+    final lifeProject = LifeProjectDocument.fromJson({
+      'items': [
+        {'name': '基金', 'targetAmount': 1000, 'currentAmount': 250},
+        {'name': '閱讀', 'progress': 0.5, 'displayMode': 'progress'},
+      ],
+    });
+    expect(lifeProject.items, hasLength(2));
+    expect(lifeProject.weightedProgress, closeTo(0.375, 0.001));
+  });
+
+  test('local export validates and restores a complete snapshot', () async {
+    SharedPreferences.setMockInitialValues({});
+    final source = AppStore.seeded(persistenceLocked: true);
+    source.upsertTodo(TodoItem(id: 'export-todo', title: '匯出待辦'));
+    source.upsertSchedule(
+      ScheduleItem(
+        id: 'export-schedule',
+        title: '匯出行程',
+        start: DateTime(2026, 9, 22, 9),
+        end: DateTime(2026, 9, 22, 10),
+        location: '',
+        notes: '',
+        remindBeforeMinutes: 10,
+      ),
+    );
+    final raw = await source.exportBundle();
+    final decoded = LocalDataBundle.decode(raw);
+    expect(decoded.schema, LocalDataBundle.schemaName);
+
+    final restored = AppStore.seeded(persistenceLocked: true);
+    final result = await restored.importBundle(raw);
+    expect(result.todoCount, 1);
+    expect(result.scheduleCount, 1);
+    expect(restored.todos.single.title, '匯出待辦');
+    expect(restored.schedules.single.title, '匯出行程');
+
+    source.dispose();
+    restored.dispose();
+  });
+
   testWidgets('renders the restored app shell', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final store = AppStore.seeded();
@@ -381,6 +443,101 @@ void main() {
       expect(
         find.byKey(const ValueKey('calendar-add-selected-date')),
         findsOneWidget,
+      );
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  testWidgets('home section counters use complete item totals', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    final targetDate = DateTime.now().add(const Duration(days: 1));
+    final start = DateTime(
+      targetDate.year,
+      targetDate.month,
+      targetDate.day,
+      9,
+    );
+
+    for (var index = 0; index < 5; index++) {
+      store.upsertSchedule(
+        ScheduleItem(
+          id: 'count-event-$index',
+          title: '計數行程 $index',
+          start: start.add(Duration(minutes: index * 30)),
+          end: start.add(Duration(minutes: index * 30 + 20)),
+          location: '',
+          notes: '',
+          remindBeforeMinutes: 10,
+        ),
+      );
+    }
+    for (var index = 0; index < 2; index++) {
+      store.upsertSubscription(
+        SubscriptionItem(
+          id: 'count-subscription-$index',
+          name: '計數訂閱 $index',
+          amount: 100,
+          cycle: SubscriptionCycle.monthly,
+          nextPaymentDate: targetDate,
+          paymentMethod: '信用卡',
+          category: '服務',
+          reminderDays: 3,
+        ),
+      );
+    }
+    for (var index = 0; index < 3; index++) {
+      store.upsertTodo(TodoItem(id: 'count-todo-$index', title: '計數待辦 $index'));
+    }
+
+    await tester.binding.setSurfaceSize(const Size(412, 915));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    try {
+      await tester.pumpWidget(MyNoteApp(store: store));
+      await tester.pumpAndSettle();
+
+      expect(homeSectionCount(store, HomeSectionId.schedule), 5);
+      expect(homeSectionCount(store, HomeSectionId.subscriptions), 7);
+      expect(homeSectionCount(store, HomeSectionId.todos), 3);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('section-count-今日行程')))
+            .data,
+        '5',
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('section-count-即將到來')))
+            .data,
+        '7',
+      );
+      final scheduleSection = find.byType(ScheduleHomeSection);
+      expect(
+        find.descendant(of: scheduleSection, matching: find.text('計數行程 0')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: scheduleSection, matching: find.text('計數行程 1')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: scheduleSection, matching: find.text('計數行程 2')),
+        findsNothing,
+      );
+
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('section-count-待辦事項')),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('section-count-待辦事項')))
+            .data,
+        '3',
       );
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());

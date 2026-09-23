@@ -22,6 +22,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'firebase_options.dart';
 
 part 'note_editor.dart';
+part 'data/app_models.dart';
+part 'data/template_documents.dart';
+part 'data/local_data_bundle.dart';
 
 const appLocale = Locale('zh', 'TW');
 const deviceFontChannel = MethodChannel('my_note/device_font');
@@ -323,170 +326,6 @@ class AppStoreScope extends InheritedNotifier<AppStore> {
     assert(scope != null, 'AppStoreScope not found');
     return scope!.notifier!;
   }
-}
-
-enum CalendarViewMode { month, week, list }
-
-enum SubscriptionCycle { monthly, yearly, custom }
-
-enum EntryType { income, expense }
-
-enum HomeSectionId { metrics, schedule, subscriptions, notes, todos }
-
-enum HomeSectionStyle { list, grid }
-
-enum NotesViewMode { grid, list, compact }
-
-enum NotesSortField { createdAt, updatedAt, title, tag }
-
-enum SortDirection { ascending, descending }
-
-enum NotesDateFilter { all, oneDay, sevenDays, thirtyDays }
-
-enum NoteTemplateType { general, plan, mindMap, lifeSheet }
-
-enum NoteImageAlignment { free, left, center, right }
-
-enum NoteBackgroundMode { fill, stretch, repeat }
-
-enum AppNavBarStyle { template6 }
-
-enum NoteEditorMenuAction { background, insertNote, export }
-
-class NoteItem {
-  NoteItem({
-    required this.id,
-    required this.title,
-    required this.body,
-    required this.category,
-    required this.tags,
-    required this.createdAt,
-    required this.updatedAt,
-    this.isPinned = false,
-    this.deletedAt,
-    this.templateType = NoteTemplateType.general,
-    Map<String, dynamic>? templateData,
-    Map<String, dynamic>? style,
-    List<Map<String, dynamic>>? images,
-    List<Map<String, dynamic>>? attachments,
-    Map<String, dynamic>? background,
-  }) : templateData = templateData ?? defaultNoteTemplateData(templateType),
-       style = style ?? defaultNoteStyle(),
-       images = images ?? <Map<String, dynamic>>[],
-       attachments = attachments ?? <Map<String, dynamic>>[],
-       background = background ?? defaultNoteBackground();
-
-  final String id;
-  String title;
-  String body;
-  String category;
-  List<String> tags;
-  DateTime createdAt;
-  DateTime updatedAt;
-  bool isPinned;
-  DateTime? deletedAt;
-  NoteTemplateType templateType;
-  Map<String, dynamic> templateData;
-  Map<String, dynamic> style;
-  List<Map<String, dynamic>> images;
-  List<Map<String, dynamic>> attachments;
-  Map<String, dynamic> background;
-}
-
-class ScheduleItem {
-  ScheduleItem({
-    required this.id,
-    required this.title,
-    required this.start,
-    required this.end,
-    required this.location,
-    required this.notes,
-    required this.remindBeforeMinutes,
-  });
-
-  final String id;
-  String title;
-  DateTime start;
-  DateTime end;
-  String location;
-  String notes;
-  int remindBeforeMinutes;
-}
-
-class SubscriptionItem {
-  SubscriptionItem({
-    required this.id,
-    required this.name,
-    required this.amount,
-    required this.cycle,
-    required this.nextPaymentDate,
-    required this.paymentMethod,
-    required this.category,
-    required this.reminderDays,
-    this.isActive = true,
-  });
-
-  final String id;
-  String name;
-  double amount;
-  SubscriptionCycle cycle;
-  DateTime nextPaymentDate;
-  String paymentMethod;
-  String category;
-  int reminderDays;
-  bool isActive;
-}
-
-class FinanceEntry {
-  FinanceEntry({
-    required this.id,
-    required this.type,
-    required this.title,
-    required this.amount,
-    required this.category,
-    required this.account,
-    required this.date,
-    required this.note,
-  });
-
-  final String id;
-  EntryType type;
-  String title;
-  double amount;
-  String category;
-  String account;
-  DateTime date;
-  String note;
-}
-
-class SavingsAccount {
-  SavingsAccount({required this.id, required this.name, required this.amount});
-
-  final String id;
-  String name;
-  double amount;
-}
-
-class TodoItem {
-  TodoItem({
-    required this.id,
-    required this.title,
-    this.done = false,
-    this.dueDate,
-    this.reminderEnabled = false,
-    this.reminderTime,
-    this.completedAt,
-    this.sortOrder = 0,
-  });
-
-  final String id;
-  String title;
-  bool done;
-  DateTime? dueDate;
-  bool reminderEnabled;
-  TimeOfDay? reminderTime;
-  DateTime? completedAt;
-  int sortOrder;
 }
 
 class _StoredSnapshot {
@@ -951,6 +790,84 @@ class AppStore extends ChangeNotifier {
         'action': _lastChangeAction,
       },
     };
+  }
+
+  /// Creates a portable snapshot. This never changes current app state.
+  Future<String> exportBundle() async {
+    await flushPersistence();
+    return LocalDataBundle(
+      createdAt: DateTime.now(),
+      data: cloneJsonMap(toJson()),
+    ).encode();
+  }
+
+  /// Validates and replaces the in-memory state from an export or legacy local
+  /// snapshot. The previous state is checkpointed before the imported one is
+  /// committed, so a failed or unwanted import remains recoverable.
+  Future<LocalImportResult> importBundle(String raw) async {
+    final bundle = LocalDataBundle.decode(raw);
+    final candidateRaw = jsonEncode(bundle.data);
+    final candidate = _tryLoadFromRaw(candidateRaw);
+    if (candidate == null) {
+      throw const FormatException('匯入資料無法讀取。');
+    }
+
+    await flushPersistence();
+    if (!_persistenceLocked) {
+      final prefs = await SharedPreferences.getInstance();
+      final previousRaw = jsonEncode(toJson());
+      await prefs.setString(_checkpointStorageKey, previousRaw);
+      await _writeBackupSnapshot(prefs, previousRaw);
+    }
+
+    notes
+      ..clear()
+      ..addAll(candidate.notes);
+    schedules
+      ..clear()
+      ..addAll(candidate.schedules);
+    subscriptions
+      ..clear()
+      ..addAll(candidate.subscriptions);
+    financeEntries
+      ..clear()
+      ..addAll(candidate.financeEntries);
+    savingsAccounts
+      ..clear()
+      ..addAll(candidate.savingsAccounts);
+    todos
+      ..clear()
+      ..addAll(candidate.todos);
+    noteFolders
+      ..clear()
+      ..addAll(candidate.noteFolders);
+    homeSectionOrder
+      ..clear()
+      ..addAll(candidate.homeSectionOrder);
+    collapsedHomeSections
+      ..clear()
+      ..addAll(candidate.collapsedHomeSections);
+    hiddenHomeSections
+      ..clear()
+      ..addAll(candidate.hiddenHomeSections);
+    hiddenUpcomingItems
+      ..clear()
+      ..addAll(candidate.hiddenUpcomingItems);
+    homeSectionStyles
+      ..clear()
+      ..addAll(candidate.homeSectionStyles);
+    monthlyBudget = candidate.monthlyBudget;
+    _nextId = _calculateNextId();
+    _normalizeTodoOrder();
+    candidate.dispose();
+    _commit('data.import.local_export');
+
+    return LocalImportResult(
+      createdAt: bundle.createdAt,
+      noteCount: notes.length,
+      scheduleCount: schedules.length,
+      todoCount: todos.length,
+    );
   }
 
   Future<void> _persistSnapshot({
@@ -2816,6 +2733,7 @@ class HomeSection extends StatelessWidget {
         children: [
           SectionHeader(
             title: homeSectionTitle(section),
+            count: homeSectionCount(store, section),
             onTap: () => store.toggleHomeSection(section),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
@@ -2849,6 +2767,15 @@ String homeSectionTitle(HomeSectionId section) {
     HomeSectionId.subscriptions => '即將到來',
     HomeSectionId.notes => '最近筆記',
     HomeSectionId.todos => '待辦事項',
+  };
+}
+
+int? homeSectionCount(AppStore store, HomeSectionId section) {
+  return switch (section) {
+    HomeSectionId.schedule => homeScheduleEvents(store).length,
+    HomeSectionId.subscriptions => upcomingHomeItems(store).length,
+    HomeSectionId.todos => store.activeTodos.length,
+    HomeSectionId.metrics || HomeSectionId.notes => null,
   };
 }
 
@@ -2896,6 +2823,14 @@ DateTime homeScheduleTargetDate(AppStore store) {
     return now;
   }
   return store.upcomingSchedules.firstOrNull?.start ?? now;
+}
+
+List<ScheduleItem> homeScheduleEvents(AppStore store) {
+  final targetDate = homeScheduleTargetDate(store);
+  return store.schedules
+      .where((event) => isSameDate(event.start, targetDate))
+      .toList()
+    ..sort((a, b) => a.start.compareTo(b.start));
 }
 
 Widget buildHomeSectionContent(
@@ -2961,15 +2896,10 @@ class ScheduleHomeSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = AppStoreScope.of(context);
-    final todayEvents =
-        store.schedules
-            .where((event) => isSameDate(event.start, DateTime.now()))
-            .toList()
-          ..sort((a, b) => a.start.compareTo(b.start));
-    final shownEvents = todayEvents.isNotEmpty
-        ? todayEvents
-        : store.upcomingSchedules.take(2).toList();
-    final eventLabel = todayEvents.isNotEmpty
+    final allEvents = homeScheduleEvents(store);
+    final shownEvents = allEvents.take(2).toList();
+    final eventLabel =
+        allEvents.any((event) => isSameDate(event.start, DateTime.now()))
         ? '今日'
         : shownEvents.isEmpty
         ? '今日'
@@ -3339,10 +3269,16 @@ class _TodoHomeSectionState extends State<TodoHomeSection> {
 
   @override
   Widget build(BuildContext context) {
+    final store = AppStoreScope.of(context);
+    final itemCount = showCompleted
+        ? store.completedTodayTodos.length
+        : store.activeTodos.length;
+
     return Column(
       children: [
         SectionHeader(
           title: showCompleted ? '已完成事項' : '待辦事項',
+          count: itemCount,
           onTap: widget.onToggleCollapsed,
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
@@ -6577,10 +6513,12 @@ class SettingsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppPage(
       title: '設定',
-      subtitle: 'Firebase 與上線規劃',
+      subtitle: '本機資料、提醒與未來同步規劃',
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        children: const [
+        children: [
+          const LocalDataManagementCard(),
+          const SizedBox(height: 16),
           InfoCard(
             child: Column(
               children: [
@@ -6609,7 +6547,7 @@ class SettingsPage extends StatelessWidget {
               ],
             ),
           ),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           InfoCard(
             child: Column(
               children: [
@@ -6636,7 +6574,7 @@ class SettingsPage extends StatelessWidget {
               ],
             ),
           ),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           InfoCard(
             child: Column(
               children: [
@@ -6655,6 +6593,128 @@ class SettingsPage extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class LocalDataManagementCard extends StatefulWidget {
+  const LocalDataManagementCard({super.key});
+
+  @override
+  State<LocalDataManagementCard> createState() =>
+      _LocalDataManagementCardState();
+}
+
+class _LocalDataManagementCardState extends State<LocalDataManagementCard> {
+  bool busy = false;
+
+  Future<void> exportData() async {
+    setState(() => busy = true);
+    try {
+      final raw = await AppStoreScope.read(context).exportBundle();
+      final now = DateTime.now();
+      final fileName =
+          'my_note_${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}.json';
+      final location = await NoteFileService.saveBytes(
+        fileName: fileName,
+        bytes: Uint8List.fromList(utf8.encode(raw)),
+      );
+      if (!mounted) return;
+      showToast(context, location == null ? '已取消匯出' : '資料已匯出');
+    } catch (_) {
+      if (mounted) showToast(context, '匯出資料失敗');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> importData() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('匯入本機資料？'),
+        content: const Text('目前資料會先建立可復原備份，再套用選擇的匯出檔。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('匯入'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => busy = true);
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+        withData: true,
+      );
+      final bytes = picked?.files.single.bytes;
+      if (bytes == null) {
+        if (mounted) showToast(context, '未選擇匯入檔');
+        return;
+      }
+      if (!mounted) return;
+      final result = await AppStoreScope.read(
+        context,
+      ).importBundle(utf8.decode(bytes, allowMalformed: false));
+      if (!mounted) return;
+      showToast(
+        context,
+        '已匯入 ${result.noteCount} 筆筆記、${result.scheduleCount} 筆行程與 ${result.todoCount} 項待辦',
+      );
+    } on FormatException catch (error) {
+      if (mounted) showToast(context, error.message);
+    } catch (_) {
+      if (mounted) showToast(context, '匯入資料失敗');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InfoCard(
+      child: Column(
+        children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.shield_outlined),
+            title: const Text('本機資料與備份'),
+            subtitle: const Text('資料保留於裝置，可匯出 JSON 備份並在匯入前建立復原點。'),
+          ),
+          const Divider(),
+          ListTile(
+            enabled: !busy,
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.upload_file_outlined),
+            title: const Text('匯出資料'),
+            subtitle: const Text('建立可攜 JSON 備份檔'),
+            trailing: busy
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : null,
+            onTap: busy ? null : exportData,
+          ),
+          const Divider(),
+          ListTile(
+            enabled: !busy,
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.download_outlined),
+            title: const Text('匯入資料'),
+            subtitle: const Text('匯入 JSON 備份；目前資料會先備份'),
+            onTap: busy ? null : importData,
           ),
         ],
       ),
@@ -7444,11 +7504,13 @@ class SectionHeader extends StatelessWidget {
   const SectionHeader({
     super.key,
     required this.title,
+    this.count,
     this.trailing,
     this.onTap,
   });
 
   final String title;
+  final int? count;
   final Widget? trailing;
   final VoidCallback? onTap;
 
@@ -7464,11 +7526,29 @@ class SectionHeader extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        title,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    if (count != null) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        '$count',
+                        key: ValueKey('section-count-$title'),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: Theme.of(context).colorScheme.primary,
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               ?trailing,
