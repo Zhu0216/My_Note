@@ -32,13 +32,17 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P0-002 — Canonical Web local-data origin
 
-- Status: `NEEDS VERIFICATION`
+- Status: `DONE`
 - User-visible behavior: `127.0.0.1:8080` and `localhost:8080` cannot create
   separate Web data stores.
 - Acceptance: loopback URL redirects to `localhost`; data survives reload on
   the canonical URL.
 - Dependencies: `web/index.html`, browser localStorage.
-- Evidence: prior source/Log describe redirect; browser acceptance needs rerun.
+- Evidence: `web/index.html` redirects IPv4 and IPv6 loopback hosts before
+  Flutter bootstraps. On 2026-09-23, headless Chrome requested
+  `127.0.0.1:8080` once, then reloaded the document and all Flutter assets
+  from `localhost` (`::1`) on the same port. This prevents a second
+  loopback-origin localStorage namespace from being used.
 
 ### P0-003 — Portable JSON backup and restore
 
