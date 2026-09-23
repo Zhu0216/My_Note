@@ -912,6 +912,71 @@ void main() {
     }
   });
 
+  test('upcoming aggregation follows source edits and hidden state', () {
+    final store = AppStore.seeded(persistenceLocked: true);
+    final now = DateTime.now();
+    final dueDate = DateTime(now.year, now.month, now.day + 2, 9);
+    final todo = TodoItem(
+      id: 'upcoming-source-todo',
+      title: '原始待辦標題',
+      dueDate: dueDate,
+    );
+    final schedule = ScheduleItem(
+      id: 'upcoming-source-schedule',
+      title: '近期行程',
+      start: dueDate.add(const Duration(hours: 1)),
+      end: dueDate.add(const Duration(hours: 2)),
+      location: '',
+      notes: '',
+      remindBeforeMinutes: 10,
+    );
+    final subscription = SubscriptionItem(
+      id: 'upcoming-source-subscription',
+      name: '近期訂閱',
+      amount: 199,
+      cycle: SubscriptionCycle.monthly,
+      nextPaymentDate: dueDate,
+      paymentMethod: '信用卡',
+      category: '服務',
+      reminderDays: 3,
+    );
+
+    try {
+      store.upsertTodo(todo);
+      store.upsertSchedule(schedule);
+      store.upsertSubscription(subscription);
+
+      expect(upcomingHomeItems(store), hasLength(3));
+      expect(homeSectionCount(store, HomeSectionId.subscriptions), 3);
+
+      store.upsertTodo(
+        TodoItem(id: todo.id, title: '修改後待辦標題', dueDate: dueDate),
+      );
+      expect(
+        upcomingHomeItems(
+          store,
+        ).singleWhere((item) => item.key == upcomingTodoKey(todo)).title,
+        '修改後待辦標題',
+      );
+
+      store.setUpcomingItemHidden(upcomingScheduleKey(schedule), true);
+      expect(upcomingHomeItems(store), hasLength(2));
+      final allItems = upcomingHomeItems(store, includeHidden: true);
+      expect(allItems, hasLength(3));
+      expect(
+        allItems
+            .singleWhere((item) => item.key == upcomingScheduleKey(schedule))
+            .hidden,
+        isTrue,
+      );
+
+      store.deleteSubscription(subscription);
+      expect(upcomingHomeItems(store, includeHidden: true), hasLength(2));
+    } finally {
+      store.dispose();
+    }
+  });
+
   testWidgets('shows note template choices before opening an editor', (
     tester,
   ) async {

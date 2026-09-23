@@ -167,16 +167,18 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-003 — Derived upcoming aggregation
 
-- Status: `IN PROGRESS`
+- Status: `DONE`
 - User-visible behavior: upcoming view derives schedules, subscriptions, and
   due todos without separately storing duplicates.
 - Acceptance: source edits update immediately; hidden items remain hidden;
   displayed count reflects all matching records.
 - Dependencies: P0-001.
-- Evidence: home headers now show total schedule, upcoming, and todo counts
-  even when their visible previews are capped. The focused widget test covers
-  five schedules with a two-item preview, two upcoming subscriptions, and
-  three todos. Source-edit/hidden-item and cross-device acceptance remain.
+- Evidence: home headers show total schedule, upcoming, and todo counts even
+  when their visible previews are capped. Focused tests cover five schedules
+  with a two-item preview, two subscriptions, and three todos, plus direct
+  source edits, removal, hidden-item filtering, management inclusion, and the
+  complete derived count. The same shared implementation passed Web build and
+  post-push SM-X510 installation/launch acceptance on 2026-09-23.
 
 ### P1-004 — Plan tasks in upcoming items
 
