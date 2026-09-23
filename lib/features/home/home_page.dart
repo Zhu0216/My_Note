@@ -1284,32 +1284,6 @@ class SubscriptionSummaryContent extends StatelessWidget {
   }
 }
 
-class HomeTileWrap extends StatelessWidget {
-  const HomeTileWrap({super.key, required this.children});
-
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Wrap(
-        alignment: WrapAlignment.start,
-        runAlignment: WrapAlignment.start,
-        crossAxisAlignment: WrapCrossAlignment.start,
-        spacing: 12,
-        runSpacing: 12,
-        children: children,
-      ),
-    );
-  }
-}
-
-double homeGridTileWidth(BuildContext context) {
-  final width = MediaQuery.sizeOf(context).width;
-  return width >= 720 ? 220 : (width - 44) / 2;
-}
-
 Future<void> showHomeLayoutSettings(BuildContext context) async {
   await Navigator.of(context).push(
     MaterialPageRoute<void>(

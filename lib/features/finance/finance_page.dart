@@ -1,7 +1,46 @@
-part of '../../main.dart';
+import 'package:flutter/material.dart';
+
+import '../../data/my_note_data.dart';
+import '../../ui/app_store_scope.dart';
+import '../../ui/basic_display.dart';
+import '../../ui/calendar_components.dart';
+import '../../ui/finance_charts.dart';
+import '../../ui/formatters.dart';
+import '../../ui/shared_components.dart';
+
+class FinanceFeatureActions {
+  const FinanceFeatureActions({
+    required this.editEntry,
+    required this.manageSubscriptions,
+    required this.editSubscription,
+    required this.editSavingsAccount,
+    required this.showSavingsAccountActions,
+    required this.editBudget,
+  });
+
+  final Future<void> Function(BuildContext context, {FinanceEntry? entry})
+  editEntry;
+  final Future<void> Function(BuildContext context) manageSubscriptions;
+  final Future<void> Function(
+    BuildContext context, {
+    SubscriptionItem? subscription,
+  })
+  editSubscription;
+  final Future<void> Function(
+    BuildContext context, {
+    SavingsAccount? account,
+    bool editName,
+  })
+  editSavingsAccount;
+  final Future<void> Function(BuildContext context, SavingsAccount account)
+  showSavingsAccountActions;
+  final Future<void> Function(BuildContext context) editBudget;
+}
 
 class FinancePage extends StatefulWidget {
-  const FinancePage({super.key});
+  const FinancePage({super.key, required this.actions});
+
+  final FinanceFeatureActions actions;
 
   @override
   State<FinancePage> createState() => _FinancePageState();
@@ -25,7 +64,7 @@ class _FinancePageState extends State<FinancePage> {
       backgroundColor: Colors.transparent,
       floatingActionButton: AddBubbleButton(
         tooltip: '新增記帳',
-        onPressed: () => showFinanceEditor(context),
+        onPressed: () => widget.actions.editEntry(context),
         heroTag: 'finance-add',
       ),
       body: AppPage(
@@ -36,14 +75,15 @@ class _FinancePageState extends State<FinancePage> {
             tooltip: '近期紀錄',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (context) => const FinanceHistoryPage(),
+                builder: (context) =>
+                    FinanceHistoryPage(actions: widget.actions),
               ),
             ),
             icon: const Icon(Icons.history),
           ),
           IconButton(
             tooltip: '訂閱管理',
-            onPressed: () => showSubscriptionManager(context),
+            onPressed: () => widget.actions.manageSubscriptions(context),
             icon: const Icon(Icons.subscriptions),
           ),
         ],
@@ -109,7 +149,7 @@ class _FinancePageState extends State<FinancePage> {
                   ),
                   IconButton(
                     tooltip: '新增帳戶',
-                    onPressed: () => showSavingsAccountEditor(context),
+                    onPressed: () => widget.actions.editSavingsAccount(context),
                     icon: const Icon(Icons.add),
                   ),
                 ],
@@ -131,8 +171,8 @@ class _FinancePageState extends State<FinancePage> {
                       child: SavingsAccountCard(
                         account: account,
                         visible: showSavingsAccountAmounts,
-                        onLongPress: () =>
-                            showSavingsAccountActions(context, account),
+                        onLongPress: () => widget.actions
+                            .showSavingsAccountActions(context, account),
                       ),
                     ),
                 ],
@@ -179,7 +219,7 @@ class _FinancePageState extends State<FinancePage> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: FilledButton.tonalIcon(
-                      onPressed: () => showBudgetEditor(context),
+                      onPressed: () => widget.actions.editBudget(context),
                       icon: const Icon(Icons.tune),
                       label: const Text('調整預算'),
                     ),
@@ -193,8 +233,10 @@ class _FinancePageState extends State<FinancePage> {
               trailing: TextButton(
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (context) =>
-                        const FinanceTimelinePage(type: EntryType.expense),
+                    builder: (context) => FinanceTimelinePage(
+                      type: EntryType.expense,
+                      actions: widget.actions,
+                    ),
                   ),
                 ),
                 child: const Text('查看'),
@@ -214,8 +256,10 @@ class _FinancePageState extends State<FinancePage> {
               trailing: TextButton(
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (context) =>
-                        const FinanceTimelinePage(type: EntryType.income),
+                    builder: (context) => FinanceTimelinePage(
+                      type: EntryType.income,
+                      actions: widget.actions,
+                    ),
                   ),
                 ),
                 child: const Text('查看'),
@@ -263,7 +307,7 @@ class _FinancePageState extends State<FinancePage> {
                               '${formatDate(sub.nextPaymentDate)}  ${sub.paymentMethod}',
                             ),
                             trailing: Text(currency(sub.amount)),
-                            onTap: () => showSubscriptionEditor(
+                            onTap: () => widget.actions.editSubscription(
                               context,
                               subscription: sub,
                             ),
@@ -273,7 +317,8 @@ class _FinancePageState extends State<FinancePage> {
                     Align(
                       alignment: Alignment.centerRight,
                       child: FilledButton.icon(
-                        onPressed: () => showSubscriptionEditor(context),
+                        onPressed: () =>
+                            widget.actions.editSubscription(context),
                         icon: const Icon(Icons.add),
                         label: const Text('新增訂閱'),
                       ),
@@ -289,7 +334,9 @@ class _FinancePageState extends State<FinancePage> {
 }
 
 class FinanceHistoryPage extends StatelessWidget {
-  const FinanceHistoryPage({super.key});
+  const FinanceHistoryPage({super.key, required this.actions});
+
+  final FinanceFeatureActions actions;
 
   @override
   Widget build(BuildContext context) {
@@ -313,7 +360,7 @@ class FinanceHistoryPage extends StatelessWidget {
                         padding: const EdgeInsets.only(bottom: 10),
                         child: FinanceTile(
                           entry: item,
-                          onTap: () => showFinanceEditor(context, entry: item),
+                          onTap: () => actions.editEntry(context, entry: item),
                           onDelete: () => store.deleteFinanceEntry(item),
                         ),
                       ),
@@ -326,9 +373,14 @@ class FinanceHistoryPage extends StatelessWidget {
 }
 
 class FinanceTimelinePage extends StatelessWidget {
-  const FinanceTimelinePage({super.key, required this.type});
+  const FinanceTimelinePage({
+    super.key,
+    required this.type,
+    required this.actions,
+  });
 
   final EntryType type;
+  final FinanceFeatureActions actions;
 
   @override
   Widget build(BuildContext context) {
@@ -361,7 +413,7 @@ class FinanceTimelinePage extends StatelessWidget {
                           child: FinanceTile(
                             entry: item,
                             onTap: () =>
-                                showFinanceEditor(context, entry: item),
+                                actions.editEntry(context, entry: item),
                             onDelete: () => store.deleteFinanceEntry(item),
                           ),
                         ),
@@ -547,4 +599,52 @@ class SavingsAccountCard extends StatelessWidget {
       ),
     );
   }
+}
+
+Map<String, double> groupExpensesByCategory(List<FinanceEntry> entries) {
+  final now = DateTime.now();
+  final result = <String, double>{};
+  for (final entry in entries) {
+    if (entry.type != EntryType.expense ||
+        entry.date.year != now.year ||
+        entry.date.month != now.month) {
+      continue;
+    }
+    result.update(
+      entry.category,
+      (value) => value + entry.amount,
+      ifAbsent: () => entry.amount,
+    );
+  }
+  return result;
+}
+
+Map<String, double> groupIncomeByAccount(List<FinanceEntry> entries) {
+  final now = DateTime.now();
+  final result = <String, double>{};
+  for (final entry in entries) {
+    if (entry.type != EntryType.income ||
+        entry.date.year != now.year ||
+        entry.date.month != now.month) {
+      continue;
+    }
+    final account = entry.account.trim().isEmpty ? '未指定帳戶' : entry.account;
+    result.update(
+      account,
+      (value) => value + entry.amount,
+      ifAbsent: () => entry.amount,
+    );
+  }
+  return result;
+}
+
+Map<DateTime, List<FinanceEntry>> groupFinanceEntriesByDate(
+  List<FinanceEntry> entries,
+) {
+  final result = <DateTime, List<FinanceEntry>>{};
+  for (final entry in entries) {
+    final key = DateTime(entry.date.year, entry.date.month, entry.date.day);
+    result.putIfAbsent(key, () => <FinanceEntry>[]).add(entry);
+  }
+  return result;
 }

@@ -17,15 +17,14 @@ import 'data/my_note_data.dart';
 import 'ui/app_navigation.dart';
 import 'ui/app_store_scope.dart';
 import 'ui/basic_display.dart';
-import 'ui/calendar_components.dart';
 import 'ui/formatters.dart';
-import 'ui/finance_charts.dart';
 import 'ui/folder_names.dart';
 import 'ui/prompt_dialogs.dart';
 import 'ui/shared_components.dart';
 import 'services/note_file_service.dart';
 import 'features/settings/settings_page.dart';
 import 'features/calendar/calendar_page.dart';
+import 'features/finance/finance_page.dart';
 
 export 'data/my_note_data.dart';
 export 'ui/app_navigation.dart';
@@ -41,11 +40,11 @@ export 'ui/shared_components.dart';
 export 'services/note_file_service.dart';
 export 'features/settings/settings_page.dart';
 export 'features/calendar/calendar_page.dart';
+export 'features/finance/finance_page.dart';
 
 part 'note_editor.dart';
 part 'features/home/home_page.dart';
 part 'features/notes/notes_page.dart';
-part 'features/finance/finance_page.dart';
 part 'ui/display_components.dart';
 
 const appLocale = Locale('zh', 'TW');
@@ -520,7 +519,16 @@ class _AppShellState extends State<AppShell> {
       NotesPage(key: notesPageKey),
       CalendarPage(key: calendarPageKey, onEditSchedule: showScheduleEditor),
       HomePage(key: homePageKey, onNavigate: selectPage),
-      const FinancePage(),
+      FinancePage(
+        actions: FinanceFeatureActions(
+          editEntry: showFinanceEditor,
+          manageSubscriptions: showSubscriptionManager,
+          editSubscription: showSubscriptionEditor,
+          editSavingsAccount: showSavingsAccountEditor,
+          showSavingsAccountActions: showSavingsAccountActions,
+          editBudget: showBudgetEditor,
+        ),
+      ),
       const SettingsPage(),
     ];
 
@@ -2190,54 +2198,6 @@ Future<void> showTodoDialog(BuildContext context, {TodoItem? todo}) async {
     ),
   );
   controller.dispose();
-}
-
-Map<String, double> groupExpensesByCategory(List<FinanceEntry> entries) {
-  final now = DateTime.now();
-  final result = <String, double>{};
-  for (final entry in entries) {
-    if (entry.type != EntryType.expense ||
-        entry.date.year != now.year ||
-        entry.date.month != now.month) {
-      continue;
-    }
-    result.update(
-      entry.category,
-      (value) => value + entry.amount,
-      ifAbsent: () => entry.amount,
-    );
-  }
-  return result;
-}
-
-Map<String, double> groupIncomeByAccount(List<FinanceEntry> entries) {
-  final now = DateTime.now();
-  final result = <String, double>{};
-  for (final entry in entries) {
-    if (entry.type != EntryType.income ||
-        entry.date.year != now.year ||
-        entry.date.month != now.month) {
-      continue;
-    }
-    final account = entry.account.trim().isEmpty ? '未指定帳戶' : entry.account;
-    result.update(
-      account,
-      (value) => value + entry.amount,
-      ifAbsent: () => entry.amount,
-    );
-  }
-  return result;
-}
-
-Map<DateTime, List<FinanceEntry>> groupFinanceEntriesByDate(
-  List<FinanceEntry> entries,
-) {
-  final result = <DateTime, List<FinanceEntry>>{};
-  for (final entry in entries) {
-    final key = DateTime(entry.date.year, entry.date.month, entry.date.day);
-    result.putIfAbsent(key, () => <FinanceEntry>[]).add(entry);
-  }
-  return result;
 }
 
 String todoSubtitle(TodoItem todo) {

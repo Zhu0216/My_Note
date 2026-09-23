@@ -107,9 +107,10 @@ the current behavior has not been independently accepted for this v1 baseline.
   `lib/features/home/`, while the notes browser, folder navigation, filters,
   batch actions, and note cards live under `lib/features/notes/`. Calendar
   month/week/list pages now use the standalone focused-import
-  `lib/features/calendar/calendar_page.dart` library; finance
-  dashboard, budget, account, chart, and record views live under
-  `lib/features/finance/`; local backup/import/recovery settings now use the
+  `lib/features/calendar/calendar_page.dart` library; finance dashboard,
+  account, chart, history, and timeline views now use the standalone
+  focused-import `lib/features/finance/finance_page.dart` library; local
+  backup/import/recovery settings now use the
   standalone focused-import `lib/features/settings/settings_page.dart` library.
   Common page shells, FAB menus, action buttons, and
   swipe-delete components moved to the standalone focused-import library
