@@ -115,9 +115,10 @@ the current behavior has not been independently accepted for this v1 baseline.
   Common page shells, FAB menus, action buttons, and
   swipe-delete components moved to the standalone focused-import library
   `lib/ui/shared_components.dart`; generic section headers and empty states use
-  the focused `lib/ui/basic_display.dart` library; metric,
-  section, schedule, note-list/grid, selection, and sort display widgets moved
-  to `lib/ui/display_components.dart`; stable text/folder input dialogs and
+  the focused `lib/ui/basic_display.dart` library; metric, note-list/grid,
+  selection, and sort display widgets now use the standalone focused-import
+  `lib/ui/display_components.dart` library, with note template labels and icons
+  supplied by `lib/ui/note_template_metadata.dart`; stable text/folder input dialogs and
   folder-name constraints now use focused imports from
   `lib/ui/prompt_dialogs.dart` and `lib/ui/folder_names.dart`; schedule/finance rows and calendar period,
   swipe, month-picker, month-grid, and week-strip widgets now use the standalone

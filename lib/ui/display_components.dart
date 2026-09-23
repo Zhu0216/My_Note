@@ -1,4 +1,24 @@
-part of '../main.dart';
+import 'package:flutter/material.dart';
+
+import '../data/my_note_data.dart';
+import 'app_store_scope.dart';
+import 'basic_display.dart';
+import 'note_template_metadata.dart';
+import 'shared_components.dart';
+
+class MetricInfo {
+  const MetricInfo({
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  final String title;
+  final String value;
+  final IconData icon;
+  final Color color;
+}
 
 class MetricCard extends StatelessWidget {
   const MetricCard({

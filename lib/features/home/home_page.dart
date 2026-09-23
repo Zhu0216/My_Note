@@ -320,20 +320,6 @@ class MetricsHomeSection extends StatelessWidget {
   }
 }
 
-class MetricInfo {
-  const MetricInfo({
-    required this.title,
-    required this.value,
-    required this.icon,
-    required this.color,
-  });
-
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-}
-
 class ScheduleHomeSection extends StatelessWidget {
   const ScheduleHomeSection({super.key, required this.style});
 
