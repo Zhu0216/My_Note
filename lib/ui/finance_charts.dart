@@ -1,4 +1,8 @@
-part of '../main.dart';
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+
+import 'formatters.dart';
 
 class ExpenseBarChart extends StatelessWidget {
   const ExpenseBarChart({super.key, required this.grouped});

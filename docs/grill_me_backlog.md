@@ -116,7 +116,8 @@ the current behavior has not been independently accepted for this v1 baseline.
   to `lib/ui/prompt_dialogs.dart`; schedule/finance rows and calendar period,
   swipe, month-picker, month-grid, and week-strip widgets moved to
   `lib/ui/calendar_components.dart`; finance bar/ring charts and painters moved
-  to `lib/ui/finance_charts.dart`; bottom navigation, item animation, and the
+  to the standalone `lib/ui/finance_charts.dart`, backed by focused pure display
+  formatters in `lib/ui/formatters.dart`; bottom navigation, item animation, and the
   navigation scope moved to the standalone `lib/ui/app_navigation.dart` library,
   which is consumed through a focused import rather than `part of`. Remaining: replace transitional
   feature parts with focused imports where dependencies permit.
