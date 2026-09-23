@@ -87,6 +87,178 @@ void main() {
     },
   );
 
+  group('local import integrity validation', () {
+    String bundle(Map<String, dynamic> changes) {
+      final data = <String, dynamic>{
+        'notes': <Object?>[],
+        'schedules': <Object?>[],
+        'subscriptions': <Object?>[],
+        'financeEntries': <Object?>[],
+        'savingsAccounts': <Object?>[],
+        'todos': <Object?>[],
+        'noteFolders': <Object?>[],
+        ...changes,
+      };
+      return jsonEncode({
+        'schema': LocalDataBundle.schemaName,
+        'createdAt': DateTime(2026, 9, 23).toIso8601String(),
+        'data': data,
+      });
+    }
+
+    test('rejects duplicate IDs, invalid folders, dates, and numbers', () {
+      expect(
+        () => LocalDataBundle.decode(
+          bundle({
+            'todos': [
+              {'id': 'same'},
+              {'id': 'same'},
+            ],
+          }),
+        ),
+        throwsA(isA<FormatException>()),
+      );
+      expect(
+        () => LocalDataBundle.decode(
+          bundle({
+            'noteFolders': ['valid', 'bad//child'],
+          }),
+        ),
+        throwsA(isA<FormatException>()),
+      );
+      expect(
+        () => LocalDataBundle.decode(
+          bundle({
+            'schedules': [
+              {
+                'id': 'schedule-1',
+                'start': 'not-a-date',
+                'end': '2026-09-23T11:00:00.000',
+              },
+            ],
+          }),
+        ),
+        throwsA(isA<FormatException>()),
+      );
+      expect(
+        () => LocalDataBundle.decode(
+          bundle({
+            'financeEntries': [
+              {
+                'id': 'finance-1',
+                'date': '2026-09-23T11:00:00.000',
+                'amount': 'not-a-number',
+              },
+            ],
+          }),
+        ),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('rejects broken plan references and cycles', () {
+      Map<String, dynamic> plan(List<Map<String, dynamic>> nodes) => {
+        'id': 'plan-note',
+        'templateType': 'plan',
+        'templateData': {'schema': PlanDocument.schema, 'nodes': nodes},
+      };
+
+      expect(
+        () => LocalDataBundle.decode(
+          bundle({
+            'notes': [
+              plan([
+                {'id': 'phase-a', 'type': 'phase', 'parentId': 'phase-b'},
+                {'id': 'phase-b', 'type': 'phase', 'parentId': 'phase-a'},
+              ]),
+            ],
+          }),
+        ),
+        throwsA(isA<FormatException>()),
+      );
+      expect(
+        () => LocalDataBundle.decode(
+          bundle({
+            'notes': [
+              plan([
+                {
+                  'id': 'task-a',
+                  'type': 'task',
+                  'linkedTodoId': 'missing-todo',
+                },
+              ]),
+            ],
+          }),
+        ),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('rejects mind-map canvas links to missing nodes', () {
+      expect(
+        () => LocalDataBundle.decode(
+          bundle({
+            'notes': [
+              {
+                'id': 'mind-note',
+                'templateType': 'mindMap',
+                'templateData': {
+                  'schema': MindMapDocument.schema,
+                  'rootNodeId': 'root',
+                  'nodes': [
+                    {'id': 'root', 'x': 0, 'y': 0},
+                  ],
+                  'connections': [
+                    {
+                      'id': 'line-1',
+                      'fromNodeId': 'root',
+                      'toNodeId': 'missing',
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+        ),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test(
+      'rejects a missing life-sheet account without changing live data',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final store = AppStore.seeded(persistenceLocked: true);
+        store.upsertTodo(TodoItem(id: 'keep', title: '保留'));
+
+        await expectLater(
+          store.importBundle(
+            bundle({
+              'notes': [
+                {
+                  'id': 'life-note',
+                  'templateType': 'lifeSheet',
+                  'templateData': {
+                    'schema': LifeProjectDocument.schema,
+                    'items': [
+                      {
+                        'id': 'item-1',
+                        'accountIds': ['missing-account'],
+                      },
+                    ],
+                  },
+                },
+              ],
+            }),
+          ),
+          throwsA(isA<FormatException>()),
+        );
+        expect(store.todos.single.id, 'keep');
+        store.dispose();
+      },
+    );
+  });
+
   test('recovery history lists a valid snapshot and restores it', () async {
     SharedPreferences.setMockInitialValues({});
     final store = await AppStore.load();

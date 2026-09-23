@@ -99,13 +99,19 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P0-007 — Data integrity validation
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: import/migration failures explain the problem and
   never partially replace existing data.
 - Acceptance: validation checks IDs, folder paths, references, dates, numeric
   values, and document tree/canvas invariants before commit.
 - Dependencies: P0-003, P0-005.
-- Evidence: none.
+- Evidence: `LocalDataBundle.decode` now validates the complete candidate before
+  `AppStore.importBundle` can mutate live data. Validation rejects missing or
+  duplicate record IDs, malformed folder paths, invalid dates and numbers,
+  broken typed references, plan cycles/task children, missing mind-map roots or
+  connection endpoints, and life-sheet account references. On 2026-09-23,
+  focused rejection tests also proved that a failed import retains current
+  in-memory data; the full 63-test suite, analyzer, and Flutter Web build passed.
 
 ## P1 — Cross-record memory network and upcoming items
 
