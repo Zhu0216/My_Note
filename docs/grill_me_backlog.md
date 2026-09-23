@@ -135,7 +135,9 @@ the current behavior has not been independently accepted for this v1 baseline.
   and calendar date/period calculations moved to the focused
   `lib/ui/calendar_helpers.dart` library. These are consumed through focused
   imports rather than `part of`; localized date/time pickers and date/time
-  composition helpers now use `lib/ui/app_pickers.dart`. File picking, crop, export, PDF, and share
+  composition helpers now use `lib/ui/app_pickers.dart`, while account option,
+  numeric input, and duplicate-account helpers use
+  `lib/ui/finance_form_helpers.dart`. File picking, crop, export, PDF, and share
   operations moved from the rich editor into
   `lib/services/note_file_service.dart`. Remaining: replace transitional
   feature parts with focused imports where dependencies permit.
