@@ -18,14 +18,17 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P0-001 — Revisioned local persistence
 
-- Status: `NEEDS VERIFICATION`
+- Status: `DONE`
 - User-visible behavior: every create, edit, move, rename, and delete survives
   closing and reopening; older data cannot overwrite a newer change.
 - Acceptance: mutation-order tests pass; restart keeps final state; a damaged
   primary snapshot restores the newest valid checkpoint or backup.
 - Dependencies: `shared_preferences`, local JSON serializers.
-- Evidence: current `AppStore` has revision/checkpoint/journal/backup-history
-  code; prior Log has 57 passing tests. Clean-device recovery acceptance remains.
+- Evidence: `AppStore` has revision/checkpoint/journal/backup-history code.
+  On 2026-09-23, the full suite passed 57 tests, including damaged-primary
+  recovery, legacy-seed rejection, mixed-data recovery, checkpoint precedence,
+  rapid mutation journal order, and intentionally empty latest revisions.
+  Flutter Web built successfully from the same working tree.
 
 ### P0-002 — Canonical Web local-data origin
 
