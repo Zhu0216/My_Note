@@ -1,4 +1,6 @@
-part of '../main.dart';
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
 
 class AppPage extends StatelessWidget {
   const AppPage({
@@ -468,6 +470,31 @@ class QuickAddPanel extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class QuickAddOption extends StatelessWidget {
+  const QuickAddOption({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.onSelected,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(title),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => onSelected(value),
     );
   }
 }

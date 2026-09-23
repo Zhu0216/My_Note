@@ -110,7 +110,8 @@ the current behavior has not been independently accepted for this v1 baseline.
   dashboard, budget, account, chart, and record views live under
   `lib/features/finance/`; local backup/import/recovery settings live under
   `lib/features/settings/`. Common page shells, FAB menus, action buttons, and
-  swipe-delete components moved to `lib/ui/shared_components.dart`; metric,
+  swipe-delete components moved to the standalone focused-import library
+  `lib/ui/shared_components.dart`; metric,
   section, schedule, note-list/grid, selection, and sort display widgets moved
   to `lib/ui/display_components.dart`; stable text/folder input dialogs and
   folder-name constraints now use focused imports from

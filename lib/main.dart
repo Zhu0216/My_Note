@@ -26,6 +26,7 @@ import 'ui/formatters.dart';
 import 'ui/finance_charts.dart';
 import 'ui/folder_names.dart';
 import 'ui/prompt_dialogs.dart';
+import 'ui/shared_components.dart';
 
 export 'data/my_note_data.dart';
 export 'ui/app_navigation.dart';
@@ -34,6 +35,7 @@ export 'ui/formatters.dart';
 export 'ui/finance_charts.dart';
 export 'ui/folder_names.dart';
 export 'ui/prompt_dialogs.dart';
+export 'ui/shared_components.dart';
 
 part 'note_editor.dart';
 part 'features/home/home_page.dart';
@@ -41,7 +43,6 @@ part 'features/notes/notes_page.dart';
 part 'features/calendar/calendar_page.dart';
 part 'features/finance/finance_page.dart';
 part 'features/settings/settings_page.dart';
-part 'ui/shared_components.dart';
 part 'ui/display_components.dart';
 part 'ui/calendar_components.dart';
 
@@ -1837,31 +1838,6 @@ Future<void> showSavingsAccountActions(
       ),
     ),
   );
-}
-
-class QuickAddOption extends StatelessWidget {
-  const QuickAddOption({
-    super.key,
-    required this.icon,
-    required this.title,
-    required this.value,
-    required this.onSelected,
-  });
-
-  final IconData icon;
-  final String title;
-  final String value;
-  final ValueChanged<String> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(title),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () => onSelected(value),
-    );
-  }
 }
 
 Future<void> openTodoEditorPage(BuildContext context, {TodoItem? todo}) async {
