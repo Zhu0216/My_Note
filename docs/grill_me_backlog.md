@@ -120,7 +120,9 @@ the current behavior has not been independently accepted for this v1 baseline.
   to the standalone `lib/ui/finance_charts.dart`, backed by focused pure display
   formatters in `lib/ui/formatters.dart`; bottom navigation, item animation, and the
   navigation scope moved to the standalone `lib/ui/app_navigation.dart` library,
-  which is consumed through a focused import rather than `part of`. Remaining: replace transitional
+  and calendar date/period calculations moved to the focused
+  `lib/ui/calendar_helpers.dart` library. These are consumed through focused
+  imports rather than `part of`. Remaining: replace transitional
   feature parts with focused imports where dependencies permit.
 
 ### P0-007 — Data integrity validation
