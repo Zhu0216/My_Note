@@ -21,6 +21,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import 'firebase_options.dart';
 import 'data/my_note_data.dart';
 import 'ui/app_navigation.dart';
+import 'ui/app_store_scope.dart';
 import 'ui/basic_display.dart';
 import 'ui/calendar_helpers.dart';
 import 'ui/calendar_components.dart';
@@ -32,6 +33,7 @@ import 'ui/shared_components.dart';
 
 export 'data/my_note_data.dart';
 export 'ui/app_navigation.dart';
+export 'ui/app_store_scope.dart';
 export 'ui/basic_display.dart';
 export 'ui/calendar_helpers.dart';
 export 'ui/calendar_components.dart';
@@ -326,28 +328,6 @@ class ShadcnActionButton extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-class AppStoreScope extends InheritedNotifier<AppStore> {
-  const AppStoreScope({
-    super.key,
-    required AppStore store,
-    required super.child,
-  }) : super(notifier: store);
-
-  static AppStore of(BuildContext context) {
-    final scope = context.dependOnInheritedWidgetOfExactType<AppStoreScope>();
-    assert(scope != null, 'AppStoreScope not found');
-    return scope!.notifier!;
-  }
-
-  static AppStore read(BuildContext context) {
-    final element = context
-        .getElementForInheritedWidgetOfExactType<AppStoreScope>();
-    final scope = element?.widget as AppStoreScope?;
-    assert(scope != null, 'AppStoreScope not found');
-    return scope!.notifier!;
   }
 }
 
