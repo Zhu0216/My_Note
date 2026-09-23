@@ -67,14 +67,18 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P0-005 — Domain model extraction
 
-- Status: `IN PROGRESS`
+- Status: `DONE`
 - User-visible behavior: no intentional UI change; future changes avoid one
   monolithic source file.
 - Acceptance: records and schemas live under `lib/data/`; existing behavior
   and full tests remain unchanged.
 - Dependencies: P0-001.
-- Evidence: uncommitted `app_models.dart` and `template_documents.dart`; app
-  shell and Store still live in `main.dart`.
+- Evidence: adopted recovery snapshot `4c071a2` is retained on
+  `backup/pre-codex-adoption-20260923-150100`. The extracted
+  `app_models.dart`, `template_documents.dart`, and `local_data_bundle.dart`
+  now carry domain records and document schemas, while `main.dart` remains the
+  composition root. On 2026-09-23, formatting, analysis, all 57 tests, and a
+  Flutter Web build passed before the isolated extraction commit.
 
 ### P0-006 — Store and feature-layer extraction
 
