@@ -105,8 +105,9 @@ the current behavior has not been independently accepted for this v1 baseline.
   entrypoint. Analysis, the full 64-test suite, and Flutter Web build passed
   after each extraction. Home/dashboard/todo/upcoming now live under
   `lib/features/home/`, while the notes browser, folder navigation, filters,
-  batch actions, and note cards live under `lib/features/notes/`. Remaining:
-  split calendar, finance, settings, and shared UI helpers, then replace
+  batch actions, and note cards live under `lib/features/notes/`. Calendar
+  month/week/list pages now live under `lib/features/calendar/`. Remaining:
+  split finance, settings, and shared UI helpers, then replace
   transitional feature parts with focused imports where dependencies permit.
 
 ### P0-007 — Data integrity validation
