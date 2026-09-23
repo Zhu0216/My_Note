@@ -60,13 +60,17 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P0-004 — Backup history and recovery UI
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: users inspect backup timestamps and restore a selected
   snapshot without manually editing JSON.
 - Acceptance: Settings lists recoverable backups, requires confirmation, and
   shows restored record counts.
 - Dependencies: P0-001, P0-003.
-- Evidence: none.
+- Evidence: Settings now lists validated recovery snapshots with timestamps and
+  record counts. Restore requires a second confirmation and reuses the guarded
+  import flow, which checkpoints current data first. On 2026-09-23,
+  formatter/analyzer, the full 59-test suite, and Flutter Web build passed;
+  the focused test verifies listing and restoring a stored snapshot.
 
 ### P0-005 — Domain model extraction
 

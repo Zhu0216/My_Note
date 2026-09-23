@@ -87,6 +87,23 @@ void main() {
     },
   );
 
+  test('recovery history lists a valid snapshot and restores it', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = await AppStore.load();
+    store.upsertTodo(TodoItem(id: 'backup-todo', title: '備份待辦'));
+    await store.flushPersistence();
+
+    final snapshots = await store.recoverySnapshots();
+    expect(snapshots, isNotEmpty);
+    expect(snapshots.first.todoCount, 1);
+
+    store.todos.clear();
+    final restored = await store.restoreRecoverySnapshot(snapshots.first);
+    expect(restored.todoCount, 1);
+    expect(store.todos.single.title, '備份待辦');
+    store.dispose();
+  });
+
   testWidgets('renders the restored app shell', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final store = AppStore.seeded();

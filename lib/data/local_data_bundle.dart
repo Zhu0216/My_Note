@@ -66,3 +66,21 @@ class LocalImportResult {
   final int scheduleCount;
   final int todoCount;
 }
+
+/// A validated local recovery snapshot. The raw payload stays private to the
+/// app flow and is only used after the user confirms a restore action.
+class LocalBackupSnapshot {
+  const LocalBackupSnapshot({
+    required this.raw,
+    required this.savedAt,
+    required this.noteCount,
+    required this.scheduleCount,
+    required this.todoCount,
+  });
+
+  final String raw;
+  final DateTime savedAt;
+  final int noteCount;
+  final int scheduleCount;
+  final int todoCount;
+}

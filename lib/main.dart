@@ -870,6 +870,36 @@ class AppStore extends ChangeNotifier {
     );
   }
 
+  Future<List<LocalBackupSnapshot>> recoverySnapshots() async {
+    await flushPersistence();
+    final prefs = await SharedPreferences.getInstance();
+    final snapshots = <LocalBackupSnapshot>[];
+    final seen = <String>{};
+    for (final raw in _readBackupSnapshots(prefs)) {
+      if (!seen.add(raw)) continue;
+      final candidate = _tryLoadFromRaw(raw);
+      if (candidate == null || !_rawHasRecoverableUserContent(raw)) {
+        candidate?.dispose();
+        continue;
+      }
+      snapshots.add(
+        LocalBackupSnapshot(
+          raw: raw,
+          savedAt: _rawChangedAt(raw) ?? DateTime.now(),
+          noteCount: candidate.notes.length,
+          scheduleCount: candidate.schedules.length,
+          todoCount: candidate.todos.length,
+        ),
+      );
+      candidate.dispose();
+    }
+    return snapshots;
+  }
+
+  Future<LocalImportResult> restoreRecoverySnapshot(
+    LocalBackupSnapshot snapshot,
+  ) => importBundle(snapshot.raw);
+
   Future<void> _persistSnapshot({
     required String raw,
     required String action,
@@ -6681,6 +6711,89 @@ class _LocalDataManagementCardState extends State<LocalDataManagementCard> {
     }
   }
 
+  Future<void> showRecoveryHistory() async {
+    final store = AppStoreScope.read(context);
+    setState(() => busy = true);
+    List<LocalBackupSnapshot> snapshots = const [];
+    try {
+      snapshots = await store.recoverySnapshots();
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('復原備份'),
+        content: SizedBox(
+          width: 420,
+          child: snapshots.isEmpty
+              ? const Text('目前沒有可復原的備份。')
+              : ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: snapshots.length,
+                  separatorBuilder: (context, index) => const Divider(),
+                  itemBuilder: (_, index) {
+                    final snapshot = snapshots[index];
+                    return ListTile(
+                      title: Text(
+                        '${formatDate(snapshot.savedAt)} ${formatTime(snapshot.savedAt)}',
+                      ),
+                      subtitle: Text(
+                        '${snapshot.noteCount} 筆筆記、${snapshot.scheduleCount} 筆行程、${snapshot.todoCount} 項待辦',
+                      ),
+                      trailing: const Icon(Icons.restore),
+                      onTap: () async {
+                        final confirmed = await showDialog<bool>(
+                          context: dialogContext,
+                          builder: (confirmContext) => AlertDialog(
+                            title: const Text('復原這份備份？'),
+                            content: const Text('目前資料會先建立新備份，再復原選擇的內容。'),
+                            actions: [
+                              TextButton(
+                                onPressed: () =>
+                                    Navigator.pop(confirmContext, false),
+                                child: const Text('取消'),
+                              ),
+                              FilledButton(
+                                onPressed: () =>
+                                    Navigator.pop(confirmContext, true),
+                                child: const Text('復原'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirmed != true || !mounted) return;
+                        try {
+                          final result = await store.restoreRecoverySnapshot(
+                            snapshot,
+                          );
+                          if (!mounted || !dialogContext.mounted) return;
+                          showToast(
+                            dialogContext,
+                            '已復原 ${result.noteCount} 筆筆記、${result.scheduleCount} 筆行程與 ${result.todoCount} 項待辦',
+                          );
+                          Navigator.pop(dialogContext);
+                        } catch (_) {
+                          if (mounted && dialogContext.mounted) {
+                            showToast(dialogContext, '復原備份失敗');
+                          }
+                        }
+                      },
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('關閉'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return InfoCard(
@@ -6715,6 +6828,15 @@ class _LocalDataManagementCardState extends State<LocalDataManagementCard> {
             title: const Text('匯入資料'),
             subtitle: const Text('匯入 JSON 備份；目前資料會先備份'),
             onTap: busy ? null : importData,
+          ),
+          const Divider(),
+          ListTile(
+            enabled: !busy,
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.history_outlined),
+            title: const Text('復原備份'),
+            subtitle: const Text('檢視並復原本機備份歷程'),
+            onTap: busy ? null : showRecoveryHistory,
           ),
         ],
       ),
