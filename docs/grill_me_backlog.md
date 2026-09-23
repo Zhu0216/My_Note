@@ -52,8 +52,11 @@ the current behavior has not been independently accepted for this v1 baseline.
 - Acceptance: versioned export validates; import restores every record family;
   invalid files leave current state unchanged.
 - Dependencies: `AppStore`, File Picker, local persistence.
-- Evidence: uncommitted `local_data_bundle.dart`, Store APIs, settings card,
-  and unit test exist; UI and real-device file-flow acceptance remain.
+- Evidence: recovery snapshot `4c071a2` preserves the adopted baseline. The
+  isolated implementation exposes versioned JSON export/import in Settings,
+  checkpoints the prior snapshot before import, and rejects invalid bundles
+  before in-memory mutation. Focused export/restore and invalid-import tests
+  passed on 2026-09-23. Web and X510 file-picker acceptance remain.
 
 ### P0-004 — Backup history and recovery UI
 

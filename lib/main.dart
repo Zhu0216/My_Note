@@ -792,6 +792,84 @@ class AppStore extends ChangeNotifier {
     };
   }
 
+  /// Creates a portable snapshot. This never changes current app state.
+  Future<String> exportBundle() async {
+    await flushPersistence();
+    return LocalDataBundle(
+      createdAt: DateTime.now(),
+      data: cloneJsonMap(toJson()),
+    ).encode();
+  }
+
+  /// Validates and replaces the in-memory state from an export or legacy local
+  /// snapshot. The previous state is checkpointed before the imported one is
+  /// committed, so a failed or unwanted import remains recoverable.
+  Future<LocalImportResult> importBundle(String raw) async {
+    final bundle = LocalDataBundle.decode(raw);
+    final candidateRaw = jsonEncode(bundle.data);
+    final candidate = _tryLoadFromRaw(candidateRaw);
+    if (candidate == null) {
+      throw const FormatException('匯入資料無法讀取。');
+    }
+
+    await flushPersistence();
+    if (!_persistenceLocked) {
+      final prefs = await SharedPreferences.getInstance();
+      final previousRaw = jsonEncode(toJson());
+      await prefs.setString(_checkpointStorageKey, previousRaw);
+      await _writeBackupSnapshot(prefs, previousRaw);
+    }
+
+    notes
+      ..clear()
+      ..addAll(candidate.notes);
+    schedules
+      ..clear()
+      ..addAll(candidate.schedules);
+    subscriptions
+      ..clear()
+      ..addAll(candidate.subscriptions);
+    financeEntries
+      ..clear()
+      ..addAll(candidate.financeEntries);
+    savingsAccounts
+      ..clear()
+      ..addAll(candidate.savingsAccounts);
+    todos
+      ..clear()
+      ..addAll(candidate.todos);
+    noteFolders
+      ..clear()
+      ..addAll(candidate.noteFolders);
+    homeSectionOrder
+      ..clear()
+      ..addAll(candidate.homeSectionOrder);
+    collapsedHomeSections
+      ..clear()
+      ..addAll(candidate.collapsedHomeSections);
+    hiddenHomeSections
+      ..clear()
+      ..addAll(candidate.hiddenHomeSections);
+    hiddenUpcomingItems
+      ..clear()
+      ..addAll(candidate.hiddenUpcomingItems);
+    homeSectionStyles
+      ..clear()
+      ..addAll(candidate.homeSectionStyles);
+    monthlyBudget = candidate.monthlyBudget;
+    _nextId = _calculateNextId();
+    _normalizeTodoOrder();
+    candidate.dispose();
+    _commit('data.import.local_export');
+
+    return LocalImportResult(
+      createdAt: bundle.createdAt,
+      noteCount: notes.length,
+      scheduleCount: schedules.length,
+      todoCount: todos.length,
+    );
+  }
+
   Future<void> _persistSnapshot({
     required String raw,
     required String action,
@@ -6416,10 +6494,12 @@ class SettingsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppPage(
       title: '設定',
-      subtitle: 'Firebase 與上線規劃',
+      subtitle: '本機資料、提醒與未來同步規劃',
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        children: const [
+        children: [
+          const LocalDataManagementCard(),
+          const SizedBox(height: 16),
           InfoCard(
             child: Column(
               children: [
@@ -6448,7 +6528,7 @@ class SettingsPage extends StatelessWidget {
               ],
             ),
           ),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           InfoCard(
             child: Column(
               children: [
@@ -6475,7 +6555,7 @@ class SettingsPage extends StatelessWidget {
               ],
             ),
           ),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           InfoCard(
             child: Column(
               children: [
@@ -6494,6 +6574,128 @@ class SettingsPage extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class LocalDataManagementCard extends StatefulWidget {
+  const LocalDataManagementCard({super.key});
+
+  @override
+  State<LocalDataManagementCard> createState() =>
+      _LocalDataManagementCardState();
+}
+
+class _LocalDataManagementCardState extends State<LocalDataManagementCard> {
+  bool busy = false;
+
+  Future<void> exportData() async {
+    setState(() => busy = true);
+    try {
+      final raw = await AppStoreScope.read(context).exportBundle();
+      final now = DateTime.now();
+      final fileName =
+          'my_note_${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}.json';
+      final location = await NoteFileService.saveBytes(
+        fileName: fileName,
+        bytes: Uint8List.fromList(utf8.encode(raw)),
+      );
+      if (!mounted) return;
+      showToast(context, location == null ? '已取消匯出' : '資料已匯出');
+    } catch (_) {
+      if (mounted) showToast(context, '匯出資料失敗');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> importData() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('匯入本機資料？'),
+        content: const Text('目前資料會先建立可復原備份，再套用選擇的匯出檔。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('匯入'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => busy = true);
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+        withData: true,
+      );
+      final bytes = picked?.files.single.bytes;
+      if (bytes == null) {
+        if (mounted) showToast(context, '未選擇匯入檔');
+        return;
+      }
+      if (!mounted) return;
+      final result = await AppStoreScope.read(
+        context,
+      ).importBundle(utf8.decode(bytes, allowMalformed: false));
+      if (!mounted) return;
+      showToast(
+        context,
+        '已匯入 ${result.noteCount} 筆筆記、${result.scheduleCount} 筆行程與 ${result.todoCount} 項待辦',
+      );
+    } on FormatException catch (error) {
+      if (mounted) showToast(context, error.message);
+    } catch (_) {
+      if (mounted) showToast(context, '匯入資料失敗');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InfoCard(
+      child: Column(
+        children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.shield_outlined),
+            title: const Text('本機資料與備份'),
+            subtitle: const Text('資料保留於裝置，可匯出 JSON 備份並在匯入前建立復原點。'),
+          ),
+          const Divider(),
+          ListTile(
+            enabled: !busy,
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.upload_file_outlined),
+            title: const Text('匯出資料'),
+            subtitle: const Text('建立可攜 JSON 備份檔'),
+            trailing: busy
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : null,
+            onTap: busy ? null : exportData,
+          ),
+          const Divider(),
+          ListTile(
+            enabled: !busy,
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.download_outlined),
+            title: const Text('匯入資料'),
+            subtitle: const Text('匯入 JSON 備份；目前資料會先備份'),
+            onTap: busy ? null : importData,
           ),
         ],
       ),

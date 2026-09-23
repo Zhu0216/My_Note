@@ -7,6 +7,86 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:my_note/main.dart';
 
 void main() {
+  test('template documents migrate legacy data into structured v2 records', () {
+    final plan = PlanDocument.fromJson({
+      'phase': '第一階段',
+      'tasks': [
+        {'title': '已完成任務', 'done': true},
+        {'title': '未完成任務', 'done': false},
+      ],
+    });
+    expect(plan.nodes, hasLength(3));
+    expect(plan.childrenOf('legacy-phase'), hasLength(2));
+    expect(plan.progressOf('legacy-phase'), closeTo(0.5, 0.001));
+
+    final mindMap = MindMapDocument.fromJson({
+      'topic': '中心主題',
+      'nodes': [
+        {'title': '中心主題', 'x': 0, 'y': 0},
+        {'title': '分支', 'x': 100, 'y': 10},
+      ],
+    });
+    expect(mindMap.rootNodeId, mindMap.nodes.first.id);
+    expect(mindMap.nodes.first.title, '中心主題');
+
+    final lifeProject = LifeProjectDocument.fromJson({
+      'items': [
+        {'name': '基金', 'targetAmount': 1000, 'currentAmount': 250},
+        {'name': '閱讀', 'progress': 0.5, 'displayMode': 'progress'},
+      ],
+    });
+    expect(lifeProject.items, hasLength(2));
+    expect(lifeProject.weightedProgress, closeTo(0.375, 0.001));
+  });
+
+  test('local export validates and restores a complete snapshot', () async {
+    SharedPreferences.setMockInitialValues({});
+    final source = AppStore.seeded(persistenceLocked: true);
+    source.upsertTodo(TodoItem(id: 'export-todo', title: '匯出待辦'));
+    source.upsertSchedule(
+      ScheduleItem(
+        id: 'export-schedule',
+        title: '匯出行程',
+        start: DateTime(2026, 9, 22, 9),
+        end: DateTime(2026, 9, 22, 10),
+        location: '',
+        notes: '',
+        remindBeforeMinutes: 10,
+      ),
+    );
+    final raw = await source.exportBundle();
+    final decoded = LocalDataBundle.decode(raw);
+    expect(decoded.schema, LocalDataBundle.schemaName);
+
+    final restored = AppStore.seeded(persistenceLocked: true);
+    final result = await restored.importBundle(raw);
+    expect(result.todoCount, 1);
+    expect(result.scheduleCount, 1);
+    expect(restored.todos.single.title, '匯出待辦');
+    expect(restored.schedules.single.title, '匯出行程');
+
+    source.dispose();
+    restored.dispose();
+  });
+
+  test(
+    'invalid local import leaves the current in-memory data unchanged',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final store = AppStore.seeded(persistenceLocked: true);
+      store.upsertTodo(TodoItem(id: 'keep-todo', title: '保留原有待辦'));
+
+      await expectLater(
+        store.importBundle('{"schema":"unsupported","data":{}}'),
+        throwsA(isA<FormatException>()),
+      );
+
+      expect(store.todos, hasLength(1));
+      expect(store.todos.single.title, '保留原有待辦');
+      store.dispose();
+    },
+  );
+
   testWidgets('renders the restored app shell', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final store = AppStore.seeded();
