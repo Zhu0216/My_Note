@@ -109,8 +109,10 @@ the current behavior has not been independently accepted for this v1 baseline.
   month/week/list pages now live under `lib/features/calendar/`; finance
   dashboard, budget, account, chart, and record views live under
   `lib/features/finance/`; local backup/import/recovery settings live under
-  `lib/features/settings/`. Remaining: extract shared UI/helpers and replace
-  transitional feature parts with focused imports where dependencies permit.
+  `lib/features/settings/`. Common page shells, FAB menus, action buttons, and
+  swipe-delete components moved to `lib/ui/shared_components.dart`. Remaining:
+  extract the remaining shared display/editor helpers and replace transitional
+  feature parts with focused imports where dependencies permit.
 
 ### P0-007 — Data integrity validation
 
