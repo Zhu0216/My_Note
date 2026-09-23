@@ -116,7 +116,8 @@ the current behavior has not been independently accepted for this v1 baseline.
   to `lib/ui/prompt_dialogs.dart`; schedule/finance rows and calendar period,
   swipe, month-picker, month-grid, and week-strip widgets moved to
   `lib/ui/calendar_components.dart`; finance bar/ring charts and painters moved
-  to `lib/ui/finance_charts.dart`. Remaining: replace transitional
+  to `lib/ui/finance_charts.dart`; bottom navigation, item animation, and the
+  navigation scope moved to `lib/ui/app_navigation.dart`. Remaining: replace transitional
   feature parts with focused imports where dependencies permit.
 
 ### P0-007 — Data integrity validation
