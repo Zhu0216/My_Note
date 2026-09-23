@@ -1,0 +1,86 @@
+# My Note autonomous development rules
+
+## Sources of truth and startup
+
+- The user's latest explicit instruction has highest priority.
+- The final Grill Me specification is the authoritative product specification. Do not independently change its requirements, user-visible behavior, or UX.
+- Use `D:\log\index.html` as the primary progress checkpoint and audit log. Read it before rescanning the project or Grill Me. Compare against Grill Me only when the Log is insufficient, then write the missing status and decisions back to the Log so later runs do not repeat the comparison.
+- `D:\Flutter_Project\my_note\codex_action_log.html` is a legacy/incomplete copy and is not the primary checkpoint unless the primary Log is unavailable.
+- At the start of each autonomous run, fetch Git, inspect the working tree and recent commits for human changes, preserve all human work, then select the highest-priority safe unfinished task.
+
+Priority order:
+
+1. Latest explicit user instruction.
+2. P0: application cannot run, data-loss risk, or severe regression.
+3. P1: unfinished Grill Me requirement.
+4. P2: currently active feature.
+5. P3: related bugs and existing project errors.
+6. P4: relevant tests.
+7. P5: code-quality improvements directly related to current work.
+
+Do not invent new product features when the backlog is complete. When all TODO items are complete, end the current run; check again at the next scheduled wake-up.
+
+## Autonomous permissions and approval boundaries
+
+Codex may autonomously implement specified requirements, fix bugs and existing project errors, add or improve relevant tests, perform small or medium refactors, add free Flutter/Dart dependencies, remove verified dead code under the deletion safeguards below, improve the Log page, and create/commit/push task branches.
+
+Stop and obtain explicit user approval before:
+
+- a large architectural change;
+- a database or Firebase schema migration;
+- any change to production Firebase resources or configuration;
+- a core authentication or security change;
+- reading, creating, changing, or exposing secrets or API keys;
+- force-pushing or rewriting Git history;
+- removing a primary feature;
+- any action with irreversible data-loss risk;
+- using a paid service, paid API, paid package, or making a purchase;
+- changing explicit Grill Me UX or functionality;
+- choosing between mutually exclusive product options that the specification cannot resolve.
+
+Never buy credits, automatically reload paid tokens, or consume a banked reset that requires a human decision. If usage is unavailable, stop the run; resume only after the platform's natural reset or explicit user action.
+
+## UI quality policy
+
+- Do not keep or introduce simplistic, placeholder-like, or obviously low-quality UI packages or solutions merely because they are easy to implement.
+- Prefer mature, maintained, production-appropriate Flutter packages or native Flutter implementations.
+- Before adding or replacing a major UI package, evaluate maintenance status, current Flutter compatibility, extensibility, architecture impact, and license/cost.
+- Preserve working behavior and the UX defined by Grill Me. Do not replace a working UI solely for visual preference without a concrete product or maintenance benefit.
+- Record material UI-package decisions in `D:\log\index.html`.
+
+## Git and deletion safety
+
+- Work on a branch named `codex/<task-name>`; never automatically merge into `main`.
+- Make one commit per logical task. Do not mix unrelated changes or pre-existing human changes into a Codex commit.
+- Push completed task commits to the configured remote.
+- Before deleting any material file, code path, or feature, verify that a recoverable Git copy exists and has already been pushed, then record the backup commit/branch and deletion in the Log. Do not delete if that recovery proof is missing.
+- If push fails, preserve the local commit, record the failure and actionable reason in the Log, and continue only with independent safe work.
+
+## Validation and failure handling
+
+For every logical task, run the relevant subset and normally all of:
+
+1. `dart format .`
+2. `flutter analyze`
+3. relevant `flutter test` targets (or the full suite when scope is broad)
+4. `flutter build web` when web behavior, shared UI, dependencies, or release buildability may be affected
+
+Do not claim success without recording the actual results in the Log. For the same blocking problem, try at most three materially different solutions. If all three fail, record a blocker with attempts and evidence, then move to another independent task. Stop the run when no safe independent work remains, approval is required, usage is unavailable, or all TODOs are complete.
+
+## X510 device validation
+
+- Identify the device from live evidence, never from the nickname alone. Use `flutter devices` and the Android SDK's `adb devices -l`; record the Flutter device ID, model, Android version, and connection/authorization state in the Log.
+- When an authorized supported X510 Android target is connected, build/install the app, launch it, and verify that its main activity remains running without an immediate crash. Run relevant integration tests when they exist and are suitable.
+- X510 validation succeeded on 2026-09-23 for `SM-X510`, device ID `R52X200FM7F`, Android 16/API 36. Post-push deployment validation is enabled.
+- After every successful push of project code, run `powershell -ExecutionPolicy Bypass -File scripts/x510_validate.ps1`. Record its `PASS`, `FAIL`, or `SKIPPED` result in the Log. `SKIPPED` means the verified X510 is offline or unauthorized and never blocks development or the push.
+
+## Six-hour autonomous wake-up procedure
+
+Every six hours:
+
+1. Read `D:\log\index.html`.
+2. Run `git fetch` without discarding local work.
+3. Inspect working-tree changes and commits since the previous checkpoint to detect human edits; preserve and prioritize the newest explicit human direction.
+4. Continue the highest-priority safe unfinished task using the rules above.
+5. Update the Log with decisions, files changed, validation, commit/push status, X510 `PASS`/`FAIL`/`SKIPPED`, blockers, and the next task.
+6. End that run when TODOs are empty, a blocker or approval boundary prevents safe progress, no safe work remains, or usage is unavailable. Wake again six hours later unless the automation is explicitly disabled.
