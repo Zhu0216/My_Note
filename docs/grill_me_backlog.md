@@ -182,13 +182,17 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-004 — Plan tasks in upcoming items
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: incomplete plan tasks with due dates appear in upcoming
   items even if not shown in home todos.
 - Acceptance: task appears once with plan icon and opens plan; completed or
   undated tasks do not appear.
 - Dependencies: P1-001, P1-003, P1-005.
-- Evidence: none.
+- Evidence: the derived upcoming aggregator now reads incomplete dated task
+  nodes directly from plan notes, uses a plan flag and plan title, suppresses a
+  separately linked todo duplicate, excludes completed/undated tasks, respects
+  hidden-item settings, and offers an `開啟計畫` source action. Focused tests
+  cover the inclusion and de-duplication rules.
 
 ## P1 — General note experience
 

@@ -977,6 +977,73 @@ void main() {
     }
   });
 
+  test(
+    'upcoming aggregation includes each dated incomplete plan task once',
+    () {
+      final store = AppStore.seeded(persistenceLocked: true);
+      final now = DateTime.now();
+      final dueDate = DateTime(now.year, now.month, now.day + 3, 9);
+      final linkedTodo = TodoItem(
+        id: 'linked-plan-todo',
+        title: '相同的連結待辦',
+        dueDate: dueDate,
+      );
+      final plan = NoteItem(
+        id: 'upcoming-plan',
+        title: '旅行計畫',
+        body: '',
+        category: '',
+        tags: const [],
+        createdAt: now,
+        updatedAt: now,
+        templateType: NoteTemplateType.plan,
+        templateData: PlanDocument(
+          nodes: [
+            PlanNode(
+              id: 'dated-task',
+              title: '預訂住宿',
+              type: PlanNodeType.task,
+              dueDate: dueDate,
+              linkedTodoId: linkedTodo.id,
+            ),
+            PlanNode(
+              id: 'completed-task',
+              title: '已完成',
+              type: PlanNodeType.task,
+              completed: true,
+              dueDate: dueDate,
+            ),
+            PlanNode(
+              id: 'undated-task',
+              title: '沒有期限',
+              type: PlanNodeType.task,
+            ),
+          ],
+        ).toJson(),
+      );
+
+      try {
+        store.upsertTodo(linkedTodo);
+        store.upsertNote(plan);
+
+        final items = upcomingHomeItems(store);
+        expect(items, hasLength(1));
+        expect(
+          items.single.key,
+          upcomingPlanTaskKey(
+            plan,
+            PlanDocument.fromJson(plan.templateData).nodes.first,
+          ),
+        );
+        expect(items.single.title, '預訂住宿');
+        expect(items.single.typeLabel, '計畫任務');
+        expect(items.single.sourceNote, same(plan));
+      } finally {
+        store.dispose();
+      }
+    },
+  );
+
   testWidgets('shows note template choices before opening an editor', (
     tester,
   ) async {

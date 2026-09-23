@@ -475,6 +475,7 @@ class UpcomingHomeItem {
     required this.details,
     required this.hidden,
     this.trailing,
+    this.sourceNote,
   });
 
   final String key;
@@ -486,6 +487,7 @@ class UpcomingHomeItem {
   final String details;
   final bool hidden;
   final String? trailing;
+  final NoteItem? sourceNote;
 }
 
 List<UpcomingHomeItem> upcomingHomeItems(
@@ -495,6 +497,42 @@ List<UpcomingHomeItem> upcomingHomeItems(
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
   final inSevenDays = today.add(const Duration(days: 8));
+  final planItems = <UpcomingHomeItem>[];
+  final linkedPlanTodoIds = <String>{};
+  for (final note in store.notes.where(
+    (note) =>
+        note.deletedAt == null && note.templateType == NoteTemplateType.plan,
+  )) {
+    final document = PlanDocument.fromJson(note.templateData);
+    for (final task in document.nodes.where(
+      (node) =>
+          node.type == PlanNodeType.task &&
+          !node.completed &&
+          node.dueDate != null &&
+          isInUpcomingWindow(node.dueDate!, today, inSevenDays),
+    )) {
+      if (task.linkedTodoId != null) {
+        linkedPlanTodoIds.add(task.linkedTodoId!);
+      }
+      final key = upcomingPlanTaskKey(note, task);
+      if (includeHidden || !store.hiddenUpcomingItems.contains(key)) {
+        planItems.add(
+          UpcomingHomeItem(
+            key: key,
+            date: task.dueDate!,
+            icon: Icons.flag_outlined,
+            title: task.title,
+            subtitle: '${formatDate(task.dueDate!)}  ${note.title}',
+            typeLabel: '計畫任務',
+            details:
+                '所屬計畫：${note.title}\n期限：${formatDate(task.dueDate!)}\n優先級：${task.priority}',
+            hidden: store.hiddenUpcomingItems.contains(key),
+            sourceNote: note,
+          ),
+        );
+      }
+    }
+  }
   final items = <UpcomingHomeItem>[
     for (final sub in store.upcomingSubscriptions.where(
       (sub) =>
@@ -536,9 +574,11 @@ List<UpcomingHomeItem> upcomingHomeItems(
             '地點：${event.location.isEmpty ? '未設定' : event.location}\n提醒：提前 ${event.remindBeforeMinutes} 分鐘\n備註：${event.notes.isEmpty ? '無' : event.notes}',
         hidden: store.hiddenUpcomingItems.contains(upcomingScheduleKey(event)),
       ),
+    ...planItems,
     for (final todo in store.todos.where(
       (todo) =>
           !todo.done &&
+          !linkedPlanTodoIds.contains(todo.id) &&
           todo.dueDate != null &&
           isInUpcomingWindow(todo.dueDate!, today, inSevenDays) &&
           (includeHidden ||
@@ -572,6 +612,10 @@ String upcomingScheduleKey(ScheduleItem item) => 'schedule-${item.id}';
 
 String upcomingTodoKey(TodoItem item) => 'todo-${item.id}';
 
+String upcomingPlanTaskKey(NoteItem note, PlanNode task) {
+  return 'plan-task-${note.id}-${task.id}';
+}
+
 Future<void> showUpcomingDetails(
   BuildContext context,
   UpcomingHomeItem item,
@@ -588,6 +632,15 @@ Future<void> showUpcomingDetails(
       ),
       content: Text('${item.typeLabel}\n${item.details}'),
       actions: [
+        if (item.sourceNote != null)
+          TextButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              showNoteEditor(context, note: item.sourceNote);
+            },
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('開啟計畫'),
+          ),
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: const Text('確認'),
