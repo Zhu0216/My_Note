@@ -2733,6 +2733,7 @@ class HomeSection extends StatelessWidget {
         children: [
           SectionHeader(
             title: homeSectionTitle(section),
+            count: homeSectionCount(store, section),
             onTap: () => store.toggleHomeSection(section),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
@@ -2766,6 +2767,15 @@ String homeSectionTitle(HomeSectionId section) {
     HomeSectionId.subscriptions => '即將到來',
     HomeSectionId.notes => '最近筆記',
     HomeSectionId.todos => '待辦事項',
+  };
+}
+
+int? homeSectionCount(AppStore store, HomeSectionId section) {
+  return switch (section) {
+    HomeSectionId.schedule => homeScheduleEvents(store).length,
+    HomeSectionId.subscriptions => upcomingHomeItems(store).length,
+    HomeSectionId.todos => store.activeTodos.length,
+    HomeSectionId.metrics || HomeSectionId.notes => null,
   };
 }
 
@@ -2813,6 +2823,14 @@ DateTime homeScheduleTargetDate(AppStore store) {
     return now;
   }
   return store.upcomingSchedules.firstOrNull?.start ?? now;
+}
+
+List<ScheduleItem> homeScheduleEvents(AppStore store) {
+  final targetDate = homeScheduleTargetDate(store);
+  return store.schedules
+      .where((event) => isSameDate(event.start, targetDate))
+      .toList()
+    ..sort((a, b) => a.start.compareTo(b.start));
 }
 
 Widget buildHomeSectionContent(
@@ -2878,15 +2896,10 @@ class ScheduleHomeSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = AppStoreScope.of(context);
-    final todayEvents =
-        store.schedules
-            .where((event) => isSameDate(event.start, DateTime.now()))
-            .toList()
-          ..sort((a, b) => a.start.compareTo(b.start));
-    final shownEvents = todayEvents.isNotEmpty
-        ? todayEvents
-        : store.upcomingSchedules.take(2).toList();
-    final eventLabel = todayEvents.isNotEmpty
+    final allEvents = homeScheduleEvents(store);
+    final shownEvents = allEvents.take(2).toList();
+    final eventLabel =
+        allEvents.any((event) => isSameDate(event.start, DateTime.now()))
         ? '今日'
         : shownEvents.isEmpty
         ? '今日'
@@ -3256,10 +3269,16 @@ class _TodoHomeSectionState extends State<TodoHomeSection> {
 
   @override
   Widget build(BuildContext context) {
+    final store = AppStoreScope.of(context);
+    final itemCount = showCompleted
+        ? store.completedTodayTodos.length
+        : store.activeTodos.length;
+
     return Column(
       children: [
         SectionHeader(
           title: showCompleted ? '已完成事項' : '待辦事項',
+          count: itemCount,
           onTap: widget.onToggleCollapsed,
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
@@ -7485,11 +7504,13 @@ class SectionHeader extends StatelessWidget {
   const SectionHeader({
     super.key,
     required this.title,
+    this.count,
     this.trailing,
     this.onTap,
   });
 
   final String title;
+  final int? count;
   final Widget? trailing;
   final VoidCallback? onTap;
 
@@ -7505,11 +7526,29 @@ class SectionHeader extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        title,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    if (count != null) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        '$count',
+                        key: ValueKey('section-count-$title'),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: Theme.of(context).colorScheme.primary,
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               ?trailing,

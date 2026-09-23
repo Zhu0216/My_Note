@@ -468,6 +468,101 @@ void main() {
     }
   });
 
+  testWidgets('home section counters use complete item totals', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    final targetDate = DateTime.now().add(const Duration(days: 1));
+    final start = DateTime(
+      targetDate.year,
+      targetDate.month,
+      targetDate.day,
+      9,
+    );
+
+    for (var index = 0; index < 5; index++) {
+      store.upsertSchedule(
+        ScheduleItem(
+          id: 'count-event-$index',
+          title: '計數行程 $index',
+          start: start.add(Duration(minutes: index * 30)),
+          end: start.add(Duration(minutes: index * 30 + 20)),
+          location: '',
+          notes: '',
+          remindBeforeMinutes: 10,
+        ),
+      );
+    }
+    for (var index = 0; index < 2; index++) {
+      store.upsertSubscription(
+        SubscriptionItem(
+          id: 'count-subscription-$index',
+          name: '計數訂閱 $index',
+          amount: 100,
+          cycle: SubscriptionCycle.monthly,
+          nextPaymentDate: targetDate,
+          paymentMethod: '信用卡',
+          category: '服務',
+          reminderDays: 3,
+        ),
+      );
+    }
+    for (var index = 0; index < 3; index++) {
+      store.upsertTodo(TodoItem(id: 'count-todo-$index', title: '計數待辦 $index'));
+    }
+
+    await tester.binding.setSurfaceSize(const Size(412, 915));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    try {
+      await tester.pumpWidget(MyNoteApp(store: store));
+      await tester.pumpAndSettle();
+
+      expect(homeSectionCount(store, HomeSectionId.schedule), 5);
+      expect(homeSectionCount(store, HomeSectionId.subscriptions), 7);
+      expect(homeSectionCount(store, HomeSectionId.todos), 3);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('section-count-今日行程')))
+            .data,
+        '5',
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('section-count-即將到來')))
+            .data,
+        '7',
+      );
+      final scheduleSection = find.byType(ScheduleHomeSection);
+      expect(
+        find.descendant(of: scheduleSection, matching: find.text('計數行程 0')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: scheduleSection, matching: find.text('計數行程 1')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: scheduleSection, matching: find.text('計數行程 2')),
+        findsNothing,
+      );
+
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('section-count-待辦事項')),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('section-count-待辦事項')))
+            .data,
+        '3',
+      );
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
   testWidgets('shows note template choices before opening an editor', (
     tester,
   ) async {

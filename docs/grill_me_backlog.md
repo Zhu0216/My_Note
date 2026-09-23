@@ -127,13 +127,16 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-003 — Derived upcoming aggregation
 
-- Status: `NEEDS VERIFICATION`
+- Status: `IN PROGRESS`
 - User-visible behavior: upcoming view derives schedules, subscriptions, and
   due todos without separately storing duplicates.
 - Acceptance: source edits update immediately; hidden items remain hidden;
   displayed count reflects all matching records.
 - Dependencies: P0-001.
-- Evidence: prior source/test history covers the behavior; v1 acceptance pending.
+- Evidence: home headers now show total schedule, upcoming, and todo counts
+  even when their visible previews are capped. The focused widget test covers
+  five schedules with a two-item preview, two upcoming subscriptions, and
+  three todos. Source-edit/hidden-item and cross-device acceptance remain.
 
 ### P1-004 — Plan tasks in upcoming items
 
