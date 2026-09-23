@@ -16,10 +16,7 @@ import 'firebase_options.dart';
 import 'data/my_note_data.dart';
 import 'ui/app_navigation.dart';
 import 'ui/app_store_scope.dart';
-import 'ui/basic_display.dart';
-import 'ui/display_components.dart';
 import 'ui/formatters.dart';
-import 'ui/folder_names.dart';
 import 'ui/note_template_metadata.dart';
 import 'ui/prompt_dialogs.dart';
 import 'ui/shared_components.dart';
@@ -29,6 +26,7 @@ import 'features/settings/settings_page.dart';
 import 'features/calendar/calendar_page.dart';
 import 'features/finance/finance_page.dart';
 import 'features/home/home_page.dart';
+import 'features/notes/notes_page.dart';
 
 export 'data/my_note_data.dart';
 export 'ui/app_navigation.dart';
@@ -41,6 +39,7 @@ export 'ui/formatters.dart';
 export 'ui/finance_charts.dart';
 export 'ui/folder_names.dart';
 export 'ui/note_template_metadata.dart';
+export 'ui/note_navigation_helpers.dart';
 export 'ui/prompt_dialogs.dart';
 export 'ui/shared_components.dart';
 export 'ui/todo_display.dart';
@@ -49,9 +48,9 @@ export 'features/settings/settings_page.dart';
 export 'features/calendar/calendar_page.dart';
 export 'features/finance/finance_page.dart';
 export 'features/home/home_page.dart';
+export 'features/notes/notes_page.dart';
 
 part 'note_editor.dart';
-part 'features/notes/notes_page.dart';
 
 const appLocale = Locale('zh', 'TW');
 const deviceFontChannel = MethodChannel('my_note/device_font');
@@ -461,7 +460,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   static const int homeIndex = 2;
 
-  final notesPageKey = GlobalKey<_NotesPageState>();
+  final notesPageKey = GlobalKey<NotesPageState>();
   final calendarPageKey = GlobalKey<CalendarPageState>();
   final homePageKey = GlobalKey<HomePageState>();
   int selectedIndex = homeIndex;
@@ -522,7 +521,10 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      NotesPage(key: notesPageKey),
+      NotesPage(
+        key: notesPageKey,
+        actions: NotesFeatureActions(editNote: showNoteEditor),
+      ),
       CalendarPage(key: calendarPageKey, onEditSchedule: showScheduleEditor),
       HomePage(
         key: homePageKey,
@@ -591,21 +593,6 @@ Future<bool> showExitConfirmDialog(BuildContext context) async {
     ),
   );
   return result ?? false;
-}
-
-String noteTemplateMenuValue(NoteTemplateType type) => 'note-${type.name}';
-
-NoteTemplateType? noteTemplateTypeFromMenuValue(String value) {
-  if (!value.startsWith('note-')) {
-    return null;
-  }
-  final name = value.substring(5);
-  for (final type in NoteTemplateType.values) {
-    if (type.name == name) {
-      return type;
-    }
-  }
-  return null;
 }
 
 Future<void> showNoteEditor(
@@ -2257,23 +2244,4 @@ bool stringListsEqual(List<String> left, List<String> right) {
     }
   }
   return true;
-}
-
-String? notesBackTarget(String folder, {bool showingTrash = false}) {
-  if (showingTrash) {
-    return '所有筆記';
-  }
-  final normalized = normalizeFolderPath(folder);
-  if (folder == '所有筆記') {
-    return null;
-  }
-  if (normalized.isEmpty) {
-    return '所有筆記';
-  }
-  final parent = folderParentPath(normalized);
-  return parent.isEmpty ? '所有筆記' : parent;
-}
-
-bool noteBelongsToFolder(String category, String folder) {
-  return normalizeFolderPath(category) == normalizeFolderPath(folder);
 }

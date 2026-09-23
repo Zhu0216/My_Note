@@ -107,7 +107,10 @@ the current behavior has not been independently accepted for this v1 baseline.
   focused-import `lib/features/home/home_page.dart` library, with editor actions
   injected by the composition root and todo labels/styles supplied by
   `lib/ui/todo_display.dart`; the notes browser, folder navigation, filters,
-  batch actions, and note cards live under `lib/features/notes/`. Calendar
+  batch actions, and note cards now use the standalone focused-import
+  `lib/features/notes/notes_page.dart` library, with note editor launch actions
+  injected by the composition root and pure route/menu helpers supplied by
+  `lib/ui/note_navigation_helpers.dart`. Calendar
   month/week/list pages now use the standalone focused-import
   `lib/features/calendar/calendar_page.dart` library; finance dashboard,
   account, chart, history, and timeline views now use the standalone

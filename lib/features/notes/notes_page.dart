@@ -1,10 +1,37 @@
-part of '../../main.dart';
+import 'package:flutter/material.dart';
+
+import '../../data/my_note_data.dart';
+import '../../ui/app_store_scope.dart';
+import '../../ui/basic_display.dart';
+import '../../ui/display_components.dart';
+import '../../ui/folder_names.dart';
+import '../../ui/note_navigation_helpers.dart';
+import '../../ui/prompt_dialogs.dart';
+import '../../ui/shared_components.dart';
+
+typedef NotesEditorLauncher =
+    Future<void> Function(
+      BuildContext context, {
+      NoteItem? note,
+      String initialFolder,
+      String? returnFolder,
+      NoteTemplateType initialTemplateType,
+      bool readOnly,
+    });
+
+class NotesFeatureActions {
+  const NotesFeatureActions({required this.editNote});
+
+  final NotesEditorLauncher editNote;
+}
 
 class NotesPage extends StatefulWidget {
-  const NotesPage({super.key});
+  const NotesPage({super.key, required this.actions});
+
+  final NotesFeatureActions actions;
 
   @override
-  State<NotesPage> createState() => _NotesPageState();
+  State<NotesPage> createState() => NotesPageState();
 }
 
 class EqualMenuIcon extends StatelessWidget {
@@ -467,7 +494,7 @@ class NotesDrawerNoteTile extends StatelessWidget {
   }
 }
 
-class _NotesPageState extends State<NotesPage>
+class NotesPageState extends State<NotesPage>
     with SingleTickerProviderStateMixin {
   String query = '';
   String folder = '所有筆記';
@@ -521,7 +548,7 @@ class _NotesPageState extends State<NotesPage>
     closeAddMenu();
     final templateType = noteTemplateTypeFromMenuValue(value);
     if (templateType != null) {
-      await showNoteEditor(
+      await widget.actions.editNote(
         context,
         initialFolder: currentFolderContext,
         returnFolder: folder,
@@ -733,7 +760,7 @@ class _NotesPageState extends State<NotesPage>
           selectedNoteIds.clear();
           selectedFolderPaths.clear();
         }),
-        onNoteSelected: (note) => showNoteEditor(context, note: note),
+        onNoteSelected: (note) => widget.actions.editNote(context, note: note),
         onTrash: () => setState(() {
           showingTrash = true;
           batchMode = false;
@@ -1027,7 +1054,7 @@ class _NotesPageState extends State<NotesPage>
       toggleSelected(note);
       return;
     }
-    showNoteEditor(context, note: note, readOnly: showingTrash);
+    widget.actions.editNote(context, note: note, readOnly: showingTrash);
   }
 
   void handleFolderTap(String targetFolder) {
