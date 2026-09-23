@@ -89,13 +89,17 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P0-006 — Store and feature-layer extraction
 
-- Status: `PLANNED`
+- Status: `IN PROGRESS`
 - User-visible behavior: current navigation, local data, and rich-note editing
   remain stable while implementation becomes independently maintainable.
 - Acceptance: persistence moves to `data/`; feature pages and shared helpers
   use focused imports instead of `part of main.dart`.
 - Dependencies: P0-005; prior explicit approval to split files.
-- Evidence: none.
+- Evidence: persistence state, mutation APIs, revision journal, backup history,
+  import/restore, and local commit scheduling have moved from the monolithic
+  `main.dart` into `lib/data/app_store.dart` without behavior changes. On
+  2026-09-23, analysis, the full 64-test suite, and Flutter Web build passed.
+  Serializers, shared helpers, and feature pages still need focused extraction.
 
 ### P0-007 — Data integrity validation
 
