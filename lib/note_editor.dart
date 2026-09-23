@@ -1048,8 +1048,6 @@ class NoteEditorHeaderFields extends StatelessWidget {
   }
 }
 
-const richTextFormatVersion = 'my_note.rich_text.v1';
-const appFlowyMirrorFormatVersion = 'my_note.appflowy.v1';
 const richNoteEmbedObject = '\uFFFC';
 const richNoteEmbedTypeImage = 'image';
 const richNoteEmbedTypeAttachment = 'attachment';
@@ -2659,14 +2657,6 @@ Map<String, dynamic> generalNoteTemplateData(
     attachments: attachments,
   );
   return next;
-}
-
-Map<String, dynamic> blankAppFlowyMirrorJson() {
-  return {
-    'format': appFlowyMirrorFormatVersion,
-    'document': appFlowyDocumentJson([appFlowyParagraphNodeJson('')]),
-    'migration': 'blank',
-  };
 }
 
 Map<String, dynamic> appFlowyMirrorJson({

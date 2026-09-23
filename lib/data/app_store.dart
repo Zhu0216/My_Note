@@ -1,4 +1,4 @@
-part of '../main.dart';
+part of 'my_note_data.dart';
 
 class _StoredSnapshot {
   const _StoredSnapshot({

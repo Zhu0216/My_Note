@@ -1,4 +1,4 @@
-part of '../main.dart';
+part of 'my_note_data.dart';
 
 Map<String, dynamic> noteToJson(NoteItem note) {
   return {
@@ -382,4 +382,21 @@ DateTime? readOptionalDate(Object? value) {
     return DateTime.tryParse(value);
   }
   return null;
+}
+
+TimeOfDay? readTimeOfDay(Object? value) {
+  if (value is! String) return null;
+  final parts = value.split(':');
+  if (parts.length != 2) return null;
+  final hour = int.tryParse(parts[0]);
+  final minute = int.tryParse(parts[1]);
+  if (hour == null ||
+      minute == null ||
+      hour < 0 ||
+      hour > 23 ||
+      minute < 0 ||
+      minute > 59) {
+    return null;
+  }
+  return TimeOfDay(hour: hour, minute: minute);
 }

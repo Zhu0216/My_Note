@@ -1,4 +1,4 @@
-part of '../main.dart';
+part of 'my_note_data.dart';
 
 /// Portable, versioned representation of all local-first user data.
 ///

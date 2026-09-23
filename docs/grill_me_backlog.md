@@ -99,9 +99,11 @@ the current behavior has not been independently accepted for this v1 baseline.
   import/restore, and local commit scheduling have moved from the monolithic
   `main.dart` into `lib/data/app_store.dart` without behavior changes. On
   2026-09-23, record JSON codecs, legacy-seed detection, and primitive parsing
-  helpers also moved to `lib/data/local_serialization.dart`. Analysis, the full
-  64-test suite, and Flutter Web build passed after each extraction. Remaining:
-  convert data parts to focused imports and split feature pages/shared UI.
+  helpers also moved to `lib/data/local_serialization.dart`. The data layer now
+  owns its library boundary in `lib/data/my_note_data.dart`; `main.dart` uses a
+  focused import/export instead of treating data files as parts of the app
+  entrypoint. Analysis, the full 64-test suite, and Flutter Web build passed
+  after each extraction. Remaining: split feature pages and shared UI helpers.
 
 ### P0-007 — Data integrity validation
 

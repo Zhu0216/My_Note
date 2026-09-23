@@ -1,4 +1,4 @@
-part of '../main.dart';
+part of 'my_note_data.dart';
 
 /// Domain enums and mutable records used by the local-first application.
 ///

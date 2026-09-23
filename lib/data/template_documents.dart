@@ -1,4 +1,4 @@
-part of '../main.dart';
+part of 'my_note_data.dart';
 
 /// A stable reference to another local record. Links are intentionally
 /// lightweight: v1 needs navigable context, not a graph renderer.
