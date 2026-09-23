@@ -20,8 +20,10 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 
 import 'firebase_options.dart';
 import 'data/my_note_data.dart';
+import 'ui/app_navigation.dart';
 
 export 'data/my_note_data.dart';
+export 'ui/app_navigation.dart';
 
 part 'note_editor.dart';
 part 'features/home/home_page.dart';
@@ -32,7 +34,6 @@ part 'features/settings/settings_page.dart';
 part 'ui/shared_components.dart';
 part 'ui/display_components.dart';
 part 'ui/prompt_dialogs.dart';
-part 'ui/app_navigation.dart';
 part 'ui/calendar_components.dart';
 part 'ui/finance_charts.dart';
 

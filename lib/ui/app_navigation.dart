@@ -1,4 +1,6 @@
-part of '../main.dart';
+import 'package:flutter/material.dart';
+
+import '../data/my_note_data.dart';
 
 class AppNavigationScope extends InheritedWidget {
   const AppNavigationScope({
