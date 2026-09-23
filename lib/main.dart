@@ -12,10 +12,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_box_transform/flutter_box_transform.dart' as fbt;
-import 'package:image_cropper/image_cropper.dart';
-import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import 'firebase_options.dart';
@@ -30,6 +26,7 @@ import 'ui/finance_charts.dart';
 import 'ui/folder_names.dart';
 import 'ui/prompt_dialogs.dart';
 import 'ui/shared_components.dart';
+import 'services/note_file_service.dart';
 
 export 'data/my_note_data.dart';
 export 'ui/app_navigation.dart';
@@ -42,6 +39,7 @@ export 'ui/finance_charts.dart';
 export 'ui/folder_names.dart';
 export 'ui/prompt_dialogs.dart';
 export 'ui/shared_components.dart';
+export 'services/note_file_service.dart';
 
 part 'note_editor.dart';
 part 'features/home/home_page.dart';

@@ -125,7 +125,9 @@ the current behavior has not been independently accepted for this v1 baseline.
   Store access moved to the focused `lib/ui/app_store_scope.dart` library,
   and calendar date/period calculations moved to the focused
   `lib/ui/calendar_helpers.dart` library. These are consumed through focused
-  imports rather than `part of`. Remaining: replace transitional
+  imports rather than `part of`. File picking, crop, export, PDF, and share
+  operations moved from the rich editor into
+  `lib/services/note_file_service.dart`. Remaining: replace transitional
   feature parts with focused imports where dependencies permit.
 
 ### P0-007 — Data integrity validation
