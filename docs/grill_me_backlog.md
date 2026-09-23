@@ -98,8 +98,10 @@ the current behavior has not been independently accepted for this v1 baseline.
 - Evidence: persistence state, mutation APIs, revision journal, backup history,
   import/restore, and local commit scheduling have moved from the monolithic
   `main.dart` into `lib/data/app_store.dart` without behavior changes. On
-  2026-09-23, analysis, the full 64-test suite, and Flutter Web build passed.
-  Serializers, shared helpers, and feature pages still need focused extraction.
+  2026-09-23, record JSON codecs, legacy-seed detection, and primitive parsing
+  helpers also moved to `lib/data/local_serialization.dart`. Analysis, the full
+  64-test suite, and Flutter Web build passed after each extraction. Remaining:
+  convert data parts to focused imports and split feature pages/shared UI.
 
 ### P0-007 — Data integrity validation
 
