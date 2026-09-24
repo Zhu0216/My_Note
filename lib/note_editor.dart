@@ -210,6 +210,9 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     templateData = Map<String, dynamic>.from(
       note?.templateData ?? defaultNoteTemplateData(templateType),
     );
+    if (templateType == NoteTemplateType.plan) {
+      templateData = migratePlanDocumentForEditing(templateData);
+    }
     final richSeed = templateType == NoteTemplateType.general
         ? richNoteSeedFromTemplateData(note?.body ?? '', templateData)
         : RichNoteSeed(text: note?.body ?? '', marks: const []);
@@ -7212,6 +7215,10 @@ class NoteTemplateFields extends StatelessWidget {
     onChanged({...data, key: value});
   }
 
+  void setPlanDocument(PlanDocument document) {
+    onChanged(document.toJson());
+  }
+
   @override
   Widget build(BuildContext context) {
     if (type == NoteTemplateType.general) {
@@ -7246,42 +7253,74 @@ class NoteTemplateFields extends StatelessWidget {
   }
 
   List<Widget> buildPlanFields() {
-    final tasks = readMapList(data['tasks']);
-    final done = tasks.where((item) => item['done'] == true).length;
-    final progress = tasks.isEmpty ? 0.0 : done / tasks.length;
+    final document = PlanDocument.fromJson(data);
+    final rootPhases = document.nodes
+        .where(
+          (node) => node.type == PlanNodeType.phase && node.parentId == null,
+        )
+        .toList();
+    final primaryPhase = rootPhases.firstOrNull;
+    final tasks = document.nodes
+        .where((node) => node.type == PlanNodeType.task)
+        .toList();
+    final progress = document.progressOf(null);
     return [
       TemplateTextField(
         label: '目標',
-        value: readString(data['goal']),
-        onChanged: (value) => setValue('goal', value),
+        value: document.goal,
+        onChanged: (value) {
+          document.goal = value;
+          setPlanDocument(document);
+        },
       ),
       TemplateTextField(
         label: '階段',
-        value: readString(data['phase']),
-        onChanged: (value) => setValue('phase', value),
+        value: primaryPhase?.title ?? '',
+        onChanged: (value) {
+          if (primaryPhase != null) {
+            primaryPhase.title = value;
+          } else if (value.trim().isNotEmpty) {
+            final phase = PlanNode(
+              id: 'plan-phase-${DateTime.now().microsecondsSinceEpoch}',
+              title: value,
+              type: PlanNodeType.phase,
+            );
+            document.nodes.add(phase);
+            for (final task in tasks.where((task) => task.parentId == null)) {
+              task.parentId = phase.id;
+            }
+          }
+          setPlanDocument(document);
+        },
       ),
       TemplateTextField(
         label: '任務',
         value: tasks
-            .map(
-              (item) => '${item['done'] == true ? 'x ' : ''}${item['title']}',
-            )
+            .map((item) => '${item.completed ? 'x ' : ''}${item.title}')
             .join('\n'),
         minLines: 3,
         onChanged: (value) {
-          setValue(
-            'tasks',
-            value
-                .split('\n')
-                .where((line) => line.trim().isNotEmpty)
-                .map(
-                  (line) => {
-                    'title': line.replaceFirst(RegExp(r'^x\s+'), '').trim(),
-                    'done': line.trim().toLowerCase().startsWith('x '),
-                  },
-                )
-                .toList(),
-          );
+          final lines = value
+              .split('\n')
+              .where((line) => line.trim().isNotEmpty)
+              .toList();
+          document.nodes.removeWhere((node) => node.type == PlanNodeType.task);
+          for (final entry in lines.indexed) {
+            final line = entry.$2.trim();
+            final existing = entry.$1 < tasks.length ? tasks[entry.$1] : null;
+            final task =
+                existing ??
+                PlanNode(
+                  id: 'plan-task-${DateTime.now().microsecondsSinceEpoch}-${entry.$1}',
+                  title: '',
+                  type: PlanNodeType.task,
+                  parentId: primaryPhase?.id,
+                );
+            task.title = line.replaceFirst(RegExp(r'^x\s+'), '').trim();
+            task.completed = line.toLowerCase().startsWith('x ');
+            document.nodes.add(task);
+          }
+          setPlanDocument(document);
         },
       ),
       LinearProgressIndicator(value: progress),
@@ -7289,25 +7328,36 @@ class NoteTemplateFields extends StatelessWidget {
       Text('完成率 ${(progress * 100).round()}%'),
       TemplateTextField(
         label: '開始日期',
-        value: readString(data['startDate']),
-        onChanged: (value) => setValue('startDate', value),
+        value: document.startDate?.toIso8601String() ?? '',
+        onChanged: (value) {
+          document.startDate = DateTime.tryParse(value.trim());
+          setPlanDocument(document);
+        },
       ),
       TemplateTextField(
         label: '截止日期',
-        value: readString(data['dueDate']),
-        onChanged: (value) => setValue('dueDate', value),
+        value: document.dueDate?.toIso8601String() ?? '',
+        onChanged: (value) {
+          document.dueDate = DateTime.tryParse(value.trim());
+          setPlanDocument(document);
+        },
       ),
       TemplateTextField(
         label: '進行時間',
-        value: readString(data['spentHours'], fallback: '0'),
-        onChanged: (value) =>
-            setValue('spentHours', double.tryParse(value) ?? 0),
+        value: document.spentHours.toString(),
+        onChanged: (value) {
+          document.spentHours = double.tryParse(value) ?? 0;
+          setPlanDocument(document);
+        },
       ),
       TemplateTextField(
         label: '備註',
-        value: readString(data['notes']),
+        value: document.notes,
         minLines: 2,
-        onChanged: (value) => setValue('notes', value),
+        onChanged: (value) {
+          document.notes = value;
+          setPlanDocument(document);
+        },
       ),
     ];
   }

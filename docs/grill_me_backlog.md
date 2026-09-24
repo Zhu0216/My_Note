@@ -296,17 +296,18 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-008 — Plan v1-to-v2 migration
 
-- Status: `BLOCKED`
+- Status: `DONE`
 - User-visible behavior: existing flat plan tasks remain visible after the
   phase/task editor replaces old field lists.
 - Acceptance: `plan.v1` maps to v2 phase/task tree and saves as v2 after edit.
-- Dependencies: P0-003, P0-007; explicit schema-migration approval before
-  adding the write path.
-- Evidence: `PlanDocument.fromJson` handles legacy fields; write migration/UI
-  acceptance remains. The 2026-09-24 autonomous run stopped before changing
-  persisted plan data because project rules require explicit approval for a
-  schema migration; the uncommitted attempt was removed and no migration was
-  pushed.
+- Dependencies: P0-003, P0-007; schema-migration approval granted by the user
+  on 2026-09-24.
+- Evidence: migration approval was granted on 2026-09-24. New plans now start
+  as `plan.v2`; opening a v1 plan creates an in-memory phase/task tree without
+  writing, while the first actual edit saves v2. Goal, phase/task titles,
+  completion state, start/due dates, spent hours, and notes are retained. A
+  focused editor test proves the write-on-edit behavior and legacy value
+  preservation; analyzer, all 80 tests, and the Web production build pass.
 
 ### P1-009 — Nested phase/task editor
 

@@ -116,13 +116,22 @@ class PlanNode {
 }
 
 class PlanDocument {
-  PlanDocument({List<PlanNode>? nodes, this.startDate, this.dueDate})
-    : nodes = nodes ?? <PlanNode>[];
+  PlanDocument({
+    List<PlanNode>? nodes,
+    this.goal = '',
+    this.startDate,
+    this.dueDate,
+    this.spentHours = 0,
+    this.notes = '',
+  }) : nodes = nodes ?? <PlanNode>[];
 
   static const schema = 'plan.v2';
   final List<PlanNode> nodes;
+  String goal;
   DateTime? startDate;
   DateTime? dueDate;
+  double spentHours;
+  String notes;
 
   List<PlanNode> childrenOf(String? parentId) =>
       nodes.where((node) => node.parentId == parentId).toList()
@@ -148,8 +157,11 @@ class PlanDocument {
   Map<String, dynamic> toJson() => {
     'schema': schema,
     'nodes': nodes.map((node) => node.toJson()).toList(),
+    'goal': goal,
     'startDate': startDate?.toIso8601String(),
     'dueDate': dueDate?.toIso8601String(),
+    'spentHours': spentHours,
+    'notes': notes,
   };
 
   factory PlanDocument.fromJson(Map<String, dynamic> data) {
@@ -182,11 +194,20 @@ class PlanDocument {
     }
     return PlanDocument(
       nodes: nodes,
+      goal: readString(data['goal']),
       startDate: readOptionalDate(data['startDate']),
       dueDate: readOptionalDate(data['dueDate']),
+      spentHours: readDouble(data['spentHours']),
+      notes: readString(data['notes']),
     );
   }
 }
+
+bool isLegacyPlanDocument(Map<String, dynamic> data) =>
+    data['schema'] != PlanDocument.schema;
+
+Map<String, dynamic> migratePlanDocumentForEditing(Map<String, dynamic> data) =>
+    PlanDocument.fromJson(data).toJson();
 
 class MindMapNode {
   MindMapNode({

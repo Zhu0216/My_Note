@@ -35,15 +35,32 @@ class _FakeImageFilePicker extends FilePicker {
 void main() {
   test('template documents migrate legacy data into structured v2 records', () {
     final plan = PlanDocument.fromJson({
+      'schema': 'plan.v1',
+      'goal': '完成產品第一版',
       'phase': '第一階段',
       'tasks': [
         {'title': '已完成任務', 'done': true},
         {'title': '未完成任務', 'done': false},
       ],
+      'startDate': '2026-09-01T00:00:00.000',
+      'dueDate': '2026-10-01T00:00:00.000',
+      'spentHours': 12.5,
+      'notes': '保留舊備註',
     });
     expect(plan.nodes, hasLength(3));
     expect(plan.childrenOf('legacy-phase'), hasLength(2));
     expect(plan.progressOf('legacy-phase'), closeTo(0.5, 0.001));
+    expect(plan.goal, '完成產品第一版');
+    expect(plan.startDate, DateTime(2026, 9));
+    expect(plan.dueDate, DateTime(2026, 10));
+    expect(plan.spentHours, 12.5);
+    expect(plan.notes, '保留舊備註');
+
+    final migrated = plan.toJson();
+    expect(migrated['schema'], PlanDocument.schema);
+    expect(migrated, isNot(contains('phase')));
+    expect(migrated, isNot(contains('tasks')));
+    expect(PlanDocument.fromJson(migrated).nodes, hasLength(3));
 
     final mindMap = MindMapDocument.fromJson({
       'topic': '中心主題',
@@ -1322,6 +1339,76 @@ void main() {
 
       expect(store.notes, isEmpty);
       expect(find.text('內容為空，不儲存'), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  testWidgets('editing a legacy plan saves v2 without losing legacy values', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    final legacyPlan = NoteItem(
+      id: 'legacy-plan-editor',
+      title: '舊計畫',
+      body: '',
+      category: '',
+      tags: const [],
+      createdAt: DateTime(2026, 9, 1),
+      updatedAt: DateTime(2026, 9, 1),
+      templateType: NoteTemplateType.plan,
+      templateData: {
+        'schema': 'plan.v1',
+        'goal': '完成遷移',
+        'phase': '準備階段',
+        'tasks': [
+          {'title': '盤點舊資料', 'done': true},
+          {'title': '寫入新版', 'done': false},
+        ],
+        'startDate': '2026-09-01T00:00:00.000',
+        'dueDate': '2026-10-01T00:00:00.000',
+        'spentHours': 6.5,
+        'notes': '這段不能消失',
+      },
+    );
+    store.upsertNote(legacyPlan);
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(home: NoteEditorPage(note: legacyPlan)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('完成遷移'), findsOneWidget);
+      expect(find.text('準備階段'), findsOneWidget);
+      expect(find.textContaining('盤點舊資料'), findsOneWidget);
+      expect(find.text('這段不能消失'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField).first, '舊計畫（已編輯）');
+      await tester.tap(find.byIcon(Icons.arrow_back).first);
+      await tester.pumpAndSettle();
+
+      final saved = store.notes.single;
+      expect(saved.templateData['schema'], PlanDocument.schema);
+      final migrated = PlanDocument.fromJson(saved.templateData);
+      expect(migrated.goal, '完成遷移');
+      expect(
+        migrated.nodes.map((node) => node.title),
+        containsAll(<String>['準備階段', '盤點舊資料', '寫入新版']),
+      );
+      expect(
+        migrated.nodes.singleWhere((node) => node.title == '盤點舊資料').completed,
+        isTrue,
+      );
+      expect(migrated.startDate, DateTime(2026, 9));
+      expect(migrated.dueDate, DateTime(2026, 10));
+      expect(migrated.spentHours, 6.5);
+      expect(migrated.notes, '這段不能消失');
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       store.dispose();

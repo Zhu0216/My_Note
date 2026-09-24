@@ -90,18 +90,7 @@ Map<String, dynamic> defaultNoteTemplateData(NoteTemplateType type) {
         'appflowy': blankAppFlowyMirrorJson(),
       };
     case NoteTemplateType.plan:
-      return {
-        'schema': 'plan.v1',
-        'goal': '',
-        'phase': '',
-        'tasks': <Map<String, dynamic>>[
-          {'title': '', 'done': false},
-        ],
-        'startDate': null,
-        'dueDate': null,
-        'spentHours': 0.0,
-        'notes': '',
-      };
+      return PlanDocument().toJson();
     case NoteTemplateType.mindMap:
       return {
         'schema': 'mind_map.v1',
