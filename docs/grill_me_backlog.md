@@ -205,9 +205,11 @@ the current behavior has not been independently accepted for this v1 baseline.
   count, and is integrated with note save/change detection; a widget test
   verifies selection persists on save. The same picker now preserves and
   edits links in todo, schedule, finance, subscription, and savings-account
-  editors; a todo editor widget test verifies the shared flow. Create-and-link,
-  target navigation, richer reverse-reference display, and dedicated template
-  subrecord integration remain.
+    editors; a todo editor widget test verifies the shared flow. A shared
+    details route now opens targets, lists outgoing links and reverse references
+    with counts, and supports
+  recursive deep navigation; unit and widget tests cover both directions.
+  Create-and-link and dedicated template subrecord integration remain.
 
 ### P1-003 — Derived upcoming aggregation
 

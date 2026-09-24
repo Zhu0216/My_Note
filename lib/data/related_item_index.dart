@@ -65,6 +65,20 @@ extension AppStoreRelatedItemIndex on AppStore {
         .toList();
   }
 
+  List<RelatedItemDescriptor> relatedItemsFrom(RelatedItemLink source) {
+    final sourceKey = '${source.type.name}:${source.targetId}';
+    for (final record in _allRelatedItemRecords()) {
+      if (record.descriptor.key != sourceKey) {
+        continue;
+      }
+      return record.links
+          .map(describeRelatedItem)
+          .whereType<RelatedItemDescriptor>()
+          .toList();
+    }
+    return const [];
+  }
+
   Iterable<_RelatedItemRecord> _allRelatedItemRecords() sync* {
     for (final note in visibleNotes) {
       final type = switch (note.templateType) {

@@ -477,6 +477,11 @@ void main() {
       );
       expect(store.reverseLinksTo(todoLink).single.title, '健康計畫');
       expect(store.describeRelatedItem(todoLink)?.title, '預約牙醫');
+      const noteLink = RelatedItemLink(
+        type: RelatedItemType.note,
+        targetId: 'note-index',
+      );
+      expect(store.relatedItemsFrom(noteLink).single.title, '預約牙醫');
     } finally {
       store.dispose();
     }
@@ -1338,6 +1343,55 @@ void main() {
       expect(store.notes.single.links, hasLength(1));
       expect(store.notes.single.links.single.type, RelatedItemType.todo);
       expect(store.notes.single.links.single.targetId, todo.id);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  testWidgets('related item details navigate through outgoing links', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    final todo = TodoItem(id: 'todo-details', title: '預約牙醫');
+    final note = NoteItem(
+      id: 'note-details',
+      title: '健康計畫',
+      body: '健康安排',
+      category: '生活',
+      tags: const [],
+      createdAt: DateTime(2026, 9, 24),
+      updatedAt: DateTime(2026, 9, 24),
+      links: const [
+        RelatedItemLink(type: RelatedItemType.todo, targetId: 'todo-details'),
+      ],
+    );
+    store.upsertTodo(todo);
+    store.upsertNote(note);
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: const MaterialApp(
+            home: RelatedItemDetailsPage(
+              link: RelatedItemLink(
+                type: RelatedItemType.note,
+                targetId: 'note-details',
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('關聯項目 (1)'), findsOneWidget);
+      expect(find.text('引用此項目 (0)'), findsOneWidget);
+      await tester.tap(find.text('預約牙醫'));
+      await tester.pumpAndSettle();
+      expect(find.text('引用此項目 (1)'), findsOneWidget);
+      expect(find.text('健康計畫'), findsOneWidget);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       store.dispose();
