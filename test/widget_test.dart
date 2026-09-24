@@ -1850,6 +1850,118 @@ void main() {
     );
   });
 
+  testWidgets('mind map free connections edit and clean up with nodes', (
+    tester,
+  ) async {
+    var document = MindMapDocument(
+      rootNodeId: 'root',
+      nodes: [
+        MindMapNode(id: 'root', title: '中心', x: 20, y: 20),
+        MindMapNode(
+          id: 'branch',
+          title: '分支',
+          parentId: 'root',
+          x: 260,
+          y: 160,
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => MindMapCanvasEditor(
+              document: document,
+              onChanged: (value) => setState(() => document = value),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byTooltip('建立自由連線'));
+    await tester.pump();
+    expect(find.text('請點選另一個節點以建立自由連線'), findsOneWidget);
+    await tester.tap(find.text('分支'));
+    await tester.pump();
+    expect(document.connections, hasLength(1));
+    expect(
+      find.byKey(const ValueKey('mind-map-connection-toolbar')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('虛線'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('顯示方向箭頭'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('連線顏色'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('藍色'));
+    await tester.pumpAndSettle();
+    expect(document.connections.single.style, MindMapLineStyle.dashed);
+    expect(document.connections.single.directed, isTrue);
+    expect(document.connections.single.color, '#2563EB');
+
+    await tester.tap(find.byTooltip('完成連線編輯'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('管理自由連線'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('中心 → 分支'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('mind-map-connection-toolbar')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byTooltip('刪除自由連線'));
+    await tester.pump();
+    expect(document.connections, isEmpty);
+    await tester.tap(find.text('中心'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('建立自由連線'));
+    await tester.pump();
+    await tester.tap(find.text('分支'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('刪除節點'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('刪除'));
+    await tester.pumpAndSettle();
+    expect(document.nodes.where((node) => node.id == 'branch'), isEmpty);
+    expect(document.connections, isEmpty);
+  });
+
+  test('mind map auto layout preserves root and locked nodes', () {
+    final document = MindMapDocument(
+      rootNodeId: 'root',
+      nodes: [
+        MindMapNode(id: 'root', title: '中心', x: 120, y: 220),
+        MindMapNode(
+          id: 'locked',
+          title: '鎖定',
+          parentId: 'root',
+          x: 430,
+          y: 510,
+          locked: true,
+        ),
+        MindMapNode(id: 'child', title: '子節點', parentId: 'root', x: 10, y: 10),
+        MindMapNode(id: 'free', title: '未連接', x: 20, y: 20),
+      ],
+    );
+
+    autoLayoutMindMap(document);
+
+    final root = document.nodes.singleWhere((node) => node.id == 'root');
+    final locked = document.nodes.singleWhere((node) => node.id == 'locked');
+    final child = document.nodes.singleWhere((node) => node.id == 'child');
+    final free = document.nodes.singleWhere((node) => node.id == 'free');
+    expect(Offset(root.x, root.y), const Offset(120, 220));
+    expect(Offset(locked.x, locked.y), const Offset(430, 510));
+    expect(Offset(child.x, child.y), isNot(const Offset(10, 10)));
+    expect(Offset(free.x, free.y), isNot(const Offset(20, 20)));
+    expect(child.x, free.x);
+    expect(child.y, isNot(free.y));
+  });
+
   test('mind map canvas state survives persistence reload', () async {
     SharedPreferences.setMockInitialValues({});
     final store = await AppStore.load();
@@ -1864,6 +1976,16 @@ void main() {
           x: 320,
           y: 180,
           locked: true,
+        ),
+      ],
+      connections: [
+        MindMapConnection(
+          id: 'saved-line',
+          fromNodeId: 'root',
+          toNodeId: 'locked-child',
+          color: '#2563EB',
+          style: MindMapLineStyle.dashed,
+          directed: true,
         ),
       ],
     );
@@ -1895,6 +2017,10 @@ void main() {
       expect(child.y, 180);
       expect(child.locked, isTrue);
       expect(restored.nodes.first.expanded, isFalse);
+      expect(restored.connections, hasLength(1));
+      expect(restored.connections.single.color, '#2563EB');
+      expect(restored.connections.single.style, MindMapLineStyle.dashed);
+      expect(restored.connections.single.directed, isTrue);
     } finally {
       reloaded.dispose();
     }

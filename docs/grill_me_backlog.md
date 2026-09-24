@@ -381,12 +381,21 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-013 — Mind-map connections and layout
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: parent-child/free links show color, solid/dashed style,
   and optional arrow; one-click layout excludes locked nodes.
 - Acceptance: connections update after deletion; layout preserves root/locks.
 - Dependencies: P1-012.
-- Evidence: model types exist; renderer absent.
+- Evidence: the canvas now renders parent-child lines and persisted free
+  connections behind node cards. Users start a free connection from the
+  selected node, choose its target, reopen it from the connection menu, and
+  edit color, solid/dashed style, and direction before deleting it. Removing a
+  node subtree removes every attached free connection. One-click layout
+  arranges unlocked connected and disconnected nodes by depth while preserving
+  the root and locked-node coordinates. Widget tests cover creation, editing,
+  reopening, explicit deletion, subtree cleanup, and layout invariants; the
+  persistence test covers color/style/direction across restart. Analyzer, all
+  91 tests, and the Web production build pass on 2026-09-24.
 
 ## P1 — Life project template and finance authority
 
