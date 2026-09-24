@@ -574,6 +574,10 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     }
     var imageName = readString(noteBackground['image']);
     var imageBytesBase64 = readString(noteBackground['imageBytesBase64']);
+    var coverImageName = readString(noteBackground['coverImage']);
+    var coverImageBytesBase64 = readString(
+      noteBackground['coverImageBytesBase64'],
+    );
     var mode = readEnum(
       NoteBackgroundMode.values,
       noteBackground['mode'],
@@ -616,6 +620,51 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                           imageName = '';
                           imageBytesBase64 = '';
                         }),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  '封面圖片',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final file = await NoteFileService.pickImage();
+                          if (!mounted || file == null) {
+                            return;
+                          }
+                          final bytes = file.bytes;
+                          if (bytes == null || bytes.isEmpty) {
+                            showToast(this.context, '無法讀取封面圖片');
+                            return;
+                          }
+                          setModalState(() {
+                            coverImageName = file.name;
+                            coverImageBytesBase64 = base64Encode(bytes);
+                          });
+                        },
+                        icon: const Icon(Icons.add_photo_alternate_outlined),
+                        label: Text(
+                          coverImageName.isEmpty ? '選擇封面圖片' : coverImageName,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                    if (coverImageBytesBase64.isNotEmpty)
+                      IconButton(
+                        tooltip: '移除封面圖片',
+                        onPressed: () => setModalState(() {
+                          coverImageName = '';
+                          coverImageBytesBase64 = '';
+                        }),
+                        icon: const Icon(Icons.delete_outline),
                       ),
                   ],
                 ),
@@ -675,26 +724,50 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                   const SizedBox(height: 12),
                 ],
                 if (backgroundType == 'image') ...[
-                  OutlinedButton.icon(
-                    onPressed: () async {
-                      final file = await NoteFileService.pickImage();
-                      if (!mounted || file == null) {
-                        return;
-                      }
-                      final bytes = file.bytes;
-                      if (bytes == null || bytes.isEmpty) {
-                        showToast(this.context, '無法讀取背景圖片');
-                        return;
-                      }
-                      setModalState(() {
-                        backgroundType = 'image';
-                        appearanceTheme = NoteAppearanceTheme.custom;
-                        imageName = file.name;
-                        imageBytesBase64 = base64Encode(bytes);
-                      });
-                    },
-                    icon: const Icon(Icons.image_outlined),
-                    label: Text(imageName.isEmpty ? '選擇圖片' : imageName),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final file = await NoteFileService.pickImage();
+                            if (!mounted || file == null) {
+                              return;
+                            }
+                            final bytes = file.bytes;
+                            if (bytes == null || bytes.isEmpty) {
+                              showToast(this.context, '無法讀取背景圖片');
+                              return;
+                            }
+                            setModalState(() {
+                              backgroundType = 'image';
+                              appearanceTheme = NoteAppearanceTheme.custom;
+                              imageName = file.name;
+                              imageBytesBase64 = base64Encode(bytes);
+                            });
+                          },
+                          icon: const Icon(Icons.image_outlined),
+                          label: Text(
+                            imageName.isEmpty ? '選擇背景圖片' : imageName,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                      if (imageBytesBase64.isNotEmpty)
+                        IconButton(
+                          tooltip: '移除背景圖片',
+                          onPressed: () => setModalState(() {
+                            backgroundType = 'color';
+                            imageName = '';
+                            imageBytesBase64 = '';
+                          }),
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '背景圖片會以低透明度顯示，保持文字清楚可讀。',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 12),
                   DropdownMenu<NoteBackgroundMode>(
@@ -738,7 +811,10 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                         : selectedColor.trim(),
                     'image': imageName.trim(),
                     'imageBytesBase64': imageBytesBase64,
+                    'imageOpacity': 0.14,
                     'mode': mode.name,
+                    'coverImage': coverImageName.trim(),
+                    'coverImageBytesBase64': coverImageBytesBase64,
                   };
                 });
                 Navigator.pop(context);
@@ -4175,6 +4251,7 @@ class _GeneralRichTextEditorPanelState
       widget.background,
     );
     final backgroundImage = effectiveNoteBackgroundImage(widget.background);
+    final coverImageBytes = effectiveNoteCoverImageBytes(widget.background);
     removeStaleImageTapTargets();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -4240,6 +4317,15 @@ class _GeneralRichTextEditorPanelState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (coverImageBytes != null)
+                    Image.memory(
+                      coverImageBytes,
+                      key: const ValueKey('note-cover-image'),
+                      height: 144,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      semanticLabel: '筆記封面圖片',
+                    ),
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
@@ -7582,6 +7668,10 @@ DecorationImage? effectiveNoteBackgroundImage(Map<String, dynamic> background) {
   );
   return DecorationImage(
     image: MemoryImage(bytes),
+    opacity: readDouble(
+      background['imageOpacity'],
+      fallback: 0.14,
+    ).clamp(0.08, 0.2).toDouble(),
     fit: switch (mode) {
       NoteBackgroundMode.stretch => BoxFit.fill,
       NoteBackgroundMode.repeat => BoxFit.none,
@@ -7591,6 +7681,13 @@ DecorationImage? effectiveNoteBackgroundImage(Map<String, dynamic> background) {
         ? ImageRepeat.repeat
         : ImageRepeat.noRepeat,
   );
+}
+
+Uint8List? effectiveNoteCoverImageBytes(Map<String, dynamic> background) {
+  final bytes = decodeBase64BytesOrNull(
+    readString(background['coverImageBytesBase64']),
+  );
+  return bytes == null || bytes.isEmpty ? null : bytes;
 }
 
 Color colorFromHex(String value) {

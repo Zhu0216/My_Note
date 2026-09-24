@@ -277,13 +277,20 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-007 — Optional cover and background image
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: notes may use optional cover/background images without
   making either mandatory.
 - Acceptance: select/remove/persist/render flows work on Web and Android and
   preserve rich-editor contrast.
 - Dependencies: P1-005, File Picker.
-- Evidence: none.
+- Evidence: `外觀與背景` now selects and removes independent cover and
+  background images. Covers render as a fixed-height image above the editor;
+  backgrounds stay inside editor flow at a contrast-preserving opacity capped
+  at 0.2. Both byte payloads and names persist in the existing note background
+  map, so no schema migration was needed. Widget tests use a real FilePicker
+  platform fake to verify selection and persistence, then verify rendering,
+  removal, and low-opacity contrast. Analyzer, all 79 tests, and the Web
+  production build pass.
 
 ## P1 — Plan template
 

@@ -1,10 +1,36 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:my_note/main.dart';
+
+class _FakeImageFilePicker extends FilePicker {
+  _FakeImageFilePicker(this.bytes);
+
+  final Uint8List bytes;
+
+  @override
+  Future<FilePickerResult?> pickFiles({
+    String? dialogTitle,
+    String? initialDirectory,
+    FileType type = FileType.any,
+    List<String>? allowedExtensions,
+    Function(FilePickerStatus)? onFileLoading,
+    bool allowCompression = false,
+    int compressionQuality = 0,
+    bool allowMultiple = false,
+    bool withData = false,
+    bool withReadStream = false,
+    bool lockParentWindow = false,
+    bool readSequential = false,
+  }) async => FilePickerResult([
+    PlatformFile(name: 'picked.png', size: bytes.length, bytes: bytes),
+  ]);
+}
 
 void main() {
   test('template documents migrate legacy data into structured v2 records', () {
@@ -1710,6 +1736,123 @@ void main() {
       expect(store.notes.single.background['appearanceTheme'], 'clean');
       expect(store.notes.single.background['imageBytesBase64'], isEmpty);
       expect(store.notes.single.style['color'], '#202522');
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  testWidgets('optional cover and background images render and can be removed', (
+    tester,
+  ) async {
+    const imageBase64 =
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    final note = NoteItem(
+      id: 'note-images',
+      title: '圖片外觀',
+      body: '文字保持可讀',
+      category: '',
+      tags: const [],
+      createdAt: DateTime(2026, 9, 24),
+      updatedAt: DateTime(2026, 9, 24),
+      background: {
+        ...defaultNoteBackground(),
+        'appearanceTheme': 'custom',
+        'type': 'image',
+        'image': 'background.png',
+        'imageBytesBase64': imageBase64,
+        'coverImage': 'cover.png',
+        'coverImageBytesBase64': imageBase64,
+      },
+    );
+    store.upsertNote(note);
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(home: NoteEditorPage(note: note)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('note-cover-image')), findsOneWidget);
+      final backgroundImage = effectiveNoteBackgroundImage(note.background);
+      expect(backgroundImage, isNotNull);
+      expect(backgroundImage!.opacity, lessThanOrEqualTo(0.2));
+
+      await tester.tap(find.byTooltip('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('外觀與背景'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('移除封面圖片'));
+      await tester.tap(find.byTooltip('移除背景圖片'));
+      await tester.tap(find.text('套用'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('note-cover-image')), findsNothing);
+      await tester.tap(find.byIcon(Icons.arrow_back).first);
+      await tester.pumpAndSettle();
+
+      expect(store.notes.single.background['imageBytesBase64'], isEmpty);
+      expect(store.notes.single.background['coverImageBytesBase64'], isEmpty);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  testWidgets('image picker selects and persists cover and background images', (
+    tester,
+  ) async {
+    const imageBase64 =
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    FilePicker.platform = _FakeImageFilePicker(base64Decode(imageBase64));
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    final note = NoteItem(
+      id: 'note-image-picker',
+      title: '選擇圖片',
+      body: '保留可讀文字',
+      category: '',
+      tags: const [],
+      createdAt: DateTime(2026, 9, 24),
+      updatedAt: DateTime(2026, 9, 24),
+    );
+    store.upsertNote(note);
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(home: NoteEditorPage(note: note)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('外觀與背景'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('選擇封面圖片'));
+      await tester.pump();
+      await tester.tap(find.text('圖片'));
+      await tester.pump();
+      await tester.tap(find.text('選擇背景圖片'));
+      await tester.pump();
+      await tester.tap(find.text('套用'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.arrow_back).first);
+      await tester.pumpAndSettle();
+
+      expect(store.notes.single.background['coverImage'], 'picked.png');
+      expect(
+        store.notes.single.background['coverImageBytesBase64'],
+        imageBase64,
+      );
+      expect(store.notes.single.background['image'], 'picked.png');
+      expect(store.notes.single.background['imageBytesBase64'], imageBase64);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       store.dispose();

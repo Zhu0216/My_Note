@@ -70,7 +70,10 @@ Map<String, dynamic> defaultNoteBackground() {
     'color': '#FFFFFF',
     'image': '',
     'imageBytesBase64': '',
+    'imageOpacity': 0.14,
     'mode': NoteBackgroundMode.fill.name,
+    'coverImage': '',
+    'coverImageBytesBase64': '',
   };
 }
 
