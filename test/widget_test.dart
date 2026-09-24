@@ -1398,6 +1398,72 @@ void main() {
     }
   });
 
+  testWidgets('relationship picker creates and selects a linked item', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: const MaterialApp(
+            home: RelatedItemPickerPage(initialLinks: []),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('新增並連結'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '繳交報告');
+      await tester.tap(find.byTooltip('建立'));
+      await tester.pumpAndSettle();
+
+      expect(store.todos.single.title, '繳交報告');
+      expect(find.text('繳交報告'), findsOneWidget);
+      expect(find.byIcon(Icons.check_circle), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  testWidgets('relationship picker removes an existing link', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    store.upsertTodo(TodoItem(id: 'todo-remove-link', title: '取消關聯'));
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: const MaterialApp(
+            home: RelatedItemPickerPage(
+              initialLinks: [
+                RelatedItemLink(
+                  type: RelatedItemType.todo,
+                  targetId: 'todo-remove-link',
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.check_circle), findsOneWidget);
+
+      await tester.tap(find.text('取消關聯'));
+      await tester.pump();
+      expect(find.byIcon(Icons.check_circle), findsNothing);
+      expect(find.byIcon(Icons.add_circle_outline), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
   testWidgets('todo editor selects and saves a related note', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final store = AppStore.seeded(persistenceLocked: true);

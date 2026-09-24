@@ -104,6 +104,25 @@ class _RelatedItemPickerPageState extends State<RelatedItemPickerPage> {
     );
   }
 
+  Future<void> createAndLink() async {
+    final link = await Navigator.of(context).push<RelatedItemLink>(
+      MaterialPageRoute(
+        builder: (_) => AppStoreScope(
+          store: AppStoreScope.of(context),
+          child: const RelatedItemCreatePage(),
+        ),
+      ),
+    );
+    if (link == null || !mounted) {
+      return;
+    }
+    setState(() {
+      final key = _linkKey(link);
+      selectedKeys.add(key);
+      selectedLinks[key] = link;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = AppStoreScope.of(context);
@@ -146,6 +165,17 @@ class _RelatedItemPickerPageState extends State<RelatedItemPickerPage> {
                             icon: const Icon(Icons.close),
                           ),
                     border: const OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: createAndLink,
+                    icon: const Icon(Icons.add_link),
+                    label: const Text('新增並連結'),
                   ),
                 ),
               ),
@@ -208,6 +238,195 @@ class _RelatedItemPickerPageState extends State<RelatedItemPickerPage> {
                         },
                       ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class RelatedItemCreatePage extends StatefulWidget {
+  const RelatedItemCreatePage({super.key});
+
+  @override
+  State<RelatedItemCreatePage> createState() => _RelatedItemCreatePageState();
+}
+
+class _RelatedItemCreatePageState extends State<RelatedItemCreatePage> {
+  final titleController = TextEditingController();
+  final amountController = TextEditingController(text: '0');
+  RelatedItemType type = RelatedItemType.todo;
+
+  bool get usesAmount => switch (type) {
+    RelatedItemType.finance ||
+    RelatedItemType.subscription ||
+    RelatedItemType.account => true,
+    _ => false,
+  };
+
+  @override
+  void dispose() {
+    titleController.dispose();
+    amountController.dispose();
+    super.dispose();
+  }
+
+  void create() {
+    final title = titleController.text.trim();
+    if (title.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('請輸入名稱')));
+      return;
+    }
+    final store = AppStoreScope.of(context);
+    final id = store.newId(_idPrefix(type));
+    final now = DateTime.now();
+    final amount = double.tryParse(amountController.text) ?? 0;
+    final link = RelatedItemLink(type: type, targetId: id);
+
+    switch (type) {
+      case RelatedItemType.note:
+      case RelatedItemType.plan:
+      case RelatedItemType.mindMap:
+      case RelatedItemType.lifeProject:
+        final template = switch (type) {
+          RelatedItemType.plan => NoteTemplateType.plan,
+          RelatedItemType.mindMap => NoteTemplateType.mindMap,
+          RelatedItemType.lifeProject => NoteTemplateType.lifeSheet,
+          _ => NoteTemplateType.general,
+        };
+        store.upsertNote(
+          NoteItem(
+            id: id,
+            title: title,
+            body: '',
+            category: '',
+            tags: const [],
+            createdAt: now,
+            updatedAt: now,
+            templateType: template,
+          ),
+        );
+      case RelatedItemType.todo:
+        store.upsertTodo(
+          TodoItem(
+            id: id,
+            title: title,
+            sortOrder: (store.activeTodos.length + 1) * 1000,
+          ),
+        );
+      case RelatedItemType.schedule:
+        final start = now.add(const Duration(hours: 1));
+        store.upsertSchedule(
+          ScheduleItem(
+            id: id,
+            title: title,
+            start: start,
+            end: start.add(const Duration(hours: 1)),
+            location: '',
+            notes: '',
+            remindBeforeMinutes: 30,
+          ),
+        );
+      case RelatedItemType.finance:
+        store.upsertFinanceEntry(
+          FinanceEntry(
+            id: id,
+            type: EntryType.expense,
+            title: title,
+            amount: amount,
+            category: '其他',
+            account: store.savingsAccounts.isEmpty
+                ? '現金'
+                : store.savingsAccounts.first.name,
+            date: now,
+            note: '',
+          ),
+        );
+      case RelatedItemType.subscription:
+        store.upsertSubscription(
+          SubscriptionItem(
+            id: id,
+            name: title,
+            amount: amount,
+            cycle: SubscriptionCycle.monthly,
+            nextPaymentDate: now.add(const Duration(days: 30)),
+            paymentMethod: '',
+            category: '訂閱',
+            reminderDays: 3,
+          ),
+        );
+      case RelatedItemType.account:
+        store.upsertSavingsAccount(
+          SavingsAccount(id: id, name: title, amount: amount),
+        );
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
+    Navigator.pop(context, link);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: AppPage(
+          title: '新增並連結',
+          subtitle: '建立項目後自動加入目前關聯',
+          leading: const PageBackButton(),
+          actions: [
+            IconButton(
+              tooltip: '建立',
+              onPressed: create,
+              icon: const Icon(Icons.check),
+            ),
+          ],
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            children: [
+              DropdownButtonFormField<RelatedItemType>(
+                initialValue: type,
+                decoration: const InputDecoration(
+                  labelText: '類型',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  for (final item in RelatedItemType.values)
+                    DropdownMenuItem(
+                      value: item,
+                      child: Row(
+                        children: [
+                          Icon(_relatedItemIcon(item), size: 20),
+                          const SizedBox(width: 10),
+                          Text(_relatedItemLabel(item)),
+                        ],
+                      ),
+                    ),
+                ],
+                onChanged: (value) => setState(() => type = value ?? type),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: titleController,
+                decoration: const InputDecoration(
+                  labelText: '名稱',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              if (usesAmount) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amountController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: '金額',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -311,6 +530,18 @@ class _RelatedSection extends StatelessWidget {
 }
 
 String _linkKey(RelatedItemLink link) => '${link.type.name}:${link.targetId}';
+
+String _idPrefix(RelatedItemType type) => switch (type) {
+  RelatedItemType.note => 'n',
+  RelatedItemType.todo => 't',
+  RelatedItemType.schedule => 's',
+  RelatedItemType.finance => 'f',
+  RelatedItemType.subscription => 'sub',
+  RelatedItemType.plan => 'plan',
+  RelatedItemType.mindMap => 'mind',
+  RelatedItemType.lifeProject => 'life',
+  RelatedItemType.account => 'sa',
+};
 
 String _relatedItemLabel(RelatedItemType type) => switch (type) {
   RelatedItemType.note => '筆記',

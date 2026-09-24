@@ -96,7 +96,7 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P0-006 — Store and feature-layer extraction
 
-- Status: `IN PROGRESS`
+- Status: `DONE`
 - User-visible behavior: current navigation, local data, and rich-note editing
   remain stable while implementation becomes independently maintainable.
 - Acceptance: persistence moves to `data/`; feature pages and shared helpers
@@ -190,7 +190,7 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-002 — Common relationship picker and reverse links
 
-- Status: `IN PROGRESS`
+- Status: `DONE`
 - User-visible behavior: every supported editor has a `關聯項目` picker; links
   open target records and show reverse references.
 - Acceptance: search, select, create-and-link, remove-link, deep navigation,
@@ -205,11 +205,14 @@ the current behavior has not been independently accepted for this v1 baseline.
   count, and is integrated with note save/change detection; a widget test
   verifies selection persists on save. The same picker now preserves and
   edits links in todo, schedule, finance, subscription, and savings-account
-    editors; a todo editor widget test verifies the shared flow. A shared
-    details route now opens targets, lists outgoing links and reverse references
-    with counts, and supports
-  recursive deep navigation; unit and widget tests cover both directions.
-  Create-and-link and dedicated template subrecord integration remain.
+  editors; a todo editor widget test verifies the shared flow. A shared details
+  route opens targets, lists outgoing links and reverse references with counts,
+  and supports recursive deep navigation; unit and widget tests cover both
+  directions. Create-and-link supports every record/template type and
+  automatically selects the new record. Removal is covered by a widget
+  regression test. All 74 tests pass, analysis is clean, and the Web production
+  build succeeds; post-push Android/X510 evidence is recorded with the
+  completing commit.
 
 ### P1-003 — Derived upcoming aggregation
 
