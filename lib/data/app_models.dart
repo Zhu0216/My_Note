@@ -31,7 +31,7 @@ enum NoteBackgroundMode { fill, stretch, repeat }
 
 enum AppNavBarStyle { template6 }
 
-enum NoteEditorMenuAction { background, insertNote, export }
+enum NoteEditorMenuAction { background, insertNote, relatedItems, export }
 
 class NoteItem {
   NoteItem({

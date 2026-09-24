@@ -200,8 +200,12 @@ the current behavior has not been independently accepted for this v1 baseline.
   searchable index across notes/templates, todos, schedules, finance records,
   subscriptions, and accounts, including descriptor lookup and reverse-link
   queries. `test/widget_test.dart` verifies search, self-exclusion, target
-  resolution, and reverse-link discovery. The shared picker UI,
-  create-and-link flow, removal controls, and deep navigation remain.
+  resolution, and reverse-link discovery. The shared picker UI now supports
+  searching, selecting, and removing links, displays the reverse-reference
+  count, and is integrated with note save/change detection; a widget test
+  verifies selection persists on save. Create-and-link, target navigation,
+  richer reverse-reference display, and integration with the remaining
+  editors remain.
 
 ### P1-003 — Derived upcoming aggregation
 

@@ -18,6 +18,7 @@ import 'ui/formatters.dart';
 import 'ui/note_template_metadata.dart';
 import 'ui/note_text_helpers.dart';
 import 'ui/prompt_dialogs.dart';
+import 'ui/related_item_picker.dart';
 import 'ui/shared_components.dart';
 import 'ui/todo_display.dart';
 
@@ -192,6 +193,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   late List<Map<String, dynamic>> noteImages;
   late List<Map<String, dynamic>> noteAttachments;
   late Map<String, dynamic> noteBackground;
+  late List<RelatedItemLink> noteLinks;
   bool allowPop = false;
   bool didSave = false;
   bool get readOnly => widget.readOnly;
@@ -221,6 +223,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     noteBackground = Map<String, dynamic>.from(
       note?.background ?? defaultNoteBackground(),
     );
+    noteLinks = List<RelatedItemLink>.from(note?.links ?? const []);
     if (templateType == NoteTemplateType.general) {
       migrateLegacyInlineAssets();
       body.isolateEmbedBlocks(images: noteImages);
@@ -273,7 +276,9 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         jsonEncode(noteStyle) != jsonEncode(note.style) ||
         jsonEncode(noteImages) != jsonEncode(note.images) ||
         jsonEncode(noteAttachments) != jsonEncode(note.attachments) ||
-        jsonEncode(noteBackground) != jsonEncode(note.background);
+        jsonEncode(noteBackground) != jsonEncode(note.background) ||
+        jsonEncode(noteLinks.map((link) => link.toJson()).toList()) !=
+            jsonEncode(note.links.map((link) => link.toJson()).toList());
   }
 
   Map<String, dynamic> currentNoteTemplateData() {
@@ -331,6 +336,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         images: noteImages,
         attachments: noteAttachments,
         background: noteBackground,
+        links: noteLinks,
       ),
     );
     didSave = true;
@@ -772,6 +778,33 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     }
   }
 
+  Future<void> editRelatedItems() async {
+    final note = widget.note;
+    final source = note == null
+        ? null
+        : RelatedItemLink(
+            type: switch (note.templateType) {
+              NoteTemplateType.general => RelatedItemType.note,
+              NoteTemplateType.plan => RelatedItemType.plan,
+              NoteTemplateType.mindMap => RelatedItemType.mindMap,
+              NoteTemplateType.lifeSheet => RelatedItemType.lifeProject,
+            },
+            targetId: note.id,
+          );
+    final result = await Navigator.push<List<RelatedItemLink>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AppStoreScope(
+          store: AppStoreScope.of(context),
+          child: RelatedItemPickerPage(initialLinks: noteLinks, source: source),
+        ),
+      ),
+    );
+    if (result != null && mounted) {
+      setState(() => noteLinks = result);
+    }
+  }
+
   void handleEditorMenu(NoteEditorMenuAction action) {
     switch (action) {
       case NoteEditorMenuAction.background:
@@ -779,6 +812,9 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         return;
       case NoteEditorMenuAction.insertNote:
         unawaited(insertNoteReference());
+        return;
+      case NoteEditorMenuAction.relatedItems:
+        unawaited(editRelatedItems());
         return;
       case NoteEditorMenuAction.export:
         unawaited(showExportOptions());
@@ -825,6 +861,14 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                       child: ListTile(
                         leading: Icon(Icons.format_color_fill_outlined),
                         title: Text('背景設定'),
+                      ),
+                    ),
+                  if (!readOnly)
+                    const PopupMenuItem(
+                      value: NoteEditorMenuAction.relatedItems,
+                      child: ListTile(
+                        leading: Icon(Icons.hub_outlined),
+                        title: Text('關聯項目'),
                       ),
                     ),
                   if (!readOnly)

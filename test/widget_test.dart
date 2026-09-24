@@ -1297,6 +1297,53 @@ void main() {
     }
   });
 
+  testWidgets('note editor selects and saves a related item', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    final todo = TodoItem(id: 'todo-related-ui', title: '預約牙醫');
+    final note = NoteItem(
+      id: 'note-related-ui',
+      title: '健康筆記',
+      body: '追蹤健康安排',
+      category: '',
+      tags: const [],
+      createdAt: DateTime(2026, 9, 24),
+      updatedAt: DateTime(2026, 9, 24),
+    );
+    store.upsertTodo(todo);
+    store.upsertNote(note);
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(home: NoteEditorPage(note: note)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('關聯項目'));
+      await tester.pumpAndSettle();
+      expect(find.text('預約牙醫'), findsOneWidget);
+
+      await tester.tap(find.text('預約牙醫'));
+      await tester.pump();
+      await tester.tap(find.byTooltip('完成'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.arrow_back).first);
+      await tester.pumpAndSettle();
+
+      expect(store.notes.single.links, hasLength(1));
+      expect(store.notes.single.links.single.type, RelatedItemType.todo);
+      expect(store.notes.single.links.single.targetId, todo.id);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
   test('rich toolbar applies inline style to selected content', () {
     final controller = RichNoteTextController(
       text: 'alpha beta',
