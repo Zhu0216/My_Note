@@ -92,21 +92,10 @@ Map<String, dynamic> defaultNoteTemplateData(NoteTemplateType type) {
     case NoteTemplateType.plan:
       return PlanDocument().toJson();
     case NoteTemplateType.mindMap:
-      return {
-        'schema': 'mind_map.v1',
-        'topic': '',
-        'nodes': <Map<String, dynamic>>[
-          {
-            'title': '',
-            'subtitle': '',
-            'description': '',
-            'x': 0.0,
-            'y': 0.0,
-            'color': '#7C8B5F',
-            'expanded': true,
-          },
-        ],
-      };
+      return MindMapDocument(
+        rootNodeId: 'mind-root',
+        nodes: [MindMapNode(id: 'mind-root', title: '')],
+      ).toJson();
     case NoteTemplateType.lifeSheet:
       return {
         'schema': 'life_sheet.v1',

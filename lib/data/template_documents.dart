@@ -249,6 +249,8 @@ class MindMapNode {
   MindMapNode({
     required this.id,
     required this.title,
+    this.subtitle = '',
+    this.description = '',
     this.parentId,
     this.x = 0,
     this.y = 0,
@@ -260,6 +262,8 @@ class MindMapNode {
 
   final String id;
   String title;
+  String subtitle;
+  String description;
   String? parentId;
   double x;
   double y;
@@ -271,6 +275,8 @@ class MindMapNode {
   Map<String, dynamic> toJson() => {
     'id': id,
     'title': title,
+    'subtitle': subtitle,
+    'description': description,
     'parentId': parentId,
     'x': x,
     'y': y,
@@ -286,6 +292,8 @@ class MindMapNode {
   }) => MindMapNode(
     id: readString(data['id'], fallback: fallbackId),
     title: readString(data['title']),
+    subtitle: readString(data['subtitle']),
+    description: readString(data['description']),
     parentId: readOptionalString(data['parentId']),
     x: readDouble(data['x']),
     y: readDouble(data['y']),
@@ -362,6 +370,7 @@ class MindMapDocument {
   };
 
   factory MindMapDocument.fromJson(Map<String, dynamic> data) {
+    final topic = readString(data['topic']);
     final nodes = readMapList(data['nodes']).indexed
         .map(
           (entry) => MindMapNode.fromJson(
@@ -371,10 +380,21 @@ class MindMapDocument {
         )
         .toList();
     if (nodes.isEmpty) {
-      nodes.add(MindMapNode(id: 'mind-root', title: readString(data['topic'])));
+      nodes.add(MindMapNode(id: 'mind-root', title: topic));
     }
+    final requestedRootId = readOptionalString(data['rootNodeId']);
+    final rootNode = nodes.firstWhere(
+      (node) => node.id == requestedRootId,
+      orElse: () => topic.isEmpty
+          ? nodes.first
+          : nodes.firstWhere(
+              (node) => node.title == topic,
+              orElse: () => nodes.first,
+            ),
+    );
+    if (rootNode.title.isEmpty && topic.isNotEmpty) rootNode.title = topic;
     return MindMapDocument(
-      rootNodeId: readString(data['rootNodeId'], fallback: nodes.first.id),
+      rootNodeId: rootNode.id,
       nodes: nodes,
       connections: readMapList(data['connections']).indexed
           .map(
@@ -387,6 +407,13 @@ class MindMapDocument {
     );
   }
 }
+
+bool isLegacyMindMapDocument(Map<String, dynamic> data) =>
+    data['schema'] != MindMapDocument.schema;
+
+Map<String, dynamic> migrateMindMapDocumentForEditing(
+  Map<String, dynamic> data,
+) => MindMapDocument.fromJson(data).toJson();
 
 enum LifeItemDisplayMode { money, progress }
 

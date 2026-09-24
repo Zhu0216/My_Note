@@ -213,6 +213,8 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     );
     if (templateType == NoteTemplateType.plan) {
       templateData = migratePlanDocumentForEditing(templateData);
+    } else if (templateType == NoteTemplateType.mindMap) {
+      templateData = migrateMindMapDocumentForEditing(templateData);
     }
     final richSeed = templateType == NoteTemplateType.general
         ? richNoteSeedFromTemplateData(note?.body ?? '', templateData)
@@ -7302,29 +7304,64 @@ class NoteTemplateFields extends StatelessWidget {
   }
 
   List<Widget> buildMindMapFields() {
+    final document = MindMapDocument.fromJson(data);
+    final root = document.nodes.firstWhere(
+      (node) => node.id == document.rootNodeId,
+    );
     return [
       TemplateTextField(
         label: '主題',
-        value: readString(data['topic']),
-        onChanged: (value) => setValue('topic', value),
+        value: root.title,
+        onChanged: (value) {
+          root.title = value;
+          onChanged(document.toJson());
+        },
       ),
       TemplateTextField(
         label: '節點（標題 | 次標 | 說明 | x,y | 顏色 | 展開/收合）',
-        value: readMapList(data['nodes'])
+        value: document.nodes
             .map(
-              (item) =>
-                  '${item['title']} | ${item['subtitle']} | ${item['description']} | ${item['x']},${item['y']} | ${item['color']} | ${item['expanded'] == true ? '展開' : '收合'}',
+              (node) =>
+                  '${node.title} | ${node.subtitle} | ${node.description} | ${node.x},${node.y} | ${node.color} | ${node.expanded ? '展開' : '收合'}',
             )
             .join('\n'),
         minLines: 4,
-        onChanged: (value) => setValue(
-          'nodes',
-          value
+        onChanged: (value) {
+          final lines = value
               .split('\n')
               .where((line) => line.trim().isNotEmpty)
-              .map(parseMindMapNodeLine)
-              .toList(),
-        ),
+              .toList();
+          final previous = List<MindMapNode>.from(document.nodes);
+          document.nodes.clear();
+          for (final entry in lines.indexed) {
+            final parsed = parseMindMapNodeLine(entry.$2);
+            final prior = entry.$1 < previous.length
+                ? previous[entry.$1]
+                : null;
+            document.nodes.add(
+              MindMapNode(
+                id:
+                    prior?.id ??
+                    'mind-node-${DateTime.now().microsecondsSinceEpoch}-${entry.$1}',
+                title: readString(parsed['title']),
+                subtitle: readString(parsed['subtitle']),
+                description: readString(parsed['description']),
+                x: readDouble(parsed['x']),
+                y: readDouble(parsed['y']),
+                color: readString(parsed['color'], fallback: '#7C8B5F'),
+                expanded: parsed['expanded'] != false,
+                locked: prior?.locked ?? false,
+                parentId: prior?.parentId,
+                links: prior?.links,
+              ),
+            );
+          }
+          if (!document.nodes.any((node) => node.id == document.rootNodeId) &&
+              document.nodes.isNotEmpty) {
+            document.rootNodeId = document.nodes.first.id;
+          }
+          onChanged(document.toJson());
+        },
       ),
     ];
   }

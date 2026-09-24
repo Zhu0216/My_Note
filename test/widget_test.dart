@@ -64,14 +64,30 @@ void main() {
     expect(PlanDocument.fromJson(migrated).nodes, hasLength(3));
 
     final mindMap = MindMapDocument.fromJson({
+      'schema': 'mind_map.v1',
       'topic': '中心主題',
       'nodes': [
+        {
+          'title': '分支',
+          'subtitle': '次標',
+          'description': '舊說明',
+          'x': 100,
+          'y': 10,
+          'color': '#235A93',
+          'expanded': false,
+        },
         {'title': '中心主題', 'x': 0, 'y': 0},
-        {'title': '分支', 'x': 100, 'y': 10},
       ],
     });
-    expect(mindMap.rootNodeId, mindMap.nodes.first.id);
-    expect(mindMap.nodes.first.title, '中心主題');
+    expect(mindMap.rootNodeId, mindMap.nodes.last.id);
+    expect(mindMap.nodes.last.title, '中心主題');
+    expect(mindMap.nodes.first.subtitle, '次標');
+    expect(mindMap.nodes.first.description, '舊說明');
+    expect(mindMap.nodes.first.x, 100);
+    expect(mindMap.nodes.first.y, 10);
+    expect(mindMap.nodes.first.color, '#235A93');
+    expect(mindMap.nodes.first.expanded, isFalse);
+    expect(mindMap.toJson()['schema'], MindMapDocument.schema);
 
     final lifeProject = LifeProjectDocument.fromJson({
       'items': [
@@ -1694,6 +1710,84 @@ void main() {
       expect(migrated.dueDate, DateTime(2026, 10));
       expect(migrated.spentHours, 6.5);
       expect(migrated.notes, '這段不能消失');
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  testWidgets('editing a legacy mind map saves v2 without losing nodes', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    final legacyMindMap = NoteItem(
+      id: 'legacy-mind-map-editor',
+      title: '舊心智圖',
+      body: '',
+      category: '',
+      tags: const [],
+      createdAt: DateTime(2026, 9, 1),
+      updatedAt: DateTime(2026, 9, 1),
+      templateType: NoteTemplateType.mindMap,
+      templateData: {
+        'schema': 'mind_map.v1',
+        'topic': '產品中心',
+        'nodes': [
+          {
+            'title': '產品中心',
+            'subtitle': '核心',
+            'description': '中心說明',
+            'x': 25.0,
+            'y': 30.0,
+            'color': '#7C8B5F',
+            'expanded': true,
+          },
+          {
+            'title': '分支節點',
+            'subtitle': '細節',
+            'description': '分支說明',
+            'x': 180.0,
+            'y': 80.0,
+            'color': '#8B2F2F',
+            'expanded': false,
+          },
+        ],
+      },
+    );
+    store.upsertNote(legacyMindMap);
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(home: NoteEditorPage(note: legacyMindMap)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('產品中心'), findsWidgets);
+      expect(find.textContaining('分支節點'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField).first, '舊心智圖（已編輯）');
+      await tester.tap(find.byIcon(Icons.arrow_back).first);
+      await tester.pumpAndSettle();
+
+      final saved = store.notes.single;
+      expect(saved.templateData['schema'], MindMapDocument.schema);
+      final migrated = MindMapDocument.fromJson(saved.templateData);
+      expect(migrated.nodes, hasLength(2));
+      expect(migrated.nodes.first.subtitle, '核心');
+      expect(migrated.nodes.last.description, '分支說明');
+      expect(migrated.nodes.last.x, 180);
+      expect(migrated.nodes.last.y, 80);
+      expect(migrated.nodes.last.color, '#8B2F2F');
+      expect(migrated.nodes.last.expanded, isFalse);
+      expect(
+        migrated.nodes
+            .singleWhere((node) => node.id == migrated.rootNodeId)
+            .title,
+        '產品中心',
+      );
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       store.dispose();

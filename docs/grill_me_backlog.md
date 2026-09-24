@@ -347,17 +347,21 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-011 — Mind-map v1-to-v2 migration
 
-- Status: `BLOCKED`
+- Status: `DONE`
 - User-visible behavior: old topic/node data remains visible with a required
   root node.
 - Acceptance: every import has one valid root; legacy positions/colors survive;
   invalid references are rejected safely.
-- Dependencies: P0-007; explicit schema-migration approval is required before
-  adding the v2 write path.
-- Evidence: root fallback model exists; canvas/write migration remain. Plan
-  migration approval granted on 2026-09-24 did not cover mind-map or
-  life-project persisted schemas, so implementation is paused at the approval
-  boundary without changing stored mind-map data.
+- Dependencies: P0-007; schema-migration approval granted by the user on
+  2026-09-24.
+- Evidence: migration approval was granted on 2026-09-24. New mind maps start
+  with one valid v2 root. Legacy `topic` selects the matching root even when it
+  is not the first node, while title, subtitle, description, position, color,
+  expansion state, and every other node remain intact. Opening only migrates
+  in memory; the first actual edit writes v2. Focused model/editor tests prove
+  preservation and write-on-edit; integrity validation rejects missing roots
+  and connection endpoints. Analyzer, all 87 tests, and the Web production
+  build pass.
 
 ### P1-012 — Mind-map canvas interaction
 
