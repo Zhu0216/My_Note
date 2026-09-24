@@ -134,8 +134,44 @@ class PlanDocument {
   String notes;
 
   List<PlanNode> childrenOf(String? parentId) =>
-      nodes.where((node) => node.parentId == parentId).toList()
-        ..sort((a, b) => a.title.compareTo(b.title));
+      nodes.where((node) => node.parentId == parentId).toList();
+
+  Set<String> subtreeIds(String nodeId) {
+    final result = <String>{nodeId};
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (final node in nodes) {
+        if (node.parentId != null &&
+            result.contains(node.parentId) &&
+            result.add(node.id)) {
+          changed = true;
+        }
+      }
+    }
+    return result;
+  }
+
+  void removeSubtree(String nodeId) {
+    final removedIds = subtreeIds(nodeId);
+    nodes.removeWhere((node) => removedIds.contains(node.id));
+  }
+
+  void reorderChild(String? parentId, int oldIndex, int newIndex) {
+    final siblings = childrenOf(parentId);
+    if (oldIndex < 0 || oldIndex >= siblings.length) return;
+    final boundedNewIndex = newIndex.clamp(0, siblings.length - 1);
+    if (boundedNewIndex == oldIndex) return;
+    final positions = <int>[
+      for (var index = 0; index < nodes.length; index++)
+        if (nodes[index].parentId == parentId) index,
+    ];
+    final moved = siblings.removeAt(oldIndex);
+    siblings.insert(boundedNewIndex, moved);
+    for (var index = 0; index < positions.length; index++) {
+      nodes[positions[index]] = siblings[index];
+    }
+  }
 
   double progressOf(String? parentId) {
     final children = childrenOf(parentId);

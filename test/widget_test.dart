@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:my_note/main.dart';
+import 'package:my_note/features/notes/plan_tree_editor.dart';
 
 class _FakeImageFilePicker extends FilePicker {
   _FakeImageFilePicker(this.bytes);
@@ -80,6 +81,157 @@ void main() {
     });
     expect(lifeProject.items, hasLength(2));
     expect(lifeProject.weightedProgress, closeTo(0.375, 0.001));
+  });
+
+  test('plan tree reorders siblings and removes a complete subtree', () {
+    final document = PlanDocument(
+      nodes: [
+        PlanNode(id: 'root', title: '主階段', type: PlanNodeType.phase),
+        PlanNode(
+          id: 'child',
+          title: '子階段',
+          type: PlanNodeType.phase,
+          parentId: 'root',
+        ),
+        PlanNode(
+          id: 'task-a',
+          title: '任務 A',
+          type: PlanNodeType.task,
+          parentId: 'child',
+        ),
+        PlanNode(
+          id: 'task-b',
+          title: '任務 B',
+          type: PlanNodeType.task,
+          parentId: 'child',
+        ),
+      ],
+    );
+
+    document.reorderChild('child', 0, 1);
+    expect(document.childrenOf('child').map((node) => node.id), [
+      'task-b',
+      'task-a',
+    ]);
+    expect(document.subtreeIds('child'), {'child', 'task-a', 'task-b'});
+
+    document.removeSubtree('child');
+    expect(document.nodes.map((node) => node.id), ['root']);
+  });
+
+  testWidgets('plan tree creates nested phases and terminal tasks', (
+    tester,
+  ) async {
+    var document = PlanDocument(
+      nodes: [PlanNode(id: 'root', title: '主階段', type: PlanNodeType.phase)],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => PlanTreeEditor(
+              document: document,
+              onChanged: (value) => setState(() => document = value),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byTooltip('項目選項').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增子階段'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '執行階段');
+    await tester.tap(find.text('確認'));
+    await tester.pumpAndSettle();
+
+    final child = document.nodes.singleWhere((node) => node.title == '執行階段');
+    expect(child.type, PlanNodeType.phase);
+    expect(child.parentId, 'root');
+
+    await tester.tap(find.byTooltip('項目選項').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('新增任務'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '完成驗收');
+    await tester.tap(find.text('確認'));
+    await tester.pumpAndSettle();
+
+    final task = document.nodes.singleWhere((node) => node.title == '完成驗收');
+    expect(task.type, PlanNodeType.task);
+    expect(task.parentId, child.id);
+
+    await tester.tap(find.byType(Checkbox).first);
+    await tester.pump();
+    expect(task.completed, isTrue);
+
+    await tester.tap(find.byTooltip('項目選項').last);
+    await tester.pumpAndSettle();
+    expect(find.text('新增子階段'), findsNothing);
+    expect(find.text('新增任務'), findsNothing);
+    expect(find.text('重新命名'), findsOneWidget);
+  });
+
+  test('nested plan tree survives restart and export import', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = await AppStore.load();
+    final document = PlanDocument(
+      nodes: [
+        PlanNode(id: 'phase-1', title: '第一階段', type: PlanNodeType.phase),
+        PlanNode(
+          id: 'phase-2',
+          title: '子階段',
+          type: PlanNodeType.phase,
+          parentId: 'phase-1',
+        ),
+        PlanNode(
+          id: 'task-1',
+          title: '驗收任務',
+          type: PlanNodeType.task,
+          parentId: 'phase-2',
+          completed: true,
+        ),
+      ],
+    );
+    store.upsertNote(
+      NoteItem(
+        id: 'nested-plan',
+        title: '巢狀計畫',
+        body: '',
+        category: '',
+        tags: const [],
+        createdAt: DateTime(2026, 9, 24),
+        updatedAt: DateTime(2026, 9, 24),
+        templateType: NoteTemplateType.plan,
+        templateData: document.toJson(),
+      ),
+    );
+    await store.flushPersistence();
+    final exported = await store.exportBundle();
+    store.dispose();
+
+    final reloaded = await AppStore.load();
+    final imported = AppStore.seeded(persistenceLocked: true);
+    try {
+      final restoredDocument = PlanDocument.fromJson(
+        reloaded.notes.single.templateData,
+      );
+      expect(restoredDocument.childrenOf('phase-1').single.id, 'phase-2');
+      expect(restoredDocument.childrenOf('phase-2').single.id, 'task-1');
+      expect(restoredDocument.childrenOf('phase-2').single.completed, isTrue);
+
+      await imported.importBundle(exported);
+      final importedDocument = PlanDocument.fromJson(
+        imported.notes.single.templateData,
+      );
+      expect(importedDocument.childrenOf('phase-1').single.id, 'phase-2');
+      expect(importedDocument.childrenOf('phase-2').single.id, 'task-1');
+    } finally {
+      reloaded.dispose();
+      imported.dispose();
+    }
   });
 
   test('local export validates and restores a complete snapshot', () async {

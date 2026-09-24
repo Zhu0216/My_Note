@@ -311,13 +311,20 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-009 — Nested phase/task editor
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: plans support unlimited nested phases and terminal
   tasks that users create, reorder, complete, and remove.
 - Acceptance: tasks cannot have children; phases can; all operations survive
   restart and export/import.
 - Dependencies: P1-008, P0-006.
-- Evidence: none.
+- Evidence: the structured plan editor now renders recursively nested phase
+  and task nodes. Users can add root/child phases, add terminal tasks, rename,
+  complete, drag-reorder siblings, and delete a node or full phase subtree.
+  Tasks expose no child-creation actions, while phases can nest without a
+  fixed depth. Model and widget tests cover reorder/subtree deletion, nested
+  creation, terminal-task controls, completion, persistence across restart,
+  and JSON export/import. Analyzer, all 83 tests, and the Web production build
+  pass on 2026-09-24.
 
 ### P1-010 — Plan metadata and weighted progress
 

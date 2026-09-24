@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_box_transform/flutter_box_transform.dart' as fbt;
 
 import 'data/my_note_data.dart';
+import 'features/notes/plan_tree_editor.dart';
 import 'services/note_file_service.dart';
 import 'services/device_font_registry.dart';
 import 'ui/app_pickers.dart';
@@ -7224,46 +7225,35 @@ class NoteTemplateFields extends StatelessWidget {
     if (type == NoteTemplateType.general) {
       return const SizedBox.shrink();
     }
-    return InfoCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(noteTemplateIcon(type)),
-              const SizedBox(width: 8),
-              Text(
-                noteTemplateLabel(type),
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ...switch (type) {
-            NoteTemplateType.plan => buildPlanFields(),
-            NoteTemplateType.mindMap => buildMindMapFields(),
-            NoteTemplateType.lifeSheet => buildLifeSheetFields(),
-            NoteTemplateType.general => <Widget>[],
-          },
-        ],
-      ),
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(noteTemplateIcon(type)),
+            const SizedBox(width: 8),
+            Text(
+              noteTemplateLabel(type),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ...switch (type) {
+          NoteTemplateType.plan => buildPlanFields(),
+          NoteTemplateType.mindMap => buildMindMapFields(),
+          NoteTemplateType.lifeSheet => buildLifeSheetFields(),
+          NoteTemplateType.general => <Widget>[],
+        },
+      ],
     );
+    return type == NoteTemplateType.plan ? content : InfoCard(child: content);
   }
 
   List<Widget> buildPlanFields() {
     final document = PlanDocument.fromJson(data);
-    final rootPhases = document.nodes
-        .where(
-          (node) => node.type == PlanNodeType.phase && node.parentId == null,
-        )
-        .toList();
-    final primaryPhase = rootPhases.firstOrNull;
-    final tasks = document.nodes
-        .where((node) => node.type == PlanNodeType.task)
-        .toList();
-    final progress = document.progressOf(null);
     return [
       TemplateTextField(
         label: '目標',
@@ -7273,59 +7263,8 @@ class NoteTemplateFields extends StatelessWidget {
           setPlanDocument(document);
         },
       ),
-      TemplateTextField(
-        label: '階段',
-        value: primaryPhase?.title ?? '',
-        onChanged: (value) {
-          if (primaryPhase != null) {
-            primaryPhase.title = value;
-          } else if (value.trim().isNotEmpty) {
-            final phase = PlanNode(
-              id: 'plan-phase-${DateTime.now().microsecondsSinceEpoch}',
-              title: value,
-              type: PlanNodeType.phase,
-            );
-            document.nodes.add(phase);
-            for (final task in tasks.where((task) => task.parentId == null)) {
-              task.parentId = phase.id;
-            }
-          }
-          setPlanDocument(document);
-        },
-      ),
-      TemplateTextField(
-        label: '任務',
-        value: tasks
-            .map((item) => '${item.completed ? 'x ' : ''}${item.title}')
-            .join('\n'),
-        minLines: 3,
-        onChanged: (value) {
-          final lines = value
-              .split('\n')
-              .where((line) => line.trim().isNotEmpty)
-              .toList();
-          document.nodes.removeWhere((node) => node.type == PlanNodeType.task);
-          for (final entry in lines.indexed) {
-            final line = entry.$2.trim();
-            final existing = entry.$1 < tasks.length ? tasks[entry.$1] : null;
-            final task =
-                existing ??
-                PlanNode(
-                  id: 'plan-task-${DateTime.now().microsecondsSinceEpoch}-${entry.$1}',
-                  title: '',
-                  type: PlanNodeType.task,
-                  parentId: primaryPhase?.id,
-                );
-            task.title = line.replaceFirst(RegExp(r'^x\s+'), '').trim();
-            task.completed = line.toLowerCase().startsWith('x ');
-            document.nodes.add(task);
-          }
-          setPlanDocument(document);
-        },
-      ),
-      LinearProgressIndicator(value: progress),
-      const SizedBox(height: 8),
-      Text('完成率 ${(progress * 100).round()}%'),
+      PlanTreeEditor(document: document, onChanged: setPlanDocument),
+      const SizedBox(height: 12),
       TemplateTextField(
         label: '開始日期',
         value: document.startDate?.toIso8601String() ?? '',
