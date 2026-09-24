@@ -1136,6 +1136,7 @@ class AppStore extends ChangeNotifier {
     DateTime? dueDate,
     bool reminderEnabled = false,
     TimeOfDay? reminderTime,
+    List<RelatedItemLink>? links,
   }) {
     if (title.trim().isEmpty) {
       return;
@@ -1148,6 +1149,7 @@ class AppStore extends ChangeNotifier {
         reminderEnabled: reminderEnabled,
         reminderTime: reminderTime,
         sortOrder: _nextActiveTodoSortOrder(),
+        links: links,
       ),
     );
     _commit('todo.add:${todos.last.id}:${todos.last.title}');

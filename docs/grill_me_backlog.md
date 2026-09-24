@@ -203,9 +203,11 @@ the current behavior has not been independently accepted for this v1 baseline.
   resolution, and reverse-link discovery. The shared picker UI now supports
   searching, selecting, and removing links, displays the reverse-reference
   count, and is integrated with note save/change detection; a widget test
-  verifies selection persists on save. Create-and-link, target navigation,
-  richer reverse-reference display, and integration with the remaining
-  editors remain.
+  verifies selection persists on save. The same picker now preserves and
+  edits links in todo, schedule, finance, subscription, and savings-account
+  editors; a todo editor widget test verifies the shared flow. Create-and-link,
+  target navigation, richer reverse-reference display, and dedicated template
+  subrecord integration remain.
 
 ### P1-003 — Derived upcoming aggregation
 

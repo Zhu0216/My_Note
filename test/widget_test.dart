@@ -1344,6 +1344,49 @@ void main() {
     }
   });
 
+  testWidgets('todo editor selects and saves a related note', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    final todo = TodoItem(id: 'todo-editor-link', title: '安排回診');
+    final note = NoteItem(
+      id: 'note-editor-link',
+      title: '健康紀錄',
+      body: '回診資訊',
+      category: '',
+      tags: const [],
+      createdAt: DateTime(2026, 9, 24),
+      updatedAt: DateTime(2026, 9, 24),
+    );
+    store.upsertTodo(todo);
+    store.upsertNote(note);
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(home: TodoEditorPage(todo: todo)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('關聯項目'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('健康紀錄'));
+      await tester.pump();
+      await tester.tap(find.byTooltip('完成'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('完成'));
+      await tester.pumpAndSettle();
+
+      expect(store.todos.single.links, hasLength(1));
+      expect(store.todos.single.links.single.type, RelatedItemType.note);
+      expect(store.todos.single.links.single.targetId, note.id);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
   test('rich toolbar applies inline style to selected content', () {
     final controller = RichNoteTextController(
       text: 'alpha beta',

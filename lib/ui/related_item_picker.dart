@@ -5,6 +5,43 @@ import '../data/related_item_index.dart';
 import 'app_store_scope.dart';
 import 'shared_components.dart';
 
+Future<List<RelatedItemLink>?> showRelatedItemPicker(
+  BuildContext context, {
+  required AppStore store,
+  required List<RelatedItemLink> initialLinks,
+  RelatedItemLink? source,
+}) => Navigator.of(context).push<List<RelatedItemLink>>(
+  MaterialPageRoute(
+    builder: (_) => AppStoreScope(
+      store: store,
+      child: RelatedItemPickerPage(initialLinks: initialLinks, source: source),
+    ),
+  ),
+);
+
+class RelatedItemsField extends StatelessWidget {
+  const RelatedItemsField({
+    super.key,
+    required this.count,
+    required this.onPressed,
+  });
+
+  final int count;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.hub_outlined),
+      title: const Text('關聯項目'),
+      subtitle: Text(count == 0 ? '尚未連結其他資料' : '已連結 $count 個項目'),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: onPressed,
+    );
+  }
+}
+
 class RelatedItemPickerPage extends StatefulWidget {
   const RelatedItemPickerPage({
     super.key,

@@ -791,14 +791,11 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
             },
             targetId: note.id,
           );
-    final result = await Navigator.push<List<RelatedItemLink>>(
+    final result = await showRelatedItemPicker(
       context,
-      MaterialPageRoute(
-        builder: (_) => AppStoreScope(
-          store: AppStoreScope.of(context),
-          child: RelatedItemPickerPage(initialLinks: noteLinks, source: source),
-        ),
-      ),
+      store: AppStoreScope.of(context),
+      initialLinks: noteLinks,
+      source: source,
     );
     if (result != null && mounted) {
       setState(() => noteLinks = result);

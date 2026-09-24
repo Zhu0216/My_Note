@@ -14,6 +14,7 @@ import 'ui/app_store_scope.dart';
 import 'ui/formatters.dart';
 import 'ui/finance_form_helpers.dart';
 import 'ui/note_text_helpers.dart';
+import 'ui/related_item_picker.dart';
 import 'ui/shared_components.dart';
 import 'services/device_font_registry.dart';
 import 'features/settings/settings_page.dart';
@@ -587,6 +588,7 @@ Future<void> showScheduleEditorSheet(
   var date = event?.start ?? initialDate ?? DateTime.now();
   var startHour = event?.start.hour ?? DateTime.now().hour + 1;
   var reminder = event?.remindBeforeMinutes ?? 30;
+  var links = List<RelatedItemLink>.from(event?.links ?? const []);
 
   await showModalBottomSheet<void>(
     context: context,
@@ -680,6 +682,25 @@ Future<void> showScheduleEditorSheet(
                   onSelected: (value) =>
                       setLocalState(() => reminder = value ?? reminder),
                 ),
+                RelatedItemsField(
+                  count: links.length,
+                  onPressed: () async {
+                    final result = await showRelatedItemPicker(
+                      context,
+                      store: store,
+                      initialLinks: links,
+                      source: event == null
+                          ? null
+                          : RelatedItemLink(
+                              type: RelatedItemType.schedule,
+                              targetId: event.id,
+                            ),
+                    );
+                    if (result != null) {
+                      setLocalState(() => links = result);
+                    }
+                  },
+                ),
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
@@ -702,6 +723,7 @@ Future<void> showScheduleEditorSheet(
                           location: location.text.trim(),
                           notes: notes.text.trim(),
                           remindBeforeMinutes: reminder,
+                          links: links,
                         ),
                       );
                       Navigator.pop(context);
@@ -733,6 +755,7 @@ Future<void> showFinanceEditorSheet(
   var category = entry?.category ?? '食物';
   var account = entry?.account ?? '';
   var date = entry?.date ?? DateTime.now();
+  var links = List<RelatedItemLink>.from(entry?.links ?? const []);
 
   await showModalBottomSheet<void>(
     context: context,
@@ -917,6 +940,25 @@ Future<void> showFinanceEditorSheet(
                       border: OutlineInputBorder(),
                     ),
                   ),
+                  RelatedItemsField(
+                    count: links.length,
+                    onPressed: () async {
+                      final result = await showRelatedItemPicker(
+                        context,
+                        store: store,
+                        initialLinks: links,
+                        source: entry == null
+                            ? null
+                            : RelatedItemLink(
+                                type: RelatedItemType.finance,
+                                targetId: entry.id,
+                              ),
+                      );
+                      if (result != null) {
+                        setLocalState(() => links = result);
+                      }
+                    },
+                  ),
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
@@ -939,6 +981,7 @@ Future<void> showFinanceEditorSheet(
                             account: selectedAccount,
                             date: date,
                             note: note.text.trim(),
+                            links: links,
                           ),
                         );
                         Navigator.pop(context);
@@ -1060,6 +1103,7 @@ class _SubscriptionEditorDialogState extends State<SubscriptionEditorDialog> {
   late DateTime date;
   late int reminderDays;
   late bool active;
+  late List<RelatedItemLink> links;
 
   @override
   void initState() {
@@ -1081,6 +1125,7 @@ class _SubscriptionEditorDialogState extends State<SubscriptionEditorDialog> {
         DateTime.now().add(const Duration(days: 30));
     reminderDays = subscription?.reminderDays ?? 3;
     active = subscription?.isActive ?? true;
+    links = List<RelatedItemLink>.from(subscription?.links ?? const []);
   }
 
   @override
@@ -1106,6 +1151,7 @@ class _SubscriptionEditorDialogState extends State<SubscriptionEditorDialog> {
       category: categoryController.text.trim(),
       reminderDays: reminderDays,
       isActive: active,
+      links: links,
     );
     FocusManager.instance.primaryFocus?.unfocus();
     Navigator.of(context).pop();
@@ -1223,6 +1269,26 @@ class _SubscriptionEditorDialogState extends State<SubscriptionEditorDialog> {
               onChanged: (value) => setState(() => active = value),
               title: const Text('啟用訂閱'),
               contentPadding: EdgeInsets.zero,
+            ),
+            RelatedItemsField(
+              count: links.length,
+              onPressed: () async {
+                final subscription = widget.subscription;
+                final result = await showRelatedItemPicker(
+                  context,
+                  store: widget.store,
+                  initialLinks: links,
+                  source: subscription == null
+                      ? null
+                      : RelatedItemLink(
+                          type: RelatedItemType.subscription,
+                          targetId: subscription.id,
+                        ),
+                );
+                if (result != null && mounted) {
+                  setState(() => links = result);
+                }
+              },
             ),
           ],
         ),
@@ -1439,6 +1505,7 @@ class _SavingsAccountEditorDialogState
     extends State<SavingsAccountEditorDialog> {
   late final TextEditingController nameController;
   late final TextEditingController amountController;
+  late List<RelatedItemLink> links;
 
   bool get isNewAccount => widget.account == null;
 
@@ -1450,6 +1517,7 @@ class _SavingsAccountEditorDialogState
     amountController = TextEditingController(
       text: account == null ? '0' : account.amount.toStringAsFixed(0),
     );
+    links = List<RelatedItemLink>.from(account?.links ?? const []);
   }
 
   @override
@@ -1480,6 +1548,7 @@ class _SavingsAccountEditorDialogState
         id: widget.store.newId('sa'),
         name: name,
         amount: double.tryParse(amountController.text) ?? 0,
+        links: links,
       );
       Navigator.of(context).pop();
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1500,6 +1569,7 @@ class _SavingsAccountEditorDialogState
         id: account.id,
         name: name,
         amount: account.amount,
+        links: links,
       );
       Navigator.of(context).pop();
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1512,6 +1582,7 @@ class _SavingsAccountEditorDialogState
       id: account.id,
       name: account.name,
       amount: double.tryParse(amountController.text) ?? account.amount,
+      links: links,
     );
     Navigator.of(context).pop();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1560,6 +1631,26 @@ class _SavingsAccountEditorDialogState
                   border: OutlineInputBorder(),
                 ),
               ),
+            RelatedItemsField(
+              count: links.length,
+              onPressed: () async {
+                final account = widget.account;
+                final result = await showRelatedItemPicker(
+                  context,
+                  store: widget.store,
+                  initialLinks: links,
+                  source: account == null
+                      ? null
+                      : RelatedItemLink(
+                          type: RelatedItemType.account,
+                          targetId: account.id,
+                        ),
+                );
+                if (result != null && mounted) {
+                  setState(() => links = result);
+                }
+              },
+            ),
           ],
         ),
       ),
@@ -1706,6 +1797,7 @@ class _TodoEditorPageState extends State<TodoEditorPage> {
   late DateTime? dueDate;
   late bool reminderEnabled;
   late TimeOfDay reminderTime;
+  late List<RelatedItemLink> links;
 
   @override
   void initState() {
@@ -1715,6 +1807,7 @@ class _TodoEditorPageState extends State<TodoEditorPage> {
     dueDate = todo?.dueDate;
     reminderEnabled = todo?.reminderEnabled ?? false;
     reminderTime = todo?.reminderTime ?? const TimeOfDay(hour: 9, minute: 0);
+    links = List<RelatedItemLink>.from(todo?.links ?? const []);
   }
 
   @override
@@ -1732,6 +1825,7 @@ class _TodoEditorPageState extends State<TodoEditorPage> {
         dueDate: dueDate,
         reminderEnabled: reminderEnabled,
         reminderTime: reminderEnabled ? reminderTime : null,
+        links: links,
       );
     } else {
       final title = controller.text.trim();
@@ -1739,6 +1833,7 @@ class _TodoEditorPageState extends State<TodoEditorPage> {
       todo.dueDate = dueDate;
       todo.reminderEnabled = reminderEnabled;
       todo.reminderTime = reminderEnabled ? reminderTime : null;
+      todo.links = normalizeRelatedItemLinks(links);
       store.upsertTodo(todo);
     }
     showToast(context, '完成編輯');
@@ -1773,6 +1868,21 @@ class _TodoEditorPageState extends State<TodoEditorPage> {
         reminderTime = picked;
         reminderEnabled = true;
       });
+    }
+  }
+
+  Future<void> editRelatedItems() async {
+    final todo = widget.todo;
+    final result = await showRelatedItemPicker(
+      context,
+      store: AppStoreScope.of(context),
+      initialLinks: links,
+      source: todo == null
+          ? null
+          : RelatedItemLink(type: RelatedItemType.todo, targetId: todo.id),
+    );
+    if (result != null && mounted) {
+      setState(() => links = result);
     }
   }
 
@@ -1875,6 +1985,10 @@ class _TodoEditorPageState extends State<TodoEditorPage> {
                           onChanged: (value) =>
                               setState(() => reminderEnabled = value),
                         ),
+                      ),
+                      RelatedItemsField(
+                        count: links.length,
+                        onPressed: editRelatedItems,
                       ),
                     ],
                   ),
