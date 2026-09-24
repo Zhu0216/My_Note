@@ -190,13 +190,18 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-002 — Common relationship picker and reverse links
 
-- Status: `PLANNED`
+- Status: `IN PROGRESS`
 - User-visible behavior: every supported editor has a `關聯項目` picker; links
   open target records and show reverse references.
 - Acceptance: search, select, create-and-link, remove-link, deep navigation,
   and reverse-link counts work on Web and Android.
 - Dependencies: P1-001, P0-006.
-- Evidence: none.
+- Evidence: `lib/data/related_item_index.dart` now provides one typed,
+  searchable index across notes/templates, todos, schedules, finance records,
+  subscriptions, and accounts, including descriptor lookup and reverse-link
+  queries. `test/widget_test.dart` verifies search, self-exclusion, target
+  resolution, and reverse-link discovery. The shared picker UI,
+  create-and-link flow, removal controls, and deep navigation remain.
 
 ### P1-003 — Derived upcoming aggregation
 

@@ -24,6 +24,7 @@ import 'features/notes/notes_page.dart';
 import 'note_editor.dart';
 
 export 'data/my_note_data.dart';
+export 'data/related_item_index.dart';
 export 'ui/app_navigation.dart';
 export 'ui/app_pickers.dart';
 export 'ui/app_store_scope.dart';

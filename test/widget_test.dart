@@ -438,6 +438,50 @@ void main() {
     },
   );
 
+  test('related item index searches records and resolves reverse links', () {
+    final store = AppStore.seeded();
+    final todo = TodoItem(id: 'todo-index', title: '預約牙醫');
+    final note = NoteItem(
+      id: 'note-index',
+      title: '健康計畫',
+      body: '',
+      category: '生活',
+      tags: const [],
+      createdAt: DateTime(2026, 9, 24),
+      updatedAt: DateTime(2026, 9, 24),
+      links: const [
+        RelatedItemLink(type: RelatedItemType.todo, targetId: 'todo-index'),
+      ],
+    );
+    store.upsertTodo(todo);
+    store.upsertNote(note);
+
+    try {
+      final matches = store.relatedItemCandidates(query: '牙醫');
+      expect(matches, hasLength(1));
+      expect(matches.single.link.type, RelatedItemType.todo);
+      expect(
+        store
+            .relatedItemCandidates(
+              exclude: const RelatedItemLink(
+                type: RelatedItemType.note,
+                targetId: 'note-index',
+              ),
+            )
+            .map((item) => item.id),
+        isNot(contains('note-index')),
+      );
+      const todoLink = RelatedItemLink(
+        type: RelatedItemType.todo,
+        targetId: 'todo-index',
+      );
+      expect(store.reverseLinksTo(todoLink).single.title, '健康計畫');
+      expect(store.describeRelatedItem(todoLink)?.title, '預約牙醫');
+    } finally {
+      store.dispose();
+    }
+  });
+
   test('recovery history lists a valid snapshot and restores it', () async {
     SharedPreferences.setMockInitialValues({});
     final store = await AppStore.load();
