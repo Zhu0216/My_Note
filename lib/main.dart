@@ -39,6 +39,7 @@ export 'ui/finance_charts.dart';
 export 'ui/folder_names.dart';
 export 'ui/note_template_metadata.dart';
 export 'ui/note_navigation_helpers.dart';
+export 'ui/note_appearance.dart';
 export 'ui/note_text_helpers.dart';
 export 'ui/prompt_dialogs.dart';
 export 'ui/related_item_picker.dart';

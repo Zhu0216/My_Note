@@ -65,6 +65,7 @@ Map<String, dynamic> migratedNoteStyle(Object? value) {
 
 Map<String, dynamic> defaultNoteBackground() {
   return {
+    'appearanceTheme': 'clean',
     'type': 'color',
     'color': '#FFFFFF',
     'image': '',

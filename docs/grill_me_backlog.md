@@ -263,12 +263,17 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-006 — Optional note appearance themes
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: default notes are clean white; users may apply a
   restrained built-in visual theme.
 - Acceptance: theme persists, has sufficient text contrast, and resets cleanly.
 - Dependencies: P1-005.
-- Evidence: none.
+- Evidence: `lib/ui/note_appearance.dart` defines four restrained built-in
+  palettes with persisted theme IDs and matching foreground colors. The note
+  `外觀與背景` dialog applies a theme, preserves custom colors as custom, and
+  resets images and text color when returning to `純白`. Tests verify every
+  palette exceeds a 4.5:1 contrast ratio, theme persistence, and clean reset.
+  Analyzer, all 77 tests, and the Web production build pass.
 
 ### P1-007 — Optional cover and background image
 

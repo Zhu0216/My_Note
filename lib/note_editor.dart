@@ -16,6 +16,7 @@ import 'ui/app_store_scope.dart';
 import 'ui/finance_form_helpers.dart';
 import 'ui/formatters.dart';
 import 'ui/note_template_metadata.dart';
+import 'ui/note_appearance.dart';
 import 'ui/note_text_helpers.dart';
 import 'ui/prompt_dialogs.dart';
 import 'ui/related_item_picker.dart';
@@ -558,6 +559,19 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       noteBackground['color'],
       fallback: '#FFFFFF',
     );
+    var appearanceTheme = noteAppearanceThemeFromName(
+      noteBackground['appearanceTheme'],
+    );
+    if (appearanceTheme == NoteAppearanceTheme.custom &&
+        readString(noteBackground['imageBytesBase64']).isEmpty) {
+      for (final entry in builtInNoteAppearanceThemes.entries) {
+        if (entry.value.backgroundHex.toUpperCase() ==
+            selectedColor.toUpperCase()) {
+          appearanceTheme = entry.key;
+          break;
+        }
+      }
+    }
     var imageName = readString(noteBackground['image']);
     var imageBytesBase64 = readString(noteBackground['imageBytesBase64']);
     var mode = readEnum(
@@ -569,103 +583,140 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) => AlertDialog(
-          title: const Text('背景設定'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(
-                    value: 'color',
-                    icon: Icon(Icons.palette_outlined),
-                    label: Text('顏色'),
-                  ),
-                  ButtonSegment(
-                    value: 'image',
-                    icon: Icon(Icons.image_outlined),
-                    label: Text('圖片'),
-                  ),
-                ],
-                selected: {backgroundType == 'image' ? 'image' : 'color'},
-                onSelectionChanged: (values) =>
-                    setModalState(() => backgroundType = values.first),
-              ),
-              const SizedBox(height: 12),
-              if (backgroundType == 'color') ...[
+          title: const Text('外觀與背景'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  '筆記外觀',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    for (final color in const [
-                      '#FFFFFF',
-                      '#F7F8FC',
-                      '#FFF7D6',
-                      '#EAF7EF',
-                      '#EAF2FF',
-                      '#FDECEC',
-                      '#202522',
-                      '#5967D8',
-                      '#8A8F98',
-                    ])
+                    for (final entry in builtInNoteAppearanceThemes.entries)
                       ChoiceChip(
-                        selected:
-                            selectedColor.toUpperCase() == color.toUpperCase(),
-                        avatar: _ColorSwatch(
-                          value: color,
-                          selected:
-                              selectedColor.toUpperCase() ==
-                              color.toUpperCase(),
+                        selected: appearanceTheme == entry.key,
+                        avatar: CircleAvatar(
+                          backgroundColor: noteAppearanceColor(
+                            entry.value.backgroundHex,
+                          ),
                         ),
-                        label: Text(colorLabel(color)),
-                        onSelected: (_) =>
-                            setModalState(() => selectedColor = color),
+                        label: Text(entry.value.label),
+                        onSelected: (_) => setModalState(() {
+                          appearanceTheme = entry.key;
+                          backgroundType = 'color';
+                          selectedColor = entry.value.backgroundHex;
+                          imageName = '';
+                          imageBytesBase64 = '';
+                        }),
                       ),
                   ],
                 ),
-                const SizedBox(height: 12),
-              ],
-              if (backgroundType == 'image') ...[
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    final file = await NoteFileService.pickImage();
-                    if (!mounted || file == null) {
-                      return;
-                    }
-                    final bytes = file.bytes;
-                    if (bytes == null || bytes.isEmpty) {
-                      showToast(this.context, '無法讀取背景圖片');
-                      return;
-                    }
-                    setModalState(() {
-                      backgroundType = 'image';
-                      imageName = file.name;
-                      imageBytesBase64 = base64Encode(bytes);
-                    });
-                  },
-                  icon: const Icon(Icons.image_outlined),
-                  label: Text(imageName.isEmpty ? '選擇圖片' : imageName),
+                const SizedBox(height: 16),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(
+                      value: 'color',
+                      icon: Icon(Icons.palette_outlined),
+                      label: Text('顏色'),
+                    ),
+                    ButtonSegment(
+                      value: 'image',
+                      icon: Icon(Icons.image_outlined),
+                      label: Text('圖片'),
+                    ),
+                  ],
+                  selected: {backgroundType == 'image' ? 'image' : 'color'},
+                  onSelectionChanged: (values) =>
+                      setModalState(() => backgroundType = values.first),
                 ),
                 const SizedBox(height: 12),
-                DropdownMenu<NoteBackgroundMode>(
-                  initialSelection: mode,
-                  label: const Text('背景模式'),
-                  dropdownMenuEntries: NoteBackgroundMode.values
-                      .map(
-                        (item) => DropdownMenuEntry(
-                          value: item,
-                          label: noteBackgroundModeLabel(item),
+                if (backgroundType == 'color') ...[
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final color in const [
+                        '#FFFFFF',
+                        '#F7F8FC',
+                        '#FFF7D6',
+                        '#EAF7EF',
+                        '#EAF2FF',
+                        '#FDECEC',
+                        '#202522',
+                        '#5967D8',
+                        '#8A8F98',
+                      ])
+                        ChoiceChip(
+                          selected:
+                              selectedColor.toUpperCase() ==
+                              color.toUpperCase(),
+                          avatar: _ColorSwatch(
+                            value: color,
+                            selected:
+                                selectedColor.toUpperCase() ==
+                                color.toUpperCase(),
+                          ),
+                          label: Text(colorLabel(color)),
+                          onSelected: (_) => setModalState(() {
+                            selectedColor = color;
+                            appearanceTheme = NoteAppearanceTheme.custom;
+                          }),
                         ),
-                      )
-                      .toList(),
-                  onSelected: (value) {
-                    if (value != null) {
-                      setModalState(() => mode = value);
-                    }
-                  },
-                ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (backgroundType == 'image') ...[
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final file = await NoteFileService.pickImage();
+                      if (!mounted || file == null) {
+                        return;
+                      }
+                      final bytes = file.bytes;
+                      if (bytes == null || bytes.isEmpty) {
+                        showToast(this.context, '無法讀取背景圖片');
+                        return;
+                      }
+                      setModalState(() {
+                        backgroundType = 'image';
+                        appearanceTheme = NoteAppearanceTheme.custom;
+                        imageName = file.name;
+                        imageBytesBase64 = base64Encode(bytes);
+                      });
+                    },
+                    icon: const Icon(Icons.image_outlined),
+                    label: Text(imageName.isEmpty ? '選擇圖片' : imageName),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownMenu<NoteBackgroundMode>(
+                    initialSelection: mode,
+                    label: const Text('背景模式'),
+                    dropdownMenuEntries: NoteBackgroundMode.values
+                        .map(
+                          (item) => DropdownMenuEntry(
+                            value: item,
+                            label: noteBackgroundModeLabel(item),
+                          ),
+                        )
+                        .toList(),
+                    onSelected: (value) {
+                      if (value != null) {
+                        setModalState(() => mode = value);
+                      }
+                    },
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
           actions: [
             TextButton(
@@ -675,7 +726,12 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
             FilledButton(
               onPressed: () {
                 setState(() {
+                  final palette = builtInNoteAppearanceThemes[appearanceTheme];
+                  if (palette != null) {
+                    noteStyle = {...noteStyle, 'color': palette.foregroundHex};
+                  }
                   noteBackground = {
+                    'appearanceTheme': appearanceTheme.name,
                     'type': backgroundType,
                     'color': selectedColor.trim().isEmpty
                         ? '#FFFFFF'
@@ -857,7 +913,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                       value: NoteEditorMenuAction.background,
                       child: ListTile(
                         leading: Icon(Icons.format_color_fill_outlined),
-                        title: Text('背景設定'),
+                        title: Text('外觀與背景'),
                       ),
                     ),
                   if (!readOnly)

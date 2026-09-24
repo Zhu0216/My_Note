@@ -1608,6 +1608,114 @@ void main() {
     }
   });
 
+  test('built-in note appearance themes meet text contrast requirements', () {
+    for (final palette in builtInNoteAppearanceThemes.values) {
+      expect(
+        noteAppearanceContrastRatio(
+          palette.foregroundHex,
+          palette.backgroundHex,
+        ),
+        greaterThanOrEqualTo(4.5),
+        reason: palette.label,
+      );
+    }
+  });
+
+  testWidgets('note appearance theme persists', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    final note = NoteItem(
+      id: 'note-appearance',
+      title: '外觀測試',
+      body: '有內容的筆記',
+      category: '',
+      tags: const [],
+      createdAt: DateTime(2026, 9, 24),
+      updatedAt: DateTime(2026, 9, 24),
+    );
+    store.upsertNote(note);
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(home: NoteEditorPage(note: note)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('外觀與背景'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ChoiceChip, '柔紙'));
+      await tester.pump();
+      await tester.tap(find.text('套用'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.arrow_back).first);
+      await tester.pumpAndSettle();
+
+      expect(store.notes.single.background['appearanceTheme'], 'paper');
+      expect(store.notes.single.background['color'], '#FFFDF5');
+      expect(store.notes.single.style['color'], '#2D2923');
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  testWidgets('clean appearance theme removes the background image', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    final note = NoteItem(
+      id: 'note-appearance-reset',
+      title: '重設外觀',
+      body: '有內容的筆記',
+      category: '',
+      tags: const [],
+      createdAt: DateTime(2026, 9, 24),
+      updatedAt: DateTime(2026, 9, 24),
+      style: {...defaultNoteStyle(), 'color': '#FFFFFF'},
+      background: {
+        ...defaultNoteBackground(),
+        'appearanceTheme': 'custom',
+        'type': 'image',
+        'image': 'background.png',
+        'imageBytesBase64':
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      },
+    );
+    store.upsertNote(note);
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(home: NoteEditorPage(note: note)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('更多'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('外觀與背景'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ChoiceChip, '純白'));
+      await tester.pump();
+      await tester.tap(find.text('套用'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.arrow_back).first);
+      await tester.pumpAndSettle();
+
+      expect(store.notes.single.background['appearanceTheme'], 'clean');
+      expect(store.notes.single.background['imageBytesBase64'], isEmpty);
+      expect(store.notes.single.style['color'], '#202522');
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
   test('rich toolbar typing mode styles newly inserted content', () {
     final controller = RichNoteTextController(text: 'alpha', marks: const []);
 
