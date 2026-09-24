@@ -231,13 +231,19 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-005 — Preserve general rich-note behavior
 
-- Status: `NEEDS VERIFICATION`
+- Status: `DONE`
 - User-visible behavior: only general notes use rich text with images,
   attachments, lists, inline todo blocks, links, and export.
 - Acceptance: current rich-editor test suite passes after extraction; actions
   retain focus and data after restart.
 - Dependencies: P0-006.
-- Evidence: prior 57-test Log entry; current v1 acceptance is pending.
+- Evidence: after the editor became a standalone focused-import library on
+  2026-09-24, the current rich-editor suite passed formatting selection,
+  typing modes, immediate toolbar state/focus, list continuation, font size and
+  family, inline todo references, image flow/selection, and trailing input
+  behavior. A new persistence acceptance test saves and reloads a general note
+  containing rich marks, an inline image, and an attachment, then verifies the
+  structured content survives restart. Analyzer and all 68 tests passed.
 
 ### P1-006 — Optional note appearance themes
 

@@ -1270,6 +1270,90 @@ void main() {
     expect(controller.marks.single.attributes[RichNoteAttribute.bold], true);
   });
 
+  test('general rich note survives persistence and reload', () async {
+    SharedPreferences.setMockInitialValues({});
+    final controller = RichNoteTextController(
+      text: '格式化內容$richNoteEmbedObject$richNoteEmbedObject',
+      marks: const [
+        RichNoteMark(
+          start: 0,
+          end: 3,
+          attributes: {RichNoteAttribute.bold: true},
+        ),
+        RichNoteMark(
+          start: 5,
+          end: 6,
+          attributes: {
+            RichNoteAttribute.embedType: richNoteEmbedTypeImage,
+            RichNoteAttribute.embedId: 'image-reload',
+          },
+        ),
+        RichNoteMark(
+          start: 6,
+          end: 7,
+          attributes: {
+            RichNoteAttribute.embedType: richNoteEmbedTypeAttachment,
+            RichNoteAttribute.embedId: 'attachment-reload',
+          },
+        ),
+      ],
+    );
+    final images = <Map<String, dynamic>>[
+      {'id': 'image-reload', 'name': 'photo.png', 'bytesBase64': 'AA=='},
+    ];
+    final attachments = <Map<String, dynamic>>[
+      {'id': 'attachment-reload', 'name': 'notes.txt', 'bytesBase64': 'QQ=='},
+    ];
+    final store = await AppStore.load();
+    final note = NoteItem(
+      id: store.newId('n'),
+      title: '重啟後保留格式',
+      body: controller.text,
+      category: '驗收',
+      tags: const ['rich'],
+      createdAt: DateTime(2026, 9, 24, 9),
+      updatedAt: DateTime(2026, 9, 24, 9),
+      templateData: generalNoteTemplateData(
+        defaultNoteTemplateData(NoteTemplateType.general),
+        controller,
+        images,
+        attachments,
+      ),
+      images: images,
+      attachments: attachments,
+    );
+
+    store.upsertNote(note);
+    await store.flushPersistence();
+    store.dispose();
+    controller.dispose();
+
+    final reloaded = await AppStore.load();
+    try {
+      final restored = reloaded.notes.single;
+      final seed = richNoteSeedFromTemplateData(
+        restored.body,
+        restored.templateData,
+      );
+      expect(restored.title, '重啟後保留格式');
+      expect(restored.images.single['id'], 'image-reload');
+      expect(restored.attachments.single['id'], 'attachment-reload');
+      expect(seed.text, contains(richNoteEmbedObject));
+      expect(
+        seed.marks.any(
+          (mark) => mark.attributes[RichNoteAttribute.bold] == true,
+        ),
+        isTrue,
+      );
+      expect(
+        seed.marks.map((mark) => mark.attributes[RichNoteAttribute.embedType]),
+        containsAll([richNoteEmbedTypeImage, richNoteEmbedTypeAttachment]),
+      );
+    } finally {
+      reloaded.dispose();
+    }
+  });
+
   test('rich toolbar typing mode styles newly inserted content', () {
     final controller = RichNoteTextController(text: 'alpha', marks: const []);
 
