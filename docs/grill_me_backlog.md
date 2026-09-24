@@ -328,12 +328,20 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-010 — Plan metadata and weighted progress
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: phases/tasks support due dates, priority, weight,
   todo/schedule links, home-todo inclusion, and recursive weighted progress.
 - Acceptance: percentages are correct for nested trees and update immediately.
 - Dependencies: P1-009, P1-002.
-- Evidence: model calculation exists only; no editor implementation.
+- Evidence: tapping a phase/task now opens a focused metadata page. Phases and
+  tasks edit due date and weight; tasks additionally edit priority, linked
+  todo, linked schedule, common record links, and the home-todo choice.
+  Home-todo plan tasks are derived directly from their source plan and toggle
+  that source node instead of creating duplicate records. Recursive progress
+  updates from weighted descendant tasks and weighted phases. Focused tests
+  cover metadata edits, nested weighted percentages, derived home inclusion,
+  and source synchronization; analyzer, all 86 tests, and the Web production
+  build pass on 2026-09-24.
 
 ## P1 — Mind map template
 

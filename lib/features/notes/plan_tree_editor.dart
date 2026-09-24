@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../../data/my_note_data.dart';
+import '../../ui/app_pickers.dart';
+import '../../ui/app_store_scope.dart';
+import '../../ui/formatters.dart';
 import '../../ui/prompt_dialogs.dart';
+import '../../ui/related_item_picker.dart';
 
-enum _PlanNodeAction { rename, addPhase, addTask, delete }
+enum _PlanNodeAction { edit, rename, addPhase, addTask, delete }
 
 class PlanTreeEditor extends StatelessWidget {
   const PlanTreeEditor({
@@ -91,12 +95,25 @@ class PlanTreeEditor extends StatelessWidget {
     onChanged(document);
   }
 
+  Future<void> _edit(BuildContext context, PlanNode node) async {
+    final edited = await Navigator.of(context).push<PlanNode>(
+      MaterialPageRoute(builder: (_) => PlanNodeEditorPage(node: node)),
+    );
+    if (edited == null || !context.mounted) return;
+    final index = document.nodes.indexWhere((item) => item.id == edited.id);
+    if (index < 0) return;
+    document.nodes[index] = edited;
+    onChanged(document);
+  }
+
   Future<void> _handleAction(
     BuildContext context,
     PlanNode node,
     _PlanNodeAction action,
   ) async {
     switch (action) {
+      case _PlanNodeAction.edit:
+        await _edit(context, node);
       case _PlanNodeAction.rename:
         await _rename(context, node);
       case _PlanNodeAction.addPhase:
@@ -292,7 +309,7 @@ class _PlanNodeTile extends StatelessWidget {
                   Expanded(
                     child: InkWell(
                       onTap: () =>
-                          onAction(context, node, _PlanNodeAction.rename),
+                          onAction(context, node, _PlanNodeAction.edit),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         child: Column(
@@ -326,6 +343,13 @@ class _PlanNodeTile extends StatelessWidget {
                     tooltip: '項目選項',
                     onSelected: (action) => onAction(context, node, action),
                     itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: _PlanNodeAction.edit,
+                        child: ListTile(
+                          leading: Icon(Icons.tune),
+                          title: Text('編輯詳細資料'),
+                        ),
+                      ),
                       const PopupMenuItem(
                         value: _PlanNodeAction.rename,
                         child: ListTile(
@@ -380,6 +404,220 @@ class _PlanNodeTile extends StatelessWidget {
                 onAction: onAction,
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class PlanNodeEditorPage extends StatefulWidget {
+  const PlanNodeEditorPage({super.key, required this.node});
+
+  final PlanNode node;
+
+  @override
+  State<PlanNodeEditorPage> createState() => _PlanNodeEditorPageState();
+}
+
+class _PlanNodeEditorPageState extends State<PlanNodeEditorPage> {
+  late final TextEditingController title;
+  late final TextEditingController weight;
+  late PlanNode working;
+
+  bool get isTask => working.type == PlanNodeType.task;
+
+  @override
+  void initState() {
+    super.initState();
+    working = PlanNode.fromJson(
+      widget.node.toJson(),
+      fallbackId: widget.node.id,
+    );
+    title = TextEditingController(text: working.title);
+    weight = TextEditingController(text: working.weight.toString());
+  }
+
+  @override
+  void dispose() {
+    title.dispose();
+    weight.dispose();
+    super.dispose();
+  }
+
+  Future<void> pickDueDate() async {
+    final now = DateTime.now();
+    final picked = await showAppDatePicker(
+      context: context,
+      initialDate: working.dueDate ?? now,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null && mounted) setState(() => working.dueDate = picked);
+  }
+
+  Future<String?> pickRecord({required bool todo}) async {
+    final store = AppStoreScope.of(context);
+    return showDialog<String?>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: Text(todo ? '關聯待辦' : '關聯行程'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(dialogContext, ''),
+            child: const ListTile(
+              leading: Icon(Icons.link_off),
+              title: Text('不關聯'),
+            ),
+          ),
+          if (todo)
+            for (final entry in store.todos)
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(dialogContext, entry.id),
+                child: ListTile(title: Text(entry.title)),
+              )
+          else
+            for (final entry in store.schedules)
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(dialogContext, entry.id),
+                child: ListTile(title: Text(entry.title)),
+              ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> editLinks() async {
+    final result = await showRelatedItemPicker(
+      context,
+      store: AppStoreScope.of(context),
+      initialLinks: working.links,
+    );
+    if (result != null && mounted) setState(() => working.links = result);
+  }
+
+  void save() {
+    final parsedWeight = double.tryParse(weight.text.trim());
+    working.title = title.text.trim().isEmpty ? '未命名' : title.text.trim();
+    working.weight = (parsedWeight ?? 1).clamp(0.01, 1000);
+    Navigator.pop(context, working);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = AppStoreScope.of(context);
+    final linkedTodo = store.todos
+        .where((item) => item.id == working.linkedTodoId)
+        .firstOrNull;
+    final linkedSchedule = store.schedules
+        .where((item) => item.id == working.linkedScheduleId)
+        .firstOrNull;
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: '返回',
+          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.arrow_back),
+        ),
+        title: Text(isTask ? '任務設定' : '階段設定'),
+        actions: [
+          IconButton(
+            tooltip: '儲存',
+            onPressed: save,
+            icon: const Icon(Icons.check),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          TextField(
+            controller: title,
+            decoration: InputDecoration(labelText: isTask ? '任務名稱' : '階段名稱'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: weight,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: '權重',
+              helperText: '預設為 1；重要項目可提高權重',
+            ),
+          ),
+          const SizedBox(height: 8),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.event_outlined),
+            title: const Text('截止日期'),
+            subtitle: Text(
+              working.dueDate == null ? '未設定' : formatDate(working.dueDate!),
+            ),
+            trailing: working.dueDate == null
+                ? const Icon(Icons.chevron_right)
+                : IconButton(
+                    tooltip: '清除日期',
+                    onPressed: () => setState(() => working.dueDate = null),
+                    icon: const Icon(Icons.close),
+                  ),
+            onTap: pickDueDate,
+          ),
+          if (isTask) ...[
+            const SizedBox(height: 8),
+            Text('優先級', style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: 8),
+            SegmentedButton<int>(
+              segments: const [
+                ButtonSegment(value: 0, label: Text('無')),
+                ButtonSegment(value: 1, label: Text('低')),
+                ButtonSegment(value: 2, label: Text('中')),
+                ButtonSegment(value: 3, label: Text('高')),
+              ],
+              selected: {working.priority.clamp(0, 3)},
+              onSelectionChanged: (value) =>
+                  setState(() => working.priority = value.first),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('顯示於首頁待辦'),
+              value: working.showOnHome,
+              onChanged: (value) => setState(() => working.showOnHome = value),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.checklist),
+              title: const Text('關聯待辦'),
+              subtitle: Text(linkedTodo?.title ?? '未關聯'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () async {
+                final id = await pickRecord(todo: true);
+                if (id != null && mounted) {
+                  setState(() => working.linkedTodoId = id.isEmpty ? null : id);
+                }
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.event_note_outlined),
+              title: const Text('關聯行程'),
+              subtitle: Text(linkedSchedule?.title ?? '未關聯'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () async {
+                final id = await pickRecord(todo: false);
+                if (id != null && mounted) {
+                  setState(
+                    () => working.linkedScheduleId = id.isEmpty ? null : id,
+                  );
+                }
+              },
+            ),
+          ],
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.hub_outlined),
+            title: const Text('關聯項目'),
+            subtitle: Text('${working.links.length} 項'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: editLinks,
+          ),
         ],
       ),
     );

@@ -283,7 +283,8 @@ int? homeSectionCount(AppStore store, HomeSectionId section) {
   return switch (section) {
     HomeSectionId.schedule => homeScheduleEvents(store).length,
     HomeSectionId.subscriptions => upcomingHomeItems(store).length,
-    HomeSectionId.todos => store.activeTodos.length,
+    HomeSectionId.todos =>
+      store.activeTodos.length + activePlanHomeTasks(store).length,
     HomeSectionId.metrics || HomeSectionId.notes => null,
   };
 }
@@ -801,6 +802,48 @@ class NotesHomeSection extends StatelessWidget {
   }
 }
 
+class PlanHomeTask {
+  const PlanHomeTask({required this.note, required this.task});
+
+  final NoteItem note;
+  final PlanNode task;
+}
+
+List<PlanHomeTask> activePlanHomeTasks(AppStore store) {
+  final result = <PlanHomeTask>[];
+  for (final note in store.visibleNotes.where(
+    (item) => item.templateType == NoteTemplateType.plan,
+  )) {
+    final document = PlanDocument.fromJson(note.templateData);
+    for (final task in document.nodes.where(
+      (node) =>
+          node.type == PlanNodeType.task && node.showOnHome && !node.completed,
+    )) {
+      result.add(PlanHomeTask(note: note, task: task));
+    }
+  }
+  result.sort((a, b) {
+    final aDate = a.task.dueDate;
+    final bDate = b.task.dueDate;
+    if (aDate == null && bDate == null) {
+      return a.task.title.compareTo(b.task.title);
+    }
+    if (aDate == null) return 1;
+    if (bDate == null) return -1;
+    return aDate.compareTo(bDate);
+  });
+  return result;
+}
+
+void togglePlanHomeTask(AppStore store, PlanHomeTask item) {
+  final document = PlanDocument.fromJson(item.note.templateData);
+  final task = document.nodes.firstWhere((node) => node.id == item.task.id);
+  task.completed = !task.completed;
+  item.note.templateData = document.toJson();
+  item.note.updatedAt = DateTime.now();
+  store.upsertNote(item.note);
+}
+
 class TodoHomeSection extends StatefulWidget {
   const TodoHomeSection({
     super.key,
@@ -826,7 +869,7 @@ class _TodoHomeSectionState extends State<TodoHomeSection> {
     final store = AppStoreScope.of(context);
     final itemCount = showCompleted
         ? store.completedTodayTodos.length
-        : store.activeTodos.length;
+        : store.activeTodos.length + activePlanHomeTasks(store).length;
 
     return Column(
       children: [
@@ -887,7 +930,10 @@ class TodoBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = AppStoreScope.of(context);
     final todos = showCompleted ? store.completedTodayTodos : store.activeTodos;
-    if (todos.isEmpty) {
+    final planTasks = showCompleted
+        ? const <PlanHomeTask>[]
+        : activePlanHomeTasks(store);
+    if (todos.isEmpty && planTasks.isEmpty) {
       return InfoCard(
         child: EmptyState(
           icon: showCompleted ? Icons.task_alt : Icons.checklist,
@@ -897,48 +943,117 @@ class TodoBlock extends StatelessWidget {
     }
 
     return InfoCard(
-      child: showCompleted
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '今日已完成項目',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (showCompleted) ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '今日已完成項目',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w800,
                 ),
-                const SizedBox(height: 6),
-                for (var index = 0; index < todos.length; index++) ...[
-                  EditableTodoRow(todo: todos[index], compact: compact),
-                  if (index != todos.length - 1)
-                    const Divider(height: 8, thickness: 0.6),
-                ],
-              ],
-            )
-          : ReorderableListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              buildDefaultDragHandles: false,
-              itemCount: todos.length,
-              onReorderItem: store.reorderActiveTodo,
-              itemBuilder: (context, index) => Column(
-                key: ValueKey(todos[index].id),
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  EditableTodoRow(
-                    todo: todos[index],
-                    compact: compact,
-                    reorderIndex: index,
-                  ),
-                  if (index != todos.length - 1)
-                    const Divider(height: 8, thickness: 0.6),
-                ],
               ),
             ),
+            const SizedBox(height: 6),
+            for (var index = 0; index < todos.length; index++) ...[
+              EditableTodoRow(todo: todos[index], compact: compact),
+              if (index != todos.length - 1)
+                const Divider(height: 8, thickness: 0.6),
+            ],
+          ] else ...[
+            if (todos.isNotEmpty)
+              ReorderableListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                buildDefaultDragHandles: false,
+                itemCount: todos.length,
+                onReorderItem: store.reorderActiveTodo,
+                itemBuilder: (context, index) => Column(
+                  key: ValueKey(todos[index].id),
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    EditableTodoRow(
+                      todo: todos[index],
+                      compact: compact,
+                      reorderIndex: index,
+                    ),
+                    if (index != todos.length - 1 || planTasks.isNotEmpty)
+                      const Divider(height: 8, thickness: 0.6),
+                  ],
+                ),
+              ),
+            for (var index = 0; index < planTasks.length; index++) ...[
+              PlanHomeTaskRow(item: planTasks[index], compact: compact),
+              if (index != planTasks.length - 1)
+                const Divider(height: 8, thickness: 0.6),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class PlanHomeTaskRow extends StatelessWidget {
+  const PlanHomeTaskRow({super.key, required this.item, this.compact = false});
+
+  final PlanHomeTask item;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = AppStoreScope.of(context);
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => HomeFeatureActionsScope.of(
+        context,
+      ).editNote(context, note: item.note),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Checkbox(
+              value: item.task.completed,
+              visualDensity: VisualDensity.compact,
+              onChanged: (_) => togglePlanHomeTask(store, item),
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.task.title,
+                      maxLines: compact ? 2 : null,
+                      overflow: compact ? TextOverflow.ellipsis : null,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      item.task.dueDate == null
+                          ? '計畫 · ${item.note.title}'
+                          : '${formatDate(item.task.dueDate!)} · ${item.note.title}',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Icon(Icons.flag_outlined, size: 20),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

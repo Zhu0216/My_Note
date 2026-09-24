@@ -234,6 +234,139 @@ void main() {
     }
   });
 
+  test('nested plan progress uses task and phase weights recursively', () {
+    final document = PlanDocument(
+      nodes: [
+        PlanNode(
+          id: 'phase-a',
+          title: '階段 A',
+          type: PlanNodeType.phase,
+          weight: 3,
+        ),
+        PlanNode(
+          id: 'phase-b',
+          title: '階段 B',
+          type: PlanNodeType.phase,
+          weight: 1,
+        ),
+        PlanNode(
+          id: 'task-a1',
+          title: 'A1',
+          type: PlanNodeType.task,
+          parentId: 'phase-a',
+          completed: true,
+          weight: 1,
+        ),
+        PlanNode(
+          id: 'task-a2',
+          title: 'A2',
+          type: PlanNodeType.task,
+          parentId: 'phase-a',
+          weight: 3,
+        ),
+        PlanNode(
+          id: 'task-b1',
+          title: 'B1',
+          type: PlanNodeType.task,
+          parentId: 'phase-b',
+          completed: true,
+        ),
+      ],
+    );
+
+    expect(document.progressOf('phase-a'), closeTo(0.25, 0.001));
+    expect(document.progressOf('phase-b'), 1);
+    expect(document.progressOf(null), closeTo(0.4375, 0.001));
+  });
+
+  testWidgets('plan task metadata updates weight priority and home choice', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    var document = PlanDocument(
+      nodes: [
+        PlanNode(id: 'metadata-task', title: '設定任務', type: PlanNodeType.task),
+      ],
+    );
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) => PlanTreeEditor(
+                  document: document,
+                  onChanged: (value) => setState(() => document = value),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('設定任務'));
+      await tester.pumpAndSettle();
+      expect(find.text('任務設定'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField).at(1), '2.5');
+      await tester.tap(find.text('高'));
+      await tester.tap(find.text('顯示於首頁待辦'));
+      await tester.tap(find.byTooltip('儲存'));
+      await tester.pumpAndSettle();
+
+      final task = document.nodes.single;
+      expect(task.weight, 2.5);
+      expect(task.priority, 3);
+      expect(task.showOnHome, isTrue);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  test('home plan tasks are derived and toggle the source node', () {
+    final store = AppStore.seeded(persistenceLocked: true);
+    final note = NoteItem(
+      id: 'home-plan',
+      title: '首頁計畫',
+      body: '',
+      category: '',
+      tags: const [],
+      createdAt: DateTime(2026, 9, 24),
+      updatedAt: DateTime(2026, 9, 24),
+      templateType: NoteTemplateType.plan,
+      templateData: PlanDocument(
+        nodes: [
+          PlanNode(
+            id: 'shown-task',
+            title: '首頁顯示',
+            type: PlanNodeType.task,
+            showOnHome: true,
+          ),
+          PlanNode(id: 'hidden-task', title: '不顯示', type: PlanNodeType.task),
+        ],
+      ).toJson(),
+    );
+    try {
+      store.upsertNote(note);
+      final tasks = activePlanHomeTasks(store);
+      expect(tasks.map((item) => item.task.title), ['首頁顯示']);
+
+      togglePlanHomeTask(store, tasks.single);
+      expect(activePlanHomeTasks(store), isEmpty);
+      expect(
+        PlanDocument.fromJson(
+          store.notes.single.templateData,
+        ).nodes.first.completed,
+        isTrue,
+      );
+    } finally {
+      store.dispose();
+    }
+  });
+
   test('local export validates and restores a complete snapshot', () async {
     SharedPreferences.setMockInitialValues({});
     final source = AppStore.seeded(persistenceLocked: true);
