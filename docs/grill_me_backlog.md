@@ -56,7 +56,14 @@ the current behavior has not been independently accepted for this v1 baseline.
   isolated implementation exposes versioned JSON export/import in Settings,
   checkpoints the prior snapshot before import, and rejects invalid bundles
   before in-memory mutation. Focused export/restore and invalid-import tests
-  passed on 2026-09-23. Web and X510 file-picker acceptance remain.
+  passed on 2026-09-23. On 2026-09-24, SM-X510 acceptance opened Android
+  DocumentsUI for export, wrote `my_note_20260924.json` to Download, opened the
+  JSON-only import picker, selected that file, and returned to the running app.
+  Web inspection found that `file_picker` intentionally returns `null` after a
+  successful browser Blob download; `NoteFileService` now normalizes that
+  result to the requested filename so the UI reports success instead of
+  cancellation. A focused regression test covers Web and non-Web results;
+  analyzer, all 67 tests, and Flutter Web build passed.
 
 ### P0-004 — Backup history and recovery UI
 

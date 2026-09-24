@@ -69,6 +69,25 @@ void main() {
     restored.dispose();
   });
 
+  test('web downloads are treated as successful when picker returns null', () {
+    expect(
+      resolveSavedFileLocation(
+        isWeb: true,
+        fileName: 'my_note.json',
+        platformLocation: null,
+      ),
+      'my_note.json',
+    );
+    expect(
+      resolveSavedFileLocation(
+        isWeb: false,
+        fileName: 'my_note.json',
+        platformLocation: null,
+      ),
+      isNull,
+    );
+  });
+
   test(
     'invalid local import leaves the current in-memory data unchanged',
     () async {

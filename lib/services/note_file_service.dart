@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -67,11 +66,16 @@ class NoteFileService {
   static Future<String?> saveBytes({
     required String fileName,
     required Uint8List bytes,
-  }) {
-    return FilePicker.platform.saveFile(
+  }) async {
+    final location = await FilePicker.platform.saveFile(
       dialogTitle: '儲存附件',
       fileName: fileName,
       bytes: bytes,
+    );
+    return resolveSavedFileLocation(
+      isWeb: kIsWeb,
+      fileName: fileName,
+      platformLocation: location,
     );
   }
 
@@ -125,6 +129,17 @@ class NoteFileService {
       ),
     );
   }
+}
+
+String? resolveSavedFileLocation({
+  required bool isWeb,
+  required String fileName,
+  required String? platformLocation,
+}) {
+  if (isWeb) {
+    return fileName;
+  }
+  return platformLocation;
 }
 
 String safeExportFileName(String value) {
