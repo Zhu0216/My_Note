@@ -1,4 +1,25 @@
-part of 'main.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_box_transform/flutter_box_transform.dart' as fbt;
+
+import 'data/my_note_data.dart';
+import 'services/note_file_service.dart';
+import 'services/device_font_registry.dart';
+import 'ui/app_pickers.dart';
+import 'ui/app_store_scope.dart';
+import 'ui/finance_form_helpers.dart';
+import 'ui/formatters.dart';
+import 'ui/note_template_metadata.dart';
+import 'ui/note_text_helpers.dart';
+import 'ui/prompt_dialogs.dart';
+import 'ui/shared_components.dart';
+import 'ui/todo_display.dart';
 
 bool newNoteHasSavableContent({
   required String title,

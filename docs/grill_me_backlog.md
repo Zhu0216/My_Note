@@ -46,7 +46,7 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P0-003 — Portable JSON backup and restore
 
-- Status: `IN PROGRESS`
+- Status: `DONE`
 - User-visible behavior: Settings exports all local data as JSON and imports it
   after creating a recovery point.
 - Acceptance: versioned export validates; import restores every record family;
@@ -139,8 +139,15 @@ the current behavior has not been independently accepted for this v1 baseline.
   numeric input, and duplicate-account helpers use
   `lib/ui/finance_form_helpers.dart`. File picking, crop, export, PDF, and share
   operations moved from the rich editor into
-  `lib/services/note_file_service.dart`. Remaining: replace transitional
-  feature parts with focused imports where dependencies permit.
+  `lib/services/note_file_service.dart`. The rich note, schedule, and finance
+  editors now compile as the standalone focused-import `lib/note_editor.dart`
+  library; tag parsing lives in `lib/ui/note_text_helpers.dart`, and Android
+  device-font discovery/state lives in
+  `lib/services/device_font_registry.dart`. On 2026-09-24, source inspection
+  confirmed that no feature, editor, service, or UI file remains a part of
+  `main.dart`; only the intentional private parts of the focused
+  `data/my_note_data.dart` library remain. Analyzer, all 66 tests, and Flutter
+  Web build passed after the final extraction.
 
 ### P0-007 — Data integrity validation
 
