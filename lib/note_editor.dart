@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_box_transform/flutter_box_transform.dart' as fbt;
 
 import 'data/my_note_data.dart';
+import 'features/notes/mind_map_canvas_editor.dart';
 import 'features/notes/plan_tree_editor.dart';
 import 'services/note_file_service.dart';
 import 'services/device_font_registry.dart';
@@ -7305,63 +7306,10 @@ class NoteTemplateFields extends StatelessWidget {
 
   List<Widget> buildMindMapFields() {
     final document = MindMapDocument.fromJson(data);
-    final root = document.nodes.firstWhere(
-      (node) => node.id == document.rootNodeId,
-    );
     return [
-      TemplateTextField(
-        label: '主題',
-        value: root.title,
-        onChanged: (value) {
-          root.title = value;
-          onChanged(document.toJson());
-        },
-      ),
-      TemplateTextField(
-        label: '節點（標題 | 次標 | 說明 | x,y | 顏色 | 展開/收合）',
-        value: document.nodes
-            .map(
-              (node) =>
-                  '${node.title} | ${node.subtitle} | ${node.description} | ${node.x},${node.y} | ${node.color} | ${node.expanded ? '展開' : '收合'}',
-            )
-            .join('\n'),
-        minLines: 4,
-        onChanged: (value) {
-          final lines = value
-              .split('\n')
-              .where((line) => line.trim().isNotEmpty)
-              .toList();
-          final previous = List<MindMapNode>.from(document.nodes);
-          document.nodes.clear();
-          for (final entry in lines.indexed) {
-            final parsed = parseMindMapNodeLine(entry.$2);
-            final prior = entry.$1 < previous.length
-                ? previous[entry.$1]
-                : null;
-            document.nodes.add(
-              MindMapNode(
-                id:
-                    prior?.id ??
-                    'mind-node-${DateTime.now().microsecondsSinceEpoch}-${entry.$1}',
-                title: readString(parsed['title']),
-                subtitle: readString(parsed['subtitle']),
-                description: readString(parsed['description']),
-                x: readDouble(parsed['x']),
-                y: readDouble(parsed['y']),
-                color: readString(parsed['color'], fallback: '#7C8B5F'),
-                expanded: parsed['expanded'] != false,
-                locked: prior?.locked ?? false,
-                parentId: prior?.parentId,
-                links: prior?.links,
-              ),
-            );
-          }
-          if (!document.nodes.any((node) => node.id == document.rootNodeId) &&
-              document.nodes.isNotEmpty) {
-            document.rootNodeId = document.nodes.first.id;
-          }
-          onChanged(document.toJson());
-        },
+      MindMapCanvasEditor(
+        document: document,
+        onChanged: (value) => onChanged(value.toJson()),
       ),
     ];
   }

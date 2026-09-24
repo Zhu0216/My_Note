@@ -365,12 +365,19 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-012 — Mind-map canvas interaction
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: users pan/zoom, add/select/move/lock/collapse nodes;
   the central topic remains required.
 - Acceptance: locked nodes cannot move; state survives restart; mouse/touch work.
 - Dependencies: P1-011, P0-006.
-- Evidence: none.
+- Evidence: the mind-map template now uses a 1200×800 interactive canvas with
+  mouse/touch pan and zoom. Users select nodes directly, add child nodes,
+  rename, drag unlocked nodes, lock/unlock positions, collapse/expand child
+  branches, and delete non-root subtrees; the required root cannot be deleted.
+  Deleting a subtree also removes attached connections. Widget tests verify
+  add/move/lock/collapse behavior, and a persistence test proves coordinates,
+  lock, and expansion state survive restart. Analyzer, all 89 tests, and the
+  Web production build pass on 2026-09-24.
 
 ### P1-013 — Mind-map connections and layout
 

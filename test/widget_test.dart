@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:my_note/main.dart';
+import 'package:my_note/features/notes/mind_map_canvas_editor.dart';
 import 'package:my_note/features/notes/plan_tree_editor.dart';
 
 class _FakeImageFilePicker extends FilePicker {
@@ -1791,6 +1792,111 @@ void main() {
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       store.dispose();
+    }
+  });
+
+  testWidgets('mind map canvas adds moves locks and collapses nodes', (
+    tester,
+  ) async {
+    var document = MindMapDocument(
+      rootNodeId: 'root',
+      nodes: [MindMapNode(id: 'root', title: '中心', x: 20, y: 20)],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => MindMapCanvasEditor(
+              document: document,
+              onChanged: (value) => setState(() => document = value),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byTooltip('新增子節點'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '分支');
+    await tester.tap(find.text('確認'));
+    await tester.pumpAndSettle();
+
+    final child = document.nodes.singleWhere((node) => node.title == '分支');
+    expect(child.parentId, 'root');
+    final originalPosition = Offset(child.x, child.y);
+
+    await tester.tap(find.byTooltip('鎖定節點'));
+    await tester.pump();
+    expect(child.locked, isTrue);
+    await tester.drag(find.text('分支'), const Offset(80, 60));
+    await tester.pump();
+    expect(Offset(child.x, child.y), originalPosition);
+
+    await tester.tap(find.byTooltip('解除鎖定'));
+    await tester.pump();
+    await tester.drag(find.text('分支'), const Offset(80, 60));
+    await tester.pump();
+    expect(child.x, greaterThan(originalPosition.dx));
+    expect(child.y, greaterThan(originalPosition.dy));
+
+    await tester.tap(find.text('中心'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('收合子節點'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('分支'), findsNothing);
+    expect(
+      document.nodes.singleWhere((node) => node.id == 'root').expanded,
+      isFalse,
+    );
+  });
+
+  test('mind map canvas state survives persistence reload', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = await AppStore.load();
+    final document = MindMapDocument(
+      rootNodeId: 'root',
+      nodes: [
+        MindMapNode(id: 'root', title: '中心', x: 15, y: 25, expanded: false),
+        MindMapNode(
+          id: 'locked-child',
+          title: '鎖定分支',
+          parentId: 'root',
+          x: 320,
+          y: 180,
+          locked: true,
+        ),
+      ],
+    );
+    store.upsertNote(
+      NoteItem(
+        id: 'canvas-state',
+        title: '畫布狀態',
+        body: '',
+        category: '',
+        tags: const [],
+        createdAt: DateTime(2026, 9, 24),
+        updatedAt: DateTime(2026, 9, 24),
+        templateType: NoteTemplateType.mindMap,
+        templateData: document.toJson(),
+      ),
+    );
+    await store.flushPersistence();
+    store.dispose();
+
+    final reloaded = await AppStore.load();
+    try {
+      final restored = MindMapDocument.fromJson(
+        reloaded.notes.single.templateData,
+      );
+      final child = restored.nodes.singleWhere(
+        (node) => node.id == 'locked-child',
+      );
+      expect(child.x, 320);
+      expect(child.y, 180);
+      expect(child.locked, isTrue);
+      expect(restored.nodes.first.expanded, isFalse);
+    } finally {
+      reloaded.dispose();
     }
   });
 
