@@ -216,6 +216,8 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       templateData = migratePlanDocumentForEditing(templateData);
     } else if (templateType == NoteTemplateType.mindMap) {
       templateData = migrateMindMapDocumentForEditing(templateData);
+    } else if (templateType == NoteTemplateType.lifeSheet) {
+      templateData = migrateLifeProjectDocumentForEditing(templateData);
     }
     final richSeed = templateType == NoteTemplateType.general
         ? richNoteSeedFromTemplateData(note?.body ?? '', templateData)
@@ -7315,50 +7317,60 @@ class NoteTemplateFields extends StatelessWidget {
   }
 
   List<Widget> buildLifeSheetFields() {
-    final items = readMapList(data['items']);
-    final totalTarget = items.fold<double>(
-      0,
-      (sum, item) => sum + readDouble(item['targetAmount']),
+    final document = LifeProjectDocument.fromJson(data);
+    final moneyItems = document.items.where(
+      (item) => item.displayMode == LifeItemDisplayMode.money,
     );
-    final totalCurrent = items.fold<double>(
+    final totalTarget = moneyItems.fold<double>(
       0,
-      (sum, item) => sum + readDouble(item['currentAmount']),
+      (sum, item) => sum + item.targetAmount,
     );
-    final progress = totalTarget <= 0
-        ? 0.0
-        : (totalCurrent / totalTarget).clamp(0.0, 1.0);
+    final totalCurrent = moneyItems.fold<double>(
+      0,
+      (sum, item) => sum + item.manualCurrentAmount,
+    );
     return [
       TemplateTextField(
         label: '連結計劃',
-        value: readStringList(data['linkedPlanIds']).join(', '),
-        onChanged: (value) => setValue(
-          'linkedPlanIds',
-          value
-              .split(',')
-              .map((item) => item.trim())
-              .where((item) => item.isNotEmpty)
-              .toList(),
-        ),
+        value: document.linkedPlanIds.join(', '),
+        onChanged: (value) {
+          document.linkedPlanIds
+            ..clear()
+            ..addAll(
+              value
+                  .split(',')
+                  .map((item) => item.trim())
+                  .where((item) => item.isNotEmpty),
+            );
+          onChanged(document.toJson());
+        },
       ),
       TemplateTextField(
-        label: '項目（名稱 | 目標金額 | 目前金額 | 實際花費）',
-        value: items
-            .map(
-              (item) =>
-                  '${item['name']} | ${item['targetAmount']} | ${item['currentAmount']} | ${item['actualCost']}',
-            )
-            .join('\n'),
+        label: '項目（名稱 | 金錢/完成率 | 目標 | 目前）',
+        value: document.items.map(formatLifeProjectItemLine).join('\n'),
         minLines: 4,
-        onChanged: (value) => setValue(
-          'items',
-          value
+        onChanged: (value) {
+          final items = value
               .split('\n')
               .where((line) => line.trim().isNotEmpty)
-              .map(parseLifeSheetItemLine)
-              .toList(),
-        ),
+              .indexed
+              .map(
+                (entry) => parseLifeProjectItemLine(
+                  entry.$2,
+                  entry.$1,
+                  existing: entry.$1 < document.items.length
+                      ? document.items[entry.$1]
+                      : null,
+                ),
+              )
+              .toList();
+          document.items
+            ..clear()
+            ..addAll(items);
+          onChanged(document.toJson());
+        },
       ),
-      LinearProgressIndicator(value: progress),
+      LinearProgressIndicator(value: document.weightedProgress),
       const SizedBox(height: 8),
       Text('金額對比'),
       const SizedBox(height: 8),
@@ -7379,20 +7391,36 @@ class NoteTemplateFields extends StatelessWidget {
       ),
       TemplateTextField(
         label: '開始時間',
-        value: readString(data['startDate']),
-        onChanged: (value) => setValue('startDate', value),
+        value: document.startDate?.toIso8601String() ?? '',
+        onChanged: (value) {
+          document.startDate = DateTime.tryParse(value.trim());
+          onChanged(document.toJson());
+        },
+      ),
+      TemplateTextField(
+        label: '目標時間',
+        value: document.targetDate?.toIso8601String() ?? '',
+        onChanged: (value) {
+          document.targetDate = DateTime.tryParse(value.trim());
+          onChanged(document.toJson());
+        },
       ),
       TemplateTextField(
         label: '進行時間',
-        value: readString(data['spentHours'], fallback: '0'),
-        onChanged: (value) =>
-            setValue('spentHours', double.tryParse(value) ?? 0),
+        value: document.spentHours.toString(),
+        onChanged: (value) {
+          document.spentHours = double.tryParse(value) ?? 0;
+          onChanged(document.toJson());
+        },
       ),
       TemplateTextField(
         label: '備註',
-        value: readString(data['notes']),
+        value: document.notes,
         minLines: 2,
-        onChanged: (value) => setValue('notes', value),
+        onChanged: (value) {
+          document.notes = value;
+          onChanged(document.toJson());
+        },
       ),
     ];
   }
@@ -7934,14 +7962,45 @@ Map<String, dynamic> parseMindMapNodeLine(String line) {
   };
 }
 
-Map<String, dynamic> parseLifeSheetItemLine(String line) {
+String formatLifeProjectItemLine(LifeProjectItem item) {
+  if (item.displayMode == LifeItemDisplayMode.progress) {
+    return '${item.name} | 完成率 | ${(item.progress * 100).round()}';
+  }
+  return '${item.name} | 金錢 | ${item.targetAmount} | ${item.manualCurrentAmount}';
+}
+
+LifeProjectItem parseLifeProjectItemLine(
+  String line,
+  int index, {
+  LifeProjectItem? existing,
+}) {
   final parts = line.split('|').map((item) => item.trim()).toList();
-  return {
-    'name': parts.isNotEmpty ? parts[0] : '',
-    'targetAmount': parts.length > 1 ? double.tryParse(parts[1]) ?? 0 : 0,
-    'currentAmount': parts.length > 2 ? double.tryParse(parts[2]) ?? 0 : 0,
-    'actualCost': parts.length > 3 ? double.tryParse(parts[3]) ?? 0 : 0,
-  };
+  final progressMode =
+      parts.length > 1 &&
+      (parts[1] == '完成率' || parts[1].toLowerCase() == 'progress');
+  return LifeProjectItem(
+    id:
+        existing?.id ??
+        'life-item-${DateTime.now().microsecondsSinceEpoch}-$index',
+    name: parts.isNotEmpty ? parts[0] : '',
+    displayMode: progressMode
+        ? LifeItemDisplayMode.progress
+        : LifeItemDisplayMode.money,
+    targetAmount: progressMode || parts.length <= 2
+        ? 0
+        : double.tryParse(parts[2]) ?? 0,
+    manualCurrentAmount: progressMode || parts.length <= 3
+        ? 0
+        : double.tryParse(parts[3]) ?? 0,
+    progress: progressMode && parts.length > 2
+        ? ((double.tryParse(parts[2]) ?? 0) / 100).clamp(0, 1)
+        : 0,
+    completed: existing?.completed ?? false,
+    weight: existing?.weight ?? 1,
+    sortOrder: existing?.sortOrder ?? index,
+    accountIds: existing?.accountIds,
+    links: existing?.links,
+  );
 }
 
 String noteImageAlignmentLabel(NoteImageAlignment value) {

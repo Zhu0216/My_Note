@@ -98,6 +98,8 @@ void main() {
     });
     expect(lifeProject.items, hasLength(2));
     expect(lifeProject.weightedProgress, closeTo(0.375, 0.001));
+    expect(lifeProject.toJson()['schema'], LifeProjectDocument.schema);
+    expect(lifeProject.items.first.manualCurrentAmount, 250);
   });
 
   test('plan tree reorders siblings and removes a complete subtree', () {
@@ -1789,6 +1791,79 @@ void main() {
             .title,
         '產品中心',
       );
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  testWidgets('editing a legacy life sheet saves v2 without losing values', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    final legacyLifeSheet = NoteItem(
+      id: 'legacy-life-sheet-editor',
+      title: '舊人生試算表',
+      body: '',
+      category: '',
+      tags: const [],
+      createdAt: DateTime(2026, 9, 1),
+      updatedAt: DateTime(2026, 9, 1),
+      templateType: NoteTemplateType.lifeSheet,
+      templateData: {
+        'schema': 'life_sheet.v1',
+        'completed': true,
+        'linkedPlanIds': ['plan-a'],
+        'items': [
+          {
+            'name': '專案基金',
+            'targetAmount': 100000,
+            'currentAmount': 25000,
+            'actualCost': 6000,
+          },
+          {'name': '整理作品集', 'displayMode': 'progress', 'progress': 0.6},
+        ],
+        'startDate': '2026-09-01T00:00:00.000',
+        'dueDate': '2027-03-01T00:00:00.000',
+        'spentHours': 18.5,
+        'notes': '保留舊人生專案備註',
+      },
+    );
+    store.upsertNote(legacyLifeSheet);
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(home: NoteEditorPage(note: legacyLifeSheet)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('專案基金 | 金錢'), findsOneWidget);
+      expect(find.textContaining('整理作品集 | 完成率'), findsOneWidget);
+      expect(find.text('保留舊人生專案備註'), findsOneWidget);
+      expect(store.notes.single.templateData['schema'], 'life_sheet.v1');
+
+      await tester.enterText(find.byType(TextField).first, '舊人生試算表（已編輯）');
+      await tester.tap(find.byIcon(Icons.arrow_back).first);
+      await tester.pumpAndSettle();
+
+      final saved = store.notes.single;
+      expect(saved.templateData['schema'], LifeProjectDocument.schema);
+      expect(jsonEncode(saved.templateData), isNot(contains('actualCost')));
+      final migrated = LifeProjectDocument.fromJson(saved.templateData);
+      expect(migrated.status, LifeProjectStatus.completed);
+      expect(migrated.linkedPlanIds, ['plan-a']);
+      expect(migrated.startDate, DateTime(2026, 9));
+      expect(migrated.targetDate, DateTime(2027, 3));
+      expect(migrated.spentHours, 18.5);
+      expect(migrated.notes, '保留舊人生專案備註');
+      expect(migrated.items, hasLength(2));
+      expect(migrated.items.first.targetAmount, 100000);
+      expect(migrated.items.first.manualCurrentAmount, 25000);
+      expect(migrated.items.last.displayMode, LifeItemDisplayMode.progress);
+      expect(migrated.items.last.progress, 0.6);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       store.dispose();

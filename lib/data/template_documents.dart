@@ -490,11 +490,22 @@ class LifeProjectItem {
 class LifeProjectDocument {
   LifeProjectDocument({
     this.status = LifeProjectStatus.active,
+    this.startDate,
+    this.targetDate,
+    this.spentHours = 0,
+    this.notes = '',
+    List<String>? linkedPlanIds,
     List<LifeProjectItem>? items,
-  }) : items = items ?? <LifeProjectItem>[];
+  }) : linkedPlanIds = linkedPlanIds ?? <String>[],
+       items = items ?? <LifeProjectItem>[];
 
   static const schema = 'life_sheet.v2';
   LifeProjectStatus status;
+  DateTime? startDate;
+  DateTime? targetDate;
+  double spentHours;
+  String notes;
+  final List<String> linkedPlanIds;
   final List<LifeProjectItem> items;
 
   double get weightedProgress {
@@ -516,6 +527,11 @@ class LifeProjectDocument {
   Map<String, dynamic> toJson() => {
     'schema': schema,
     'status': status.name,
+    'startDate': startDate?.toIso8601String(),
+    'targetDate': targetDate?.toIso8601String(),
+    'spentHours': spentHours,
+    'notes': notes,
+    'linkedPlanIds': linkedPlanIds,
     'items': items.map((item) => item.toJson()).toList(),
   };
 
@@ -524,8 +540,15 @@ class LifeProjectDocument {
         status: readEnum(
           LifeProjectStatus.values,
           data['status'],
-          LifeProjectStatus.active,
+          data['completed'] == true
+              ? LifeProjectStatus.completed
+              : LifeProjectStatus.active,
         ),
+        startDate: readOptionalDate(data['startDate']),
+        targetDate: readOptionalDate(data['targetDate'] ?? data['dueDate']),
+        spentHours: readDouble(data['spentHours']),
+        notes: readString(data['notes']),
+        linkedPlanIds: readStringList(data['linkedPlanIds']),
         items: readMapList(data['items']).indexed
             .map(
               (entry) => LifeProjectItem.fromJson(
@@ -537,6 +560,13 @@ class LifeProjectDocument {
             .toList(),
       );
 }
+
+bool isLegacyLifeProjectDocument(Map<String, dynamic> data) =>
+    data['schema'] != LifeProjectDocument.schema;
+
+Map<String, dynamic> migrateLifeProjectDocumentForEditing(
+  Map<String, dynamic> data,
+) => LifeProjectDocument.fromJson(data).toJson();
 
 String? readOptionalString(Object? value) {
   final text = readString(value).trim();

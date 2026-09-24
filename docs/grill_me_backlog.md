@@ -401,12 +401,22 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-014 — Life-project v1-to-v2 migration
 
-- Status: `IN PROGRESS`
+- Status: `DONE`
 - User-visible behavior: legacy life-sheet items remain usable as project items.
 - Acceptance: old values migrate without loss; removed actual-cost field does
   not block opening legacy records.
 - Dependencies: P0-003, P0-007.
-- Evidence: model maps legacy current amount; UI/write migration pending.
+- Evidence: new life projects now start as `life_sheet.v2`. Opening a v1 life
+  sheet migrates an in-memory copy while leaving stored data untouched until
+  the first real edit. That edit writes v2 and preserves status, linked legacy
+  plan IDs, start/target dates, spent hours, notes, item names, target/current
+  amounts, progress mode, progress values, weights, order, account IDs, and
+  typed links. Legacy `currentAmount` maps to `manualCurrentAmount`; the removed
+  `actualCost` field is accepted on read and omitted from v2 without blocking
+  the record. The interim editor now reads/writes the v2 model and no longer
+  presents actual cost. Focused model/editor tests prove read-before-write and
+  value preservation; analyzer, all 92 tests, and the Web production build
+  pass on 2026-09-24.
 
 ### P1-015 — Life-project dashboard and weighted progress
 

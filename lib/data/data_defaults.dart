@@ -97,21 +97,7 @@ Map<String, dynamic> defaultNoteTemplateData(NoteTemplateType type) {
         nodes: [MindMapNode(id: 'mind-root', title: '')],
       ).toJson();
     case NoteTemplateType.lifeSheet:
-      return {
-        'schema': 'life_sheet.v1',
-        'linkedPlanIds': <String>[],
-        'items': <Map<String, dynamic>>[
-          {
-            'name': '',
-            'targetAmount': 0.0,
-            'currentAmount': 0.0,
-            'actualCost': 0.0,
-          },
-        ],
-        'startDate': null,
-        'spentHours': 0.0,
-        'notes': '',
-      };
+      return LifeProjectDocument().toJson();
   }
 }
 
