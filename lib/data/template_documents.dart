@@ -428,6 +428,7 @@ class LifeProjectItem {
     this.manualCurrentAmount = 0,
     this.progress = 0,
     this.completed = false,
+    this.achievedBefore = false,
     this.weight = 1,
     this.sortOrder = 0,
     List<String>? accountIds,
@@ -442,6 +443,7 @@ class LifeProjectItem {
   double manualCurrentAmount;
   double progress;
   bool completed;
+  bool achievedBefore;
   double weight;
   int sortOrder;
   List<String> accountIds;
@@ -455,6 +457,7 @@ class LifeProjectItem {
     'manualCurrentAmount': manualCurrentAmount,
     'progress': progress,
     'completed': completed,
+    'achievedBefore': achievedBefore,
     'weight': weight,
     'sortOrder': sortOrder,
     'accountIds': accountIds,
@@ -480,11 +483,53 @@ class LifeProjectItem {
     ),
     progress: readDouble(data['progress']).clamp(0, 1),
     completed: data['completed'] == true,
+    achievedBefore: data['achievedBefore'] == true,
     weight: readDouble(data['weight'], fallback: 1).clamp(0.01, 1000),
     sortOrder: readInt(data['sortOrder'], fallback: fallbackOrder),
     accountIds: readStringList(data['accountIds']),
     links: readRelatedItemLinks(data['links']),
   );
+}
+
+class LifeProjectMoneySegment {
+  const LifeProjectMoneySegment({
+    required this.itemId,
+    required this.currentAmount,
+    required this.targetAmount,
+    required this.thresholdAmount,
+    required this.progress,
+    required this.currentlyMaintained,
+    required this.achievedBefore,
+  });
+
+  final String itemId;
+  final double currentAmount;
+  final double targetAmount;
+  final double thresholdAmount;
+  final double progress;
+  final bool currentlyMaintained;
+  final bool achievedBefore;
+}
+
+class LifeProjectMoneyGroup {
+  const LifeProjectMoneyGroup({
+    required this.accountIds,
+    required this.currentAmount,
+    required this.targetAmount,
+    required this.segments,
+  });
+
+  final Set<String> accountIds;
+  final double currentAmount;
+  final double targetAmount;
+  final List<LifeProjectMoneySegment> segments;
+}
+
+class LifeProjectMoneyMeter {
+  const LifeProjectMoneyMeter({required this.groups, required this.byItemId});
+
+  final List<LifeProjectMoneyGroup> groups;
+  final Map<String, LifeProjectMoneySegment> byItemId;
 }
 
 class LifeProjectDocument {
@@ -517,6 +562,118 @@ class LifeProjectDocument {
                   ? (item.targetAmount <= 0
                         ? 0
                         : item.manualCurrentAmount / item.targetAmount)
+                  : item.progress;
+              return sum + progress.clamp(0, 1) * item.weight;
+            }) /
+            totalWeight)
+        .clamp(0, 1);
+  }
+
+  LifeProjectMoneyMeter moneyMeter(Map<String, double> accountBalances) {
+    final ordered =
+        items
+            .where((item) => item.displayMode == LifeItemDisplayMode.money)
+            .toList()
+          ..sort((left, right) => left.sortOrder.compareTo(right.sortOrder));
+    final linked = ordered.where((item) => item.accountIds.isNotEmpty).toList();
+    final pending = linked.toSet();
+    final groups = <LifeProjectMoneyGroup>[];
+    final byItemId = <String, LifeProjectMoneySegment>{};
+
+    while (pending.isNotEmpty) {
+      final componentItems = <LifeProjectItem>[];
+      final componentAccounts = <String>{};
+      final queue = <LifeProjectItem>[pending.first];
+      while (queue.isNotEmpty) {
+        final item = queue.removeLast();
+        if (!pending.remove(item)) continue;
+        componentItems.add(item);
+        componentAccounts.addAll(item.accountIds);
+        queue.addAll(
+          pending.where(
+            (candidate) => candidate.accountIds.any(componentAccounts.contains),
+          ),
+        );
+      }
+      componentItems.sort(
+        (left, right) => left.sortOrder.compareTo(right.sortOrder),
+      );
+      final balance = componentAccounts.fold<double>(
+        0,
+        (sum, accountId) => sum + (accountBalances[accountId] ?? 0),
+      );
+      var threshold = 0.0;
+      final segments = <LifeProjectMoneySegment>[];
+      for (final item in componentItems) {
+        final target = item.targetAmount.clamp(0, double.infinity).toDouble();
+        final available = (balance - threshold).clamp(0, target).toDouble();
+        threshold += target;
+        final maintained = target > 0 && balance >= threshold;
+        final segment = LifeProjectMoneySegment(
+          itemId: item.id,
+          currentAmount: available,
+          targetAmount: target,
+          thresholdAmount: threshold,
+          progress: target <= 0 ? 0 : (available / target).clamp(0, 1),
+          currentlyMaintained: maintained,
+          achievedBefore: item.achievedBefore || maintained,
+        );
+        segments.add(segment);
+        byItemId[item.id] = segment;
+      }
+      groups.add(
+        LifeProjectMoneyGroup(
+          accountIds: componentAccounts,
+          currentAmount: balance,
+          targetAmount: threshold,
+          segments: segments,
+        ),
+      );
+    }
+
+    for (final item in ordered.where((item) => item.accountIds.isEmpty)) {
+      final target = item.targetAmount.clamp(0, double.infinity).toDouble();
+      final current = item.manualCurrentAmount.clamp(0, target).toDouble();
+      final maintained = target > 0 && item.manualCurrentAmount >= target;
+      final segment = LifeProjectMoneySegment(
+        itemId: item.id,
+        currentAmount: current,
+        targetAmount: target,
+        thresholdAmount: target,
+        progress: target <= 0 ? 0 : (current / target).clamp(0, 1),
+        currentlyMaintained: maintained,
+        achievedBefore: item.achievedBefore || maintained,
+      );
+      byItemId[item.id] = segment;
+      groups.add(
+        LifeProjectMoneyGroup(
+          accountIds: const <String>{},
+          currentAmount: item.manualCurrentAmount,
+          targetAmount: target,
+          segments: [segment],
+        ),
+      );
+    }
+    groups.sort((left, right) {
+      final leftOrder = ordered.indexWhere(
+        (item) => item.id == left.segments.first.itemId,
+      );
+      final rightOrder = ordered.indexWhere(
+        (item) => item.id == right.segments.first.itemId,
+      );
+      return leftOrder.compareTo(rightOrder);
+    });
+    return LifeProjectMoneyMeter(groups: groups, byItemId: byItemId);
+  }
+
+  double weightedProgressFor(Map<String, double> accountBalances) {
+    if (items.isEmpty) return 0;
+    final meter = moneyMeter(accountBalances);
+    final totalWeight = items.fold<double>(0, (sum, item) => sum + item.weight);
+    if (totalWeight <= 0) return 0;
+    return (items.fold<double>(0, (sum, item) {
+              final progress = item.displayMode == LifeItemDisplayMode.money
+                  ? (meter.byItemId[item.id]?.progress ?? 0)
                   : item.progress;
               return sum + progress.clamp(0, 1) * item.weight;
             }) /

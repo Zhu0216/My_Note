@@ -460,13 +460,21 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-017 — Shared-account money meter
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: money items render ordered thresholds; shared balances
   are counted once and show current versus achieved-before states.
 - Acceptance: no double counting; multiple accounts may contribute; decreased
   balance preserves history and reflects current attainment.
 - Dependencies: P1-015, P1-016.
-- Evidence: schema has account IDs/order only.
+- Evidence: `LifeProjectDocument.moneyMeter` groups transitively shared accounts,
+  counts each account balance once, and applies ordered cumulative thresholds.
+  Life-project items persist `achievedBefore`; `AppStore` promotes that history
+  whenever a current threshold is reached. The life-project editor now renders a
+  vertical money meter, allows multiple account selection, and uses account
+  balances as the authority instead of manual current amounts. Tests cover shared
+  account de-duplication, multiple-account contribution, and balance decreases;
+  on 2026-09-27 analysis was clean, all 100 tests passed, and the Web release
+  build completed successfully.
 
 ## P2 — Local reminders
 

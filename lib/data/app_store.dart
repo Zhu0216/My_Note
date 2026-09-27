@@ -647,6 +647,7 @@ class AppStore extends ChangeNotifier {
   }
 
   void _commit([String action = 'state.update']) {
+    _reconcileLifeProjectAchievements();
     _persistenceRevision++;
     _lastChangedAt = DateTime.now();
     _lastChangeAction = action;
@@ -666,6 +667,30 @@ class AppStore extends ChangeNotifier {
             changedAt: changedAt,
           ),
         );
+  }
+
+  void _reconcileLifeProjectAchievements() {
+    final balances = {
+      for (final account in savingsAccounts)
+        account.id: accountBalance(account),
+    };
+    for (final note in notes.where(
+      (item) =>
+          item.templateType == NoteTemplateType.lifeSheet &&
+          item.templateData['schema'] == LifeProjectDocument.schema,
+    )) {
+      final document = LifeProjectDocument.fromJson(note.templateData);
+      final meter = document.moneyMeter(balances);
+      var changed = false;
+      for (final item in document.items) {
+        final segment = meter.byItemId[item.id];
+        if (segment?.currentlyMaintained == true && !item.achievedBefore) {
+          item.achievedBefore = true;
+          changed = true;
+        }
+      }
+      if (changed) note.templateData = document.toJson();
+    }
   }
 
   Future<void> flushPersistence() => _persistenceQueue;

@@ -2027,7 +2027,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('專案基金'), findsOneWidget);
+      expect(find.text('專案基金'), findsWidgets);
       expect(find.text('整理作品集'), findsOneWidget);
       expect(find.text('專案概覽'), findsOneWidget);
       expect(store.notes.single.templateData['schema'], 'life_sheet.v1');
@@ -2124,6 +2124,109 @@ void main() {
       store.dispose();
     }
   });
+
+  test('life project money meter counts shared account balances once', () {
+    final document = LifeProjectDocument(
+      items: [
+        LifeProjectItem(
+          id: 'deposit',
+          name: '第一階段',
+          targetAmount: 100,
+          sortOrder: 0,
+          accountIds: ['shared'],
+        ),
+        LifeProjectItem(
+          id: 'equipment',
+          name: '第二階段',
+          targetAmount: 100,
+          sortOrder: 1,
+          accountIds: ['shared'],
+        ),
+        LifeProjectItem(
+          id: 'trip',
+          name: '旅行',
+          targetAmount: 100,
+          sortOrder: 2,
+          accountIds: ['travel-a', 'travel-b'],
+        ),
+      ],
+    );
+
+    final meter = document.moneyMeter({
+      'shared': 150,
+      'travel-a': 30,
+      'travel-b': 20,
+    });
+
+    expect(meter.groups, hasLength(2));
+    expect(meter.groups.first.currentAmount, 150);
+    expect(meter.groups.first.targetAmount, 200);
+    expect(meter.byItemId['deposit']!.progress, 1);
+    expect(meter.byItemId['equipment']!.progress, 0.5);
+    expect(meter.byItemId['equipment']!.thresholdAmount, 200);
+    expect(meter.byItemId['trip']!.currentAmount, 50);
+    expect(meter.byItemId['trip']!.progress, 0.5);
+  });
+
+  test(
+    'life project money meter preserves achieved history after spending',
+    () {
+      SharedPreferences.setMockInitialValues({});
+      final store = AppStore.seeded(persistenceLocked: true);
+      store
+        ..savingsAccounts.clear()
+        ..financeEntries.clear()
+        ..notes.clear();
+      store.savingsAccounts.add(
+        SavingsAccount(id: 'project-fund', name: '專案基金', openingBalance: 150),
+      );
+      store.upsertNote(
+        NoteItem(
+          id: 'life-meter-history',
+          title: '人生專案',
+          body: '',
+          category: '',
+          tags: const [],
+          createdAt: DateTime(2026, 9, 27),
+          updatedAt: DateTime(2026, 9, 27),
+          templateType: NoteTemplateType.lifeSheet,
+          templateData: LifeProjectDocument(
+            items: [
+              LifeProjectItem(
+                id: 'threshold',
+                name: '第一刻度',
+                targetAmount: 100,
+                accountIds: ['project-fund'],
+              ),
+            ],
+          ).toJson(),
+        ),
+      );
+      var saved = LifeProjectDocument.fromJson(store.notes.single.templateData);
+      expect(saved.items.single.achievedBefore, isTrue);
+
+      store.upsertFinanceEntry(
+        FinanceEntry(
+          id: 'spend-project-fund',
+          type: EntryType.expense,
+          title: '支出',
+          amount: 100,
+          category: '專案',
+          accountId: 'project-fund',
+          date: DateTime(2026, 9, 27),
+          note: '',
+        ),
+      );
+      saved = LifeProjectDocument.fromJson(store.notes.single.templateData);
+      final segment = saved.moneyMeter({
+        'project-fund': 50,
+      }).byItemId['threshold']!;
+      expect(segment.currentlyMaintained, isFalse);
+      expect(segment.achievedBefore, isTrue);
+      expect(segment.progress, 0.5);
+      store.dispose();
+    },
+  );
 
   test(
     'life project dashboard data survives restart and export import',

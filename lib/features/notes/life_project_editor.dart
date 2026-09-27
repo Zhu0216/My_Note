@@ -114,8 +114,14 @@ class LifeProjectEditor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final store = AppStoreScope.of(context);
+    final accountBalances = {
+      for (final account in store.savingsAccounts)
+        account.id: store.accountBalance(account),
+    };
     final items = orderedItems;
-    final progress = document.weightedProgress;
+    final moneyMeter = document.moneyMeter(accountBalances);
+    final progress = document.weightedProgressFor(accountBalances);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -206,6 +212,17 @@ class LifeProjectEditor extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
+        if (moneyMeter.groups.isNotEmpty) ...[
+          _LifeProjectMoneyMeterCard(
+            meter: moneyMeter,
+            items: {for (final item in items) item.id: item},
+            accountNames: {
+              for (final account in store.savingsAccounts)
+                account.id: account.name,
+            },
+          ),
+          const SizedBox(height: 16),
+        ],
         Row(
           children: [
             Expanded(
@@ -252,6 +269,7 @@ class LifeProjectEditor extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: _LifeProjectItemCard(
                   item: item,
+                  moneySegment: moneyMeter.byItemId[item.id],
                   index: index,
                   onTap: () => _editItem(context, item),
                   onAction: (action) {
@@ -271,15 +289,183 @@ class LifeProjectEditor extends StatelessWidget {
   }
 }
 
+class _LifeProjectMoneyMeterCard extends StatelessWidget {
+  const _LifeProjectMoneyMeterCard({
+    required this.meter,
+    required this.items,
+    required this.accountNames,
+  });
+
+  final LifeProjectMoneyMeter meter;
+  final Map<String, LifeProjectItem> items;
+  final Map<String, String> accountNames;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerLow,
+        border: Border.all(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.stacked_bar_chart, color: colorScheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                '金額量表',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          for (
+            var groupIndex = 0;
+            groupIndex < meter.groups.length;
+            groupIndex++
+          ) ...[
+            if (groupIndex > 0)
+              Divider(height: 24, color: colorScheme.outlineVariant),
+            _MoneyMeterGroupView(
+              group: meter.groups[groupIndex],
+              items: items,
+              accountNames: accountNames,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MoneyMeterGroupView extends StatelessWidget {
+  const _MoneyMeterGroupView({
+    required this.group,
+    required this.items,
+    required this.accountNames,
+  });
+
+  final LifeProjectMoneyGroup group;
+  final Map<String, LifeProjectItem> items;
+  final Map<String, String> accountNames;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final accountLabel = group.accountIds.isEmpty
+        ? '手動金額'
+        : group.accountIds.map((id) => accountNames[id] ?? '已移除帳戶').join(' + ');
+    final totalProgress = group.targetAmount <= 0
+        ? 0.0
+        : (group.currentAmount / group.targetAmount).clamp(0.0, 1.0);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 18,
+          height: 58 + (group.segments.length * 32),
+          child: LayoutBuilder(
+            builder: (context, constraints) => Stack(
+              alignment: Alignment.bottomCenter,
+              children: [
+                Container(
+                  width: 8,
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                FractionallySizedBox(
+                  heightFactor: totalProgress,
+                  child: Container(
+                    width: 8,
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                accountLabel,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '${group.currentAmount.toStringAsFixed(0)} / ${group.targetAmount.toStringAsFixed(0)}',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
+              for (final segment in group.segments)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 7),
+                  child: Row(
+                    children: [
+                      Icon(
+                        segment.currentlyMaintained
+                            ? Icons.check_circle
+                            : segment.achievedBefore
+                            ? Icons.history
+                            : Icons.radio_button_unchecked,
+                        size: 18,
+                        color: segment.currentlyMaintained
+                            ? colorScheme.primary
+                            : segment.achievedBefore
+                            ? colorScheme.tertiary
+                            : colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          items[segment.itemId]?.name.isNotEmpty == true
+                              ? items[segment.itemId]!.name
+                              : '未命名項目',
+                        ),
+                      ),
+                      Text(
+                        '${segment.thresholdAmount.toStringAsFixed(0)} · ${(segment.progress * 100).round()}%',
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _LifeProjectItemCard extends StatelessWidget {
   const _LifeProjectItemCard({
     required this.item,
+    this.moneySegment,
     required this.index,
     required this.onTap,
     required this.onAction,
   });
 
   final LifeProjectItem item;
+  final LifeProjectMoneySegment? moneySegment;
   final int index;
   final VoidCallback onTap;
   final ValueChanged<_LifeItemAction> onAction;
@@ -288,9 +474,7 @@ class _LifeProjectItemCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final progress = item.displayMode == LifeItemDisplayMode.money
-        ? item.targetAmount <= 0
-              ? 0.0
-              : (item.manualCurrentAmount / item.targetAmount).clamp(0.0, 1.0)
+        ? moneySegment?.progress ?? 0.0
         : item.progress.clamp(0.0, 1.0);
     return Material(
       color: colorScheme.surface,
@@ -348,7 +532,7 @@ class _LifeProjectItemCard extends StatelessWidget {
                     const SizedBox(height: 5),
                     Text(
                       item.displayMode == LifeItemDisplayMode.money
-                          ? '${item.manualCurrentAmount.toStringAsFixed(0)} / ${item.targetAmount.toStringAsFixed(0)} · ${item.links.length} 個關聯'
+                          ? '${(moneySegment?.currentAmount ?? item.manualCurrentAmount).toStringAsFixed(0)} / ${item.targetAmount.toStringAsFixed(0)} · ${item.accountIds.isEmpty ? '手動金額' : '${item.accountIds.length} 個帳戶'}'
                           : '權重 ${item.weight.toStringAsFixed(1)} · ${item.links.length} 個關聯',
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: colorScheme.onSurfaceVariant,
@@ -449,10 +633,12 @@ class _LifeProjectItemEditorPageState extends State<LifeProjectItemEditorPage> {
     );
     if (working.displayMode == LifeItemDisplayMode.money) {
       working.targetAmount = double.tryParse(target.text.trim()) ?? 0;
-      working.manualCurrentAmount = double.tryParse(current.text.trim()) ?? 0;
-      working.completed =
-          working.targetAmount > 0 &&
-          working.manualCurrentAmount >= working.targetAmount;
+      if (working.accountIds.isEmpty) {
+        working.manualCurrentAmount = double.tryParse(current.text.trim()) ?? 0;
+        working.completed =
+            working.targetAmount > 0 &&
+            working.manualCurrentAmount >= working.targetAmount;
+      }
     } else {
       working.progress = ((double.tryParse(progress.text.trim()) ?? 0) / 100)
           .clamp(0, 1);
@@ -464,6 +650,7 @@ class _LifeProjectItemEditorPageState extends State<LifeProjectItemEditorPage> {
   @override
   Widget build(BuildContext context) {
     final money = working.displayMode == LifeItemDisplayMode.money;
+    final store = AppStoreScope.of(context);
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -525,13 +712,74 @@ class _LifeProjectItemEditorPageState extends State<LifeProjectItemEditorPage> {
               decoration: const InputDecoration(labelText: '目標金額'),
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: current,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: const InputDecoration(labelText: '目前金額'),
+            Text(
+              '關聯帳戶',
+              style: Theme.of(
+                context,
+              ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
             ),
+            const SizedBox(height: 8),
+            if (store.savingsAccounts.isEmpty)
+              Text(
+                '尚未建立帳戶，將使用手動金額。',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              )
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final account in store.savingsAccounts)
+                    FilterChip(
+                      label: Text(account.name),
+                      selected: working.accountIds.contains(account.id),
+                      onSelected: (selected) {
+                        setState(() {
+                          if (selected) {
+                            working.accountIds = {
+                              ...working.accountIds,
+                              account.id,
+                            }.toList();
+                          } else {
+                            working.accountIds = working.accountIds
+                                .where((id) => id != account.id)
+                                .toList();
+                          }
+                        });
+                      },
+                    ),
+                ],
+              ),
+            const SizedBox(height: 12),
+            if (working.accountIds.isEmpty)
+              TextField(
+                controller: current,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(labelText: '目前金額'),
+              )
+            else
+              InputDecorator(
+                decoration: const InputDecoration(
+                  labelText: '目前金額',
+                  helperText: '由所選帳戶的即時餘額計算，不會覆寫帳戶金額。',
+                ),
+                child: Text(
+                  store.savingsAccounts
+                      .where(
+                        (account) => working.accountIds.contains(account.id),
+                      )
+                      .fold<double>(
+                        0,
+                        (sum, account) => sum + store.accountBalance(account),
+                      )
+                      .toStringAsFixed(0),
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
           ] else
             TextField(
               controller: progress,
