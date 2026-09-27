@@ -560,15 +560,21 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P2-006 — Kotlin plugin warning watch
 
-- Status: `NEEDS VERIFICATION`
+- Status: `DONE`
 - User-visible behavior: debug builds stay possible; upstream KGP warnings are
   handled when compatible versions exist.
 - Acceptance: dependencies are checked during updates and warning is resolved
   or documented with package versions.
 - Dependencies: upstream package releases.
-- Evidence: Android build currently names file_picker, firebase_storage,
-  flutter_timezone, and share_plus. The warning remains non-blocking; debug APK
-  creation succeeds with the current Flutter toolchain.
+- Evidence: `docs/android_kgp_compatibility.md` records the 2026-09-27 pub.dev
+  version check and upgrade trial. Current/latest-compatible upstream plugins
+  still apply KGP, while the major file-picker/share upgrade path breaks the
+  existing API or dependency resolution and does not produce a warning-free
+  stack. The trial package updates were not retained. A clean-build-only
+  AppCompat transitive dependency was made explicit; clean analysis, all 104
+  tests, Web release build, and debug APK build succeed. The remaining warning
+  is documented as upstream and non-blocking until Built-in Kotlin releases are
+  available.
 
 ## Deferred after v1
 
