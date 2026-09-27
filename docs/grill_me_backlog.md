@@ -531,12 +531,18 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P2-004 — Template and backup test coverage
 
-- Status: `IN PROGRESS`
+- Status: `DONE`
 - User-visible behavior: future updates do not silently break migrations,
   export/import, templates, links, or backup safety.
 - Acceptance: tests cover each migration and critical data-safety path.
 - Dependencies: P0/P1 implementations.
-- Evidence: uncommitted model/export tests; UI coverage pending.
+- Evidence: the 104-test suite now covers legacy-to-v2 migration for plan,
+  mind-map, life-project, and finance-ledger data; restart and export/import for
+  general rich notes, nested plans, mind-map canvas state, life projects, typed
+  links, and ledger account IDs; invalid/cyclic/ambiguous import rejection;
+  failed-import immutability; primary/checkpoint/journal/backup-history recovery;
+  and UI editing for every note template. The 2026-09-27 P2-003 run completed
+  the full suite with no failures.
 
 ### P2-005 — Web and X510 acceptance matrix
 
