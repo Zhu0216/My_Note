@@ -21,7 +21,7 @@ if (-not $deviceLine -or $deviceLine -notmatch '\sdevice(?:\s|$)') {
 
 Push-Location $projectRoot
 try {
-  & flutter build apk --debug
+  & flutter build apk --debug --no-pub
   if ($LASTEXITCODE -ne 0) {
     Write-Output 'FAIL: Debug APK build failed.'
     exit $LASTEXITCODE
