@@ -46,3 +46,13 @@ Apache-2.0.
 - Keep the existing `POST_NOTIFICATIONS` permission.
 - Initialize timezone data and set the device IANA timezone before scheduling.
 - Create one user-visible reminder notification channel.
+
+## Implemented Android behavior
+
+- Channel ID: `my_note_reminders`.
+- Managed payload prefix: `my_note:`; reconciliation only cancels reminders
+  owned by My Note's local reminder service.
+- Schedule mode: `inexactAllowWhileIdle`, so no exact-alarm permission is used.
+- Subscription reminders run at 09:00 local time on the configured day.
+- A dedicated monochrome `ic_notification` drawable is used for Android status
+  bar compatibility.

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../data/my_note_data.dart';
 import '../../services/note_file_service.dart';
 import '../../ui/app_store_scope.dart';
+import '../../ui/local_reminder_scope.dart';
 import '../../ui/formatters.dart';
 import '../../ui/shared_components.dart';
 
@@ -55,11 +56,13 @@ class SettingsPage extends StatelessWidget {
           InfoCard(
             child: Column(
               children: [
-                ListTile(
+                const LocalReminderSettingsTile(),
+                const Divider(),
+                const ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.notifications_outlined),
+                  leading: Icon(Icons.cloud_outlined),
                   title: Text('FCM 推播'),
-                  subtitle: Text('手機推播與提醒通知'),
+                  subtitle: Text('雲端推播保留至 Firebase 正式啟用後'),
                 ),
                 Divider(),
                 ListTile(
@@ -100,6 +103,81 @@ class SettingsPage extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class LocalReminderSettingsTile extends StatefulWidget {
+  const LocalReminderSettingsTile({super.key});
+
+  @override
+  State<LocalReminderSettingsTile> createState() =>
+      _LocalReminderSettingsTileState();
+}
+
+class _LocalReminderSettingsTileState extends State<LocalReminderSettingsTile> {
+  bool busy = false;
+  bool? enabled;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final coordinator = LocalReminderScope.maybeOf(context);
+    if (coordinator == null || !coordinator.isSupported || busy) return;
+    final value = await coordinator.notificationsEnabled();
+    if (mounted) setState(() => enabled = value);
+  }
+
+  Future<void> _requestPermission() async {
+    final coordinator = LocalReminderScope.maybeOf(context);
+    if (coordinator == null || !coordinator.isSupported || busy) return;
+    setState(() => busy = true);
+    final value = await coordinator.requestPermissionAndReconcile();
+    if (!mounted) return;
+    setState(() {
+      enabled = value;
+      busy = false;
+    });
+    showToast(context, value ? '本機提醒已開啟' : '未取得通知權限');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final available = LocalReminderScope.maybeOf(context)?.isSupported == true;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(
+        enabled == true
+            ? Icons.notifications_active_outlined
+            : Icons.notifications_outlined,
+      ),
+      title: const Text('本機提醒'),
+      subtitle: Text(
+        !available
+            ? '此平台使用 App 內提醒'
+            : enabled == true
+            ? '通知權限已開啟，提醒會依資料自動排程'
+            : '通知權限未開啟',
+      ),
+      trailing: available && enabled != true
+          ? IconButton(
+              tooltip: '開啟通知權限',
+              onPressed: busy ? null : _requestPermission,
+              icon: busy
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.chevron_right),
+            )
+          : enabled == true
+          ? const Icon(Icons.check_circle_outline)
+          : null,
+      onTap: available && enabled != true && !busy ? _requestPermission : null,
     );
   }
 }

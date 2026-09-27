@@ -11,12 +11,14 @@ import 'data/my_note_data.dart';
 import 'ui/app_navigation.dart';
 import 'ui/app_pickers.dart';
 import 'ui/app_store_scope.dart';
+import 'ui/local_reminder_scope.dart';
 import 'ui/formatters.dart';
 import 'ui/finance_form_helpers.dart';
 import 'ui/note_text_helpers.dart';
 import 'ui/related_item_picker.dart';
 import 'ui/shared_components.dart';
 import 'services/device_font_registry.dart';
+import 'services/local_reminder_service.dart';
 import 'features/settings/settings_page.dart';
 import 'features/calendar/calendar_page.dart';
 import 'features/finance/finance_page.dart';
@@ -29,6 +31,7 @@ export 'data/related_item_index.dart';
 export 'ui/app_navigation.dart';
 export 'ui/app_pickers.dart';
 export 'ui/app_store_scope.dart';
+export 'ui/local_reminder_scope.dart';
 export 'ui/basic_display.dart';
 export 'ui/display_components.dart';
 export 'ui/calendar_helpers.dart';
@@ -47,6 +50,7 @@ export 'ui/shared_components.dart';
 export 'ui/todo_display.dart';
 export 'services/note_file_service.dart';
 export 'services/device_font_registry.dart';
+export 'services/local_reminder_service.dart';
 export 'features/settings/settings_page.dart';
 export 'features/calendar/calendar_page.dart';
 export 'features/finance/finance_page.dart';
@@ -60,7 +64,19 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await loadDeviceSystemFontIfAvailable();
   final store = await AppStore.load();
-  runApp(MyNoteApp(store: store));
+  final reminderCandidate = LocalReminderCoordinator(
+    store,
+    createLocalReminderGateway(),
+  );
+  LocalReminderCoordinator? reminders;
+  try {
+    await reminderCandidate.start();
+    reminders = reminderCandidate;
+  } catch (error) {
+    reminderCandidate.dispose();
+    debugPrint('Local reminder initialization failed: $error');
+  }
+  runApp(MyNoteApp(store: store, reminderCoordinator: reminders));
   unawaited(_initializeFirebaseIfConfigured());
 }
 
@@ -72,9 +88,10 @@ Future<void> _initializeFirebaseIfConfigured() async {
 }
 
 class MyNoteApp extends StatefulWidget {
-  const MyNoteApp({super.key, required this.store});
+  const MyNoteApp({super.key, required this.store, this.reminderCoordinator});
 
   final AppStore store;
+  final LocalReminderCoordinator? reminderCoordinator;
 
   @override
   State<MyNoteApp> createState() => _MyNoteAppState();
@@ -89,6 +106,10 @@ class _MyNoteAppState extends State<MyNoteApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final coordinator = widget.reminderCoordinator;
+      if (coordinator != null) unawaited(coordinator.reconcileNow());
+    }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached ||
@@ -100,98 +121,103 @@ class _MyNoteAppState extends State<MyNoteApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.reminderCoordinator?.dispose();
     unawaited(widget.store.flushPersistence());
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return AppStoreScope(
-      store: widget.store,
-      child: ShadApp.custom(
-        theme: ShadThemeData(
-          brightness: Brightness.light,
-          colorScheme: const ShadZincColorScheme.light(),
-        ),
-        appBuilder: (context) {
-          return MaterialApp(
-            title: 'My Note',
-            debugShowCheckedModeBanner: false,
-            locale: appLocale,
-            localizationsDelegates: const [
-              GlobalMaterialLocalizations.delegate,
-              GlobalWidgetsLocalizations.delegate,
-              GlobalCupertinoLocalizations.delegate,
-              GlobalShadLocalizations.delegate,
-            ],
-            supportedLocales: const [appLocale, Locale('en')],
-            localeResolutionCallback: (locale, supportedLocales) {
-              if (locale == null) {
-                return appLocale;
-              }
-              for (final supportedLocale in supportedLocales) {
-                if (supportedLocale.languageCode == locale.languageCode &&
-                    (supportedLocale.countryCode == null ||
-                        supportedLocale.countryCode == locale.countryCode)) {
-                  return supportedLocale;
-                }
-              }
+    final shadApp = ShadApp.custom(
+      theme: ShadThemeData(
+        brightness: Brightness.light,
+        colorScheme: const ShadZincColorScheme.light(),
+      ),
+      appBuilder: (context) {
+        return MaterialApp(
+          title: 'My Note',
+          debugShowCheckedModeBanner: false,
+          locale: appLocale,
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+            GlobalShadLocalizations.delegate,
+          ],
+          supportedLocales: const [appLocale, Locale('en')],
+          localeResolutionCallback: (locale, supportedLocales) {
+            if (locale == null) {
               return appLocale;
-            },
-            theme: ThemeData(
-              useMaterial3: true,
-              colorScheme:
-                  ColorScheme.fromSeed(
-                    seedColor: const Color(0xff5967d8),
-                    brightness: Brightness.light,
-                  ).copyWith(
-                    primary: const Color(0xff5967d8),
-                    secondary: const Color(0xffff8f70),
-                    tertiary: const Color(0xff2fbf9b),
-                    surface: const Color(0xffffffff),
-                    surfaceContainerHighest: const Color(0xfff0f2fb),
-                    onSurface: const Color(0xff19202a),
-                  ),
-              scaffoldBackgroundColor: const Color(0xfff6f7fb),
-              appBarTheme: const AppBarTheme(centerTitle: false),
-              inputDecorationTheme: InputDecorationTheme(
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xffdde2f2)),
+            }
+            for (final supportedLocale in supportedLocales) {
+              if (supportedLocale.languageCode == locale.languageCode &&
+                  (supportedLocale.countryCode == null ||
+                      supportedLocale.countryCode == locale.countryCode)) {
+                return supportedLocale;
+              }
+            }
+            return appLocale;
+          },
+          theme: ThemeData(
+            useMaterial3: true,
+            colorScheme:
+                ColorScheme.fromSeed(
+                  seedColor: const Color(0xff5967d8),
+                  brightness: Brightness.light,
+                ).copyWith(
+                  primary: const Color(0xff5967d8),
+                  secondary: const Color(0xffff8f70),
+                  tertiary: const Color(0xff2fbf9b),
+                  surface: const Color(0xffffffff),
+                  surfaceContainerHighest: const Color(0xfff0f2fb),
+                  onSurface: const Color(0xff19202a),
                 ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xffdde2f2)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(
-                    color: Color(0xff5967d8),
-                    width: 1.6,
-                  ),
-                ),
+            scaffoldBackgroundColor: const Color(0xfff6f7fb),
+            appBarTheme: const AppBarTheme(centerTitle: false),
+            inputDecorationTheme: InputDecorationTheme(
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xffdde2f2)),
               ),
-              cardTheme: const CardThemeData(
-                elevation: 0,
-                color: Colors.white,
-                margin: EdgeInsets.zero,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(12)),
-                ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xffdde2f2)),
               ),
-              floatingActionButtonTheme: const FloatingActionButtonThemeData(
-                backgroundColor: Color(0xff5967d8),
-                foregroundColor: Colors.white,
-                elevation: 8,
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(
+                  color: Color(0xff5967d8),
+                  width: 1.6,
+                ),
               ),
             ),
-            builder: (context, child) => ShadAppBuilder(child: child!),
-            home: const AppShell(),
-          );
-        },
-      ),
+            cardTheme: const CardThemeData(
+              elevation: 0,
+              color: Colors.white,
+              margin: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.all(Radius.circular(12)),
+              ),
+            ),
+            floatingActionButtonTheme: const FloatingActionButtonThemeData(
+              backgroundColor: Color(0xff5967d8),
+              foregroundColor: Colors.white,
+              elevation: 8,
+            ),
+          ),
+          builder: (context, child) => ShadAppBuilder(child: child!),
+          home: const AppShell(),
+        );
+      },
+    );
+    final coordinator = widget.reminderCoordinator;
+    return AppStoreScope(
+      store: widget.store,
+      child: coordinator == null
+          ? shadApp
+          : LocalReminderScope(coordinator: coordinator, child: shadApp),
     );
   }
 }

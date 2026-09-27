@@ -35,7 +35,157 @@ class _FakeImageFilePicker extends FilePicker {
   ]);
 }
 
+class _FakeReminderGateway implements LocalReminderGateway {
+  _FakeReminderGateway();
+
+  bool enabled = false;
+  bool grantOnRequest = true;
+  int initializeCalls = 0;
+  int permissionRequests = 0;
+  final List<List<LocalReminder>> replacements = [];
+
+  @override
+  Future<void> initialize() async => initializeCalls++;
+
+  @override
+  Future<bool> notificationsEnabled() async => enabled;
+
+  @override
+  Future<bool> requestPermission() async {
+    permissionRequests++;
+    enabled = grantOnRequest;
+    return enabled;
+  }
+
+  @override
+  Future<void> replaceAll(List<LocalReminder> reminders) async {
+    replacements.add(List.of(reminders));
+  }
+
+  @override
+  Future<List<int>> managedPendingIds() async => replacements.isEmpty
+      ? const []
+      : replacements.last.map((item) => item.id).toList();
+}
+
 void main() {
+  test(
+    'local reminders derive stable future todo schedule and subscription jobs',
+    () {
+      SharedPreferences.setMockInitialValues({});
+      final store = AppStore.seeded(persistenceLocked: true);
+      store
+        ..todos.clear()
+        ..schedules.clear()
+        ..subscriptions.clear();
+      store.todos.add(
+        TodoItem(
+          id: 'todo-reminder',
+          title: '準備資料',
+          dueDate: DateTime(2026, 10, 2),
+          reminderEnabled: true,
+          reminderTime: const TimeOfDay(hour: 8, minute: 30),
+        ),
+      );
+      store.schedules.add(
+        ScheduleItem(
+          id: 'schedule-reminder',
+          title: '會議',
+          start: DateTime(2026, 10, 3, 14),
+          end: DateTime(2026, 10, 3, 15),
+          location: '',
+          notes: '',
+          remindBeforeMinutes: 30,
+        ),
+      );
+      store.subscriptions.add(
+        SubscriptionItem(
+          id: 'subscription-reminder',
+          name: '雲端空間',
+          amount: 100,
+          cycle: SubscriptionCycle.monthly,
+          nextPaymentDate: DateTime(2026, 10, 8),
+          paymentMethod: '信用卡',
+          category: '工具',
+          reminderDays: 2,
+        ),
+      );
+
+      final reminders = buildLocalReminders(store, now: DateTime(2026, 10, 1));
+
+      expect(reminders, hasLength(3));
+      expect(
+        reminders
+            .singleWhere((item) => item.sourceKey.startsWith('todo:'))
+            .scheduledAt,
+        DateTime(2026, 10, 2, 8, 30),
+      );
+      expect(
+        reminders
+            .singleWhere((item) => item.sourceKey.startsWith('schedule:'))
+            .scheduledAt,
+        DateTime(2026, 10, 3, 13, 30),
+      );
+      expect(
+        reminders
+            .singleWhere((item) => item.sourceKey.startsWith('subscription:'))
+            .scheduledAt,
+        DateTime(2026, 10, 6, 9),
+      );
+      expect(
+        reminders
+            .singleWhere((item) => item.sourceKey == 'todo:todo-reminder')
+            .id,
+        localReminderId('todo:todo-reminder'),
+      );
+      store.dispose();
+    },
+  );
+
+  test(
+    'local reminder coordinator requests once then replaces and cancels jobs',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final store = AppStore.seeded(persistenceLocked: true);
+      store
+        ..todos.clear()
+        ..schedules.clear()
+        ..subscriptions.clear();
+      final gateway = _FakeReminderGateway();
+      final coordinator = LocalReminderCoordinator(
+        store,
+        gateway,
+        debounce: const Duration(days: 1),
+      );
+      await coordinator.start();
+      expect(gateway.initializeCalls, 1);
+      expect(gateway.permissionRequests, 0);
+
+      final todo = TodoItem(
+        id: 'coordinator-todo',
+        title: '有提醒的待辦',
+        dueDate: DateTime.now().add(const Duration(days: 2)),
+        reminderEnabled: true,
+        reminderTime: const TimeOfDay(hour: 9, minute: 0),
+      );
+      store.upsertTodo(todo);
+      await coordinator.reconcileNow();
+      expect(gateway.permissionRequests, 1);
+      expect(
+        gateway.replacements.last.single.sourceKey,
+        'todo:coordinator-todo',
+      );
+
+      todo.done = true;
+      store.upsertTodo(todo);
+      await coordinator.reconcileNow();
+      expect(gateway.permissionRequests, 1);
+      expect(gateway.replacements.last, isEmpty);
+      coordinator.dispose();
+      store.dispose();
+    },
+  );
+
   test('template documents migrate legacy data into structured v2 records', () {
     final plan = PlanDocument.fromJson({
       'schema': 'plan.v1',

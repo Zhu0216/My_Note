@@ -494,12 +494,21 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P2-002 — Android local reminder scheduling
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: eligible todo/schedule/subscription reminders notify at
   their configured time without duplicates.
 - Acceptance: create/edit/delete/reschedule works on X510 with permissions/channel.
 - Dependencies: P2-001.
-- Evidence: none.
+- Evidence: `LocalReminderCoordinator` derives timezone-aware todo, schedule,
+  and subscription jobs, requests notification permission only after a reminder
+  is newly added or changed, and reconciles source-derived stable IDs after
+  every relevant store update and app resume. Android declares the scheduled
+  notification and boot receivers and uses a dedicated monochrome notification
+  icon/channel with inexact-while-idle scheduling. Unit tests cover derivation,
+  permission, replace, completion, and cancellation. On 2026-09-27 the X510
+  integration smoke test granted Android notification permission, created a
+  native pending reminder, verified its ID, cancelled it, and passed; analysis
+  was clean and all 102 regular tests passed.
 
 ### P2-003 — In-app reminder surface
 
