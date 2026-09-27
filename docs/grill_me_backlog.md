@@ -480,11 +480,17 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P2-001 — Notification solution selection
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: Android reminders can arrive while app is closed.
 - Acceptance: selected package is free, maintained, compatible, and documented.
 - Dependencies: package evaluation; no paid service.
-- Evidence: none.
+- Evidence: selected `flutter_local_notifications 22.3.1`, `timezone 0.11.1`,
+  and `flutter_timezone 5.1.0`; the rationale, licenses, permission policy,
+  stable-ID cancellation strategy, and Android requirements are recorded in
+  `docs/local_notifications.md`. The current Dart 3.12.2, Java 17, compile SDK,
+  and AGP 8.11.1 toolchain meets the package requirements. Core library
+  desugaring and multidex are enabled and compatibility is verified by analysis,
+  tests, Web build, and Android build.
 
 ### P2-002 — Android local reminder scheduling
 
@@ -532,7 +538,9 @@ the current behavior has not been independently accepted for this v1 baseline.
 - Acceptance: dependencies are checked during updates and warning is resolved
   or documented with package versions.
 - Dependencies: upstream package releases.
-- Evidence: Log names file_picker, firebase_storage, and share_plus.
+- Evidence: Android build currently names file_picker, firebase_storage,
+  flutter_timezone, and share_plus. The warning remains non-blocking; debug APK
+  creation succeeds with the current Flutter toolchain.
 
 ## Deferred after v1
 

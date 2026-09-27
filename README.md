@@ -129,6 +129,9 @@ My Note 是一款 All-in-one 個人管理筆記本，目標是在手機、平板
 - `share_plus`：pub.dev
 - `shadcn_ui`：pub.dev
 - `flutter_box_transform`：pub.dev
+- `flutter_local_notifications`：pub.dev
+- `flutter_timezone`：pub.dev
+- `timezone`：pub.dev
 - `flutter_lints`：pub.dev
 
 ## UI / Template 參考
