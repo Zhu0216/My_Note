@@ -294,13 +294,94 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   static const int homeIndex = 2;
 
   final notesPageKey = GlobalKey<NotesPageState>();
   final calendarPageKey = GlobalKey<CalendarPageState>();
   final homePageKey = GlobalKey<HomePageState>();
+  late final Future<InAppReminderReceiptStore> _reminderReceipts;
   int selectedIndex = homeIndex;
+  bool _checkingInAppReminders = false;
+  bool _showingInAppReminders = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _reminderReceipts = InAppReminderReceiptStore.load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_showDueInAppReminders());
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_showDueInAppReminders());
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  Future<void> _showDueInAppReminders() async {
+    if (!mounted || _checkingInAppReminders || _showingInAppReminders) return;
+    _checkingInAppReminders = true;
+    try {
+      final receipts = await _reminderReceipts;
+      if (!mounted) return;
+      final due = receipts.unseen(
+        buildInAppDueReminders(AppStoreScope.read(context)),
+      );
+      if (due.isEmpty) return;
+      await receipts.markSeen(due);
+      if (!mounted) return;
+      _showingInAppReminders = true;
+      final selected = await showDueReminderDialog(context, due);
+      if (selected != null && mounted) {
+        await _openReminderSource(selected);
+      }
+    } catch (error) {
+      debugPrint('In-app reminder check failed: $error');
+    } finally {
+      _checkingInAppReminders = false;
+      _showingInAppReminders = false;
+    }
+  }
+
+  Future<void> _openReminderSource(InAppDueReminder reminder) async {
+    final store = AppStoreScope.read(context);
+    switch (reminder.sourceType) {
+      case ReminderSourceType.todo:
+        final todo = store.todos
+            .where((item) => item.id == reminder.sourceId)
+            .firstOrNull;
+        if (todo != null) await openTodoEditorPage(context, todo: todo);
+        return;
+      case ReminderSourceType.schedule:
+        final schedule = store.schedules
+            .where((item) => item.id == reminder.sourceId)
+            .firstOrNull;
+        if (schedule != null) {
+          await showScheduleEditor(context, event: schedule);
+          if (mounted) setState(() => selectedIndex = 1);
+        }
+        return;
+      case ReminderSourceType.subscription:
+        final subscription = store.subscriptions
+            .where((item) => item.id == reminder.sourceId)
+            .firstOrNull;
+        if (subscription != null) {
+          await showSubscriptionEditor(context, subscription: subscription);
+          if (mounted) setState(() => selectedIndex = 3);
+        }
+        return;
+    }
+  }
 
   void selectPage(int index) {
     if (index == selectedIndex) {
@@ -409,6 +490,61 @@ class _AppShellState extends State<AppShell> {
       ),
     );
   }
+}
+
+Future<InAppDueReminder?> showDueReminderDialog(
+  BuildContext context,
+  List<InAppDueReminder> reminders,
+) {
+  IconData sourceIcon(ReminderSourceType type) => switch (type) {
+    ReminderSourceType.todo => Icons.task_alt,
+    ReminderSourceType.schedule => Icons.event_note,
+    ReminderSourceType.subscription => Icons.autorenew,
+  };
+
+  return showDialog<InAppDueReminder>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.notifications_active_outlined),
+          const SizedBox(width: 8),
+          const Expanded(child: Text('提醒')),
+          Text(
+            '${reminders.length}',
+            style: Theme.of(dialogContext).textTheme.titleMedium,
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 440,
+        height: (reminders.length * 72.0).clamp(72.0, 360.0),
+        child: ListView.separated(
+          itemCount: reminders.length,
+          separatorBuilder: (_, _) => const Divider(height: 1),
+          itemBuilder: (context, index) {
+            final reminder = reminders[index];
+            return ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(sourceIcon(reminder.sourceType)),
+              title: Text(reminder.title),
+              subtitle: Text(
+                '${reminder.body}  ${formatDate(reminder.dueAt)} ${formatTime(reminder.dueAt)}',
+              ),
+              trailing: const Icon(Icons.open_in_new),
+              onTap: () => Navigator.pop(dialogContext, reminder),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('知道了'),
+        ),
+      ],
+    ),
+  );
 }
 
 Future<bool> showExitConfirmDialog(BuildContext context) async {

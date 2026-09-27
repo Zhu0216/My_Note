@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as timezone_data;
 import 'package:timezone/timezone.dart' as timezone;
 
@@ -26,6 +27,147 @@ class LocalReminder {
   final String body;
 
   String get payload => '$_payloadPrefix$sourceKey';
+}
+
+enum ReminderSourceType { todo, schedule, subscription }
+
+class InAppDueReminder {
+  const InAppDueReminder({
+    required this.sourceType,
+    required this.sourceId,
+    required this.dueAt,
+    required this.title,
+    required this.body,
+  });
+
+  final ReminderSourceType sourceType;
+  final String sourceId;
+  final DateTime dueAt;
+  final String title;
+  final String body;
+
+  String get occurrenceKey =>
+      '${sourceType.name}:$sourceId:${dueAt.toIso8601String()}';
+}
+
+List<InAppDueReminder> buildInAppDueReminders(AppStore store, {DateTime? now}) {
+  final current = now ?? DateTime.now();
+  final reminders = <InAppDueReminder>[];
+
+  for (final todo in store.todos) {
+    if (todo.done ||
+        !todo.reminderEnabled ||
+        todo.dueDate == null ||
+        todo.reminderTime == null) {
+      continue;
+    }
+    final due = todo.dueDate!;
+    final time = todo.reminderTime!;
+    final dueAt = DateTime(
+      due.year,
+      due.month,
+      due.day,
+      time.hour,
+      time.minute,
+    );
+    if (dueAt.isAfter(current)) continue;
+    reminders.add(
+      InAppDueReminder(
+        sourceType: ReminderSourceType.todo,
+        sourceId: todo.id,
+        dueAt: dueAt,
+        title: todo.title,
+        body: '待辦提醒',
+      ),
+    );
+  }
+
+  for (final schedule in store.schedules) {
+    final dueAt = schedule.start.subtract(
+      Duration(minutes: schedule.remindBeforeMinutes.clamp(0, 525600)),
+    );
+    if (dueAt.isAfter(current) || schedule.end.isBefore(current)) continue;
+    reminders.add(
+      InAppDueReminder(
+        sourceType: ReminderSourceType.schedule,
+        sourceId: schedule.id,
+        dueAt: dueAt,
+        title: schedule.title,
+        body: '行程提醒',
+      ),
+    );
+  }
+
+  for (final subscription in store.subscriptions) {
+    if (!subscription.isActive) continue;
+    final paymentDate = subscription.nextPaymentDate;
+    final paymentDayEnd = DateTime(
+      paymentDate.year,
+      paymentDate.month,
+      paymentDate.day,
+      23,
+      59,
+      59,
+      999,
+    );
+    final reminderDate = paymentDate.subtract(
+      Duration(days: subscription.reminderDays.clamp(0, 3650)),
+    );
+    final dueAt = DateTime(
+      reminderDate.year,
+      reminderDate.month,
+      reminderDate.day,
+      9,
+    );
+    if (dueAt.isAfter(current) || paymentDayEnd.isBefore(current)) continue;
+    reminders.add(
+      InAppDueReminder(
+        sourceType: ReminderSourceType.subscription,
+        sourceId: subscription.id,
+        dueAt: dueAt,
+        title: subscription.name,
+        body: '訂閱扣款提醒',
+      ),
+    );
+  }
+
+  reminders.sort((left, right) => left.dueAt.compareTo(right.dueAt));
+  return reminders;
+}
+
+class InAppReminderReceiptStore {
+  InAppReminderReceiptStore._(this._preferences, this._seen);
+
+  static const _storageKey = 'my_note_in_app_reminder_receipts_v1';
+  static const _maximumReceiptCount = 500;
+
+  final SharedPreferences _preferences;
+  final Set<String> _seen;
+
+  static Future<InAppReminderReceiptStore> load() async {
+    final preferences = await SharedPreferences.getInstance();
+    return InAppReminderReceiptStore._(
+      preferences,
+      (preferences.getStringList(_storageKey) ?? const <String>[]).toSet(),
+    );
+  }
+
+  List<InAppDueReminder> unseen(Iterable<InAppDueReminder> reminders) =>
+      reminders.where((item) => !_seen.contains(item.occurrenceKey)).toList();
+
+  Future<void> markSeen(Iterable<InAppDueReminder> reminders) async {
+    for (final reminder in reminders) {
+      _seen.add(reminder.occurrenceKey);
+    }
+    final retained = _seen.toList();
+    if (retained.length > _maximumReceiptCount) {
+      retained.removeRange(0, retained.length - _maximumReceiptCount);
+      _seen
+        ..clear()
+        ..addAll(retained);
+    }
+    await _preferences.setStringList(_storageKey, retained);
+  }
 }
 
 int localReminderId(String sourceKey) {

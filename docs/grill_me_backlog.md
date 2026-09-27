@@ -512,12 +512,20 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P2-003 — In-app reminder surface
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: opening Android/Web shows source-linked due reminders;
   Web email stays deferred.
 - Acceptance: relevant reminders appear once without duplicate notifications.
 - Dependencies: P1-003, P2-002.
-- Evidence: none.
+- Evidence: Android and Web now check reminders after the first App frame and
+  whenever the App resumes. The dialog lists still-relevant due todos,
+  not-yet-ended schedules, and active subscriptions whose payment date has not
+  passed; selecting a row opens the source editor. Occurrence receipts use a
+  separate SharedPreferences key containing source type, source ID, and due
+  timestamp, so they survive restart without changing the AppStore/export
+  schema and a rescheduled source can appear again. Tests cover due derivation,
+  persistent deduplication, rescheduling, and source selection; analysis is
+  clean and all 104 tests pass.
 
 ## P2 — Verification and release quality
 

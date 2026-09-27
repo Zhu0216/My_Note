@@ -56,3 +56,13 @@ Apache-2.0.
 - Subscription reminders run at 09:00 local time on the configured day.
 - A dedicated monochrome `ic_notification` drawable is used for Android status
   bar compatibility.
+
+## Implemented in-app behavior
+
+- Android and Web show an in-app dialog for unseen due reminders when the app
+  opens or resumes. Each row opens its todo, schedule, or subscription source.
+- In-app receipts are stored under the independent
+  `my_note_in_app_reminder_receipts_v1` preferences key. The occurrence key
+  combines source type, source ID, and reminder time, so the same occurrence is
+  shown once while a rescheduled source can be shown again.
+- This receipt key does not migrate or alter the AppStore/export schema.

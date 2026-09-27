@@ -186,6 +186,97 @@ void main() {
     },
   );
 
+  test(
+    'in-app due reminders persist occurrence receipts without duplicates',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final now = DateTime(2026, 10, 3, 13, 45);
+      final store = AppStore.seeded(persistenceLocked: true);
+      store
+        ..todos.clear()
+        ..schedules.clear()
+        ..subscriptions.clear();
+      store.todos.add(
+        TodoItem(
+          id: 'due-todo',
+          title: '提交資料',
+          dueDate: DateTime(2026, 10, 3),
+          reminderEnabled: true,
+          reminderTime: const TimeOfDay(hour: 8, minute: 30),
+        ),
+      );
+      store.schedules.add(
+        ScheduleItem(
+          id: 'due-schedule',
+          title: '下午會議',
+          start: DateTime(2026, 10, 3, 14),
+          end: DateTime(2026, 10, 3, 15),
+          location: '',
+          notes: '',
+          remindBeforeMinutes: 30,
+        ),
+      );
+      store.subscriptions.add(
+        SubscriptionItem(
+          id: 'due-subscription',
+          name: '雲端空間',
+          amount: 100,
+          cycle: SubscriptionCycle.monthly,
+          nextPaymentDate: DateTime(2026, 10, 4),
+          paymentMethod: '信用卡',
+          category: '工具',
+          reminderDays: 1,
+        ),
+      );
+
+      final due = buildInAppDueReminders(store, now: now);
+      expect(due, hasLength(3));
+      final receipts = await InAppReminderReceiptStore.load();
+      expect(receipts.unseen(due), hasLength(3));
+      await receipts.markSeen(due);
+
+      final reloadedReceipts = await InAppReminderReceiptStore.load();
+      expect(reloadedReceipts.unseen(due), isEmpty);
+      store.todos.single.reminderTime = const TimeOfDay(hour: 9, minute: 0);
+      final changed = buildInAppDueReminders(store, now: now);
+      expect(reloadedReceipts.unseen(changed), hasLength(1));
+      store.dispose();
+    },
+  );
+
+  testWidgets('in-app reminder dialog exposes the selected source', (
+    tester,
+  ) async {
+    final reminder = InAppDueReminder(
+      sourceType: ReminderSourceType.todo,
+      sourceId: 'dialog-todo',
+      dueAt: DateTime(2026, 10, 3, 8, 30),
+      title: '提交資料',
+      body: '待辦提醒',
+    );
+    InAppDueReminder? selected;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              selected = await showDueReminderDialog(context, [reminder]);
+            },
+            child: const Text('顯示提醒'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('顯示提醒'));
+    await tester.pumpAndSettle();
+    expect(find.text('提醒'), findsOneWidget);
+    expect(find.text('提交資料'), findsOneWidget);
+    await tester.tap(find.text('提交資料'));
+    await tester.pumpAndSettle();
+    expect(selected?.sourceId, 'dialog-todo');
+  });
+
   test('template documents migrate legacy data into structured v2 records', () {
     final plan = PlanDocument.fromJson({
       'schema': 'plan.v1',
@@ -1603,7 +1694,7 @@ void main() {
           nextPaymentDate: targetDate,
           paymentMethod: '信用卡',
           category: '服務',
-          reminderDays: 3,
+          reminderDays: 0,
         ),
       );
     }
