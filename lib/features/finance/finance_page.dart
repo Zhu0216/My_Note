@@ -55,7 +55,7 @@ class _FinancePageState extends State<FinancePage> {
   Widget build(BuildContext context) {
     final store = AppStoreScope.of(context);
     final grouped = groupExpensesByCategory(store.financeEntries);
-    final incomeGrouped = groupIncomeByAccount(store.financeEntries);
+    final incomeGrouped = groupIncomeByAccount(store);
     final budgetRatio = store.monthlyBudget == 0
         ? 0.0
         : (store.monthlyExpense / store.monthlyBudget).clamp(0.0, 1.3);
@@ -588,7 +588,11 @@ class SavingsAccountCard extends StatelessWidget {
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerLeft,
               child: Text(
-                visible ? currency(account.amount) : '*****',
+                visible
+                    ? currency(
+                        AppStoreScope.of(context).accountBalance(account),
+                      )
+                    : '*****',
                 style: Theme.of(
                   context,
                 ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
@@ -619,16 +623,16 @@ Map<String, double> groupExpensesByCategory(List<FinanceEntry> entries) {
   return result;
 }
 
-Map<String, double> groupIncomeByAccount(List<FinanceEntry> entries) {
+Map<String, double> groupIncomeByAccount(AppStore store) {
   final now = DateTime.now();
   final result = <String, double>{};
-  for (final entry in entries) {
+  for (final entry in store.financeEntries) {
     if (entry.type != EntryType.income ||
         entry.date.year != now.year ||
         entry.date.month != now.month) {
       continue;
     }
-    final account = entry.account.trim().isEmpty ? '未指定帳戶' : entry.account;
+    final account = store.accountName(entry.accountId);
     result.update(
       account,
       (value) => value + entry.amount,

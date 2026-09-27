@@ -320,7 +320,8 @@ class AppStore extends ChangeNotifier {
 
   static AppStore? _tryLoadFromRaw(String raw) {
     try {
-      final data = jsonDecode(raw) as Map<String, dynamic>;
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      final data = migrateFinanceLedgerData(decoded);
       final persistence = data['_persistence'];
       final persistenceData = persistence is Map
           ? Map<String, dynamic>.from(persistence)
@@ -436,6 +437,7 @@ class AppStore extends ChangeNotifier {
 
   Map<String, dynamic> toJson() {
     return {
+      'financeLedgerVersion': financeLedgerSchemaVersion,
       'notes': notes.map(noteToJson).toList(),
       'schedules': schedules.map(scheduleToJson).toList(),
       'subscriptions': subscriptions.map(subscriptionToJson).toList(),
@@ -819,8 +821,27 @@ class AppStore extends ChangeNotifier {
         .fold(0, (sum, entry) => sum + entry.amount);
   }
 
+  double accountBalance(SavingsAccount account) {
+    return account.openingBalance +
+        financeEntries
+            .where((entry) => entry.accountId == account.id)
+            .fold<double>(0, (balance, entry) {
+              return balance +
+                  (entry.type == EntryType.income
+                      ? entry.amount
+                      : -entry.amount);
+            });
+  }
+
+  String accountName(String accountId) =>
+      savingsAccounts
+          .where((account) => account.id == accountId)
+          .map((account) => account.name)
+          .firstOrNull ??
+      '未指定帳戶';
+
   double get savingsTotal =>
-      savingsAccounts.fold(0, (sum, account) => sum + account.amount);
+      savingsAccounts.fold(0, (sum, account) => sum + accountBalance(account));
 
   double get monthlySubscriptionTotal => subscriptions
       .where((item) => item.isActive)
@@ -1083,6 +1104,9 @@ class AppStore extends ChangeNotifier {
   }
 
   void deleteSavingsAccount(SavingsAccount account) {
+    if (financeEntries.any((entry) => entry.accountId == account.id)) {
+      throw StateError('帳戶仍有記帳紀錄，無法刪除。');
+    }
     savingsAccounts.removeWhere((item) => item.id == account.id);
     _commit('savings.delete:${account.id}:${account.name}');
   }

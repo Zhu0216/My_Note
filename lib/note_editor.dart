@@ -8182,7 +8182,7 @@ class _FinanceEditorPageState extends State<FinanceEditorPage> {
     note = TextEditingController(text: entry?.note ?? '');
     type = entry?.type ?? EntryType.expense;
     category = entry?.category ?? '食物';
-    account = entry?.account ?? '';
+    account = entry?.accountId ?? '';
     date = entry?.date ?? DateTime.now();
     initialTitle = title.text.trim();
     initialAmount = amount.text.trim();
@@ -8219,9 +8219,15 @@ class _FinanceEditorPageState extends State<FinanceEditorPage> {
     final entry = widget.entry;
     final accountOptions = financeAccountOptions(
       store,
-      currentAccount: account,
+      currentAccountId: account,
       includeCurrent: entry != null,
     );
+    if (accountOptions.isEmpty) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('請先建立存餘帳戶。')));
+      return;
+    }
     final selectedAccount = accountOptions.contains(account)
         ? account
         : accountOptions.first;
@@ -8232,7 +8238,7 @@ class _FinanceEditorPageState extends State<FinanceEditorPage> {
         title: title.text.trim().isEmpty ? '未命名記帳' : title.text.trim(),
         amount: double.tryParse(amount.text) ?? 0,
         category: type == EntryType.income ? '收入' : category,
-        account: selectedAccount,
+        accountId: selectedAccount,
         date: date,
         note: note.text.trim(),
       ),
@@ -8306,10 +8312,10 @@ class _FinanceEditorPageState extends State<FinanceEditorPage> {
     final store = AppStoreScope.of(context);
     final accountOptions = financeAccountOptions(
       store,
-      currentAccount: account,
+      currentAccountId: account,
       includeCurrent: widget.entry != null,
     );
-    if (!accountOptions.contains(account)) {
+    if (accountOptions.isNotEmpty && !accountOptions.contains(account)) {
       account = accountOptions.first;
       if (widget.entry == null &&
           initialAccount.isEmpty &&
@@ -8423,12 +8429,14 @@ class _FinanceEditorPageState extends State<FinanceEditorPage> {
                     fieldBox(
                       DropdownMenu<String>(
                         width: 156,
-                        initialSelection: account,
+                        initialSelection: account.isEmpty ? null : account,
                         label: const Text('帳戶'),
                         dropdownMenuEntries: accountOptions
                             .map(
-                              (item) =>
-                                  DropdownMenuEntry(value: item, label: item),
+                              (item) => DropdownMenuEntry(
+                                value: item,
+                                label: store.accountName(item),
+                              ),
                             )
                             .toList(),
                         onSelected: (value) =>

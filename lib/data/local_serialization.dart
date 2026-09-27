@@ -121,7 +121,7 @@ Map<String, dynamic> financeEntryToJson(FinanceEntry item) {
     'title': item.title,
     'amount': item.amount,
     'category': item.category,
-    'account': item.account,
+    'accountId': item.accountId,
     'date': item.date.toIso8601String(),
     'note': item.note,
     'links': item.links.map((link) => link.toJson()).toList(),
@@ -135,7 +135,7 @@ FinanceEntry financeEntryFromJson(Map<String, dynamic> data) {
     title: readString(data['title'], fallback: '未命名記帳'),
     amount: readDouble(data['amount']),
     category: readString(data['category'], fallback: '其他'),
-    account: readString(data['account'], fallback: '其他'),
+    accountId: readString(data['accountId']),
     date: readDate(data['date']),
     note: readString(data['note']),
     links: readRelatedItemLinks(data['links']),
@@ -146,7 +146,7 @@ Map<String, dynamic> savingsAccountToJson(SavingsAccount item) {
   return {
     'id': item.id,
     'name': item.name,
-    'amount': item.amount,
+    'openingBalance': item.openingBalance,
     'links': item.links.map((link) => link.toJson()).toList(),
   };
 }
@@ -155,9 +155,108 @@ SavingsAccount savingsAccountFromJson(Map<String, dynamic> data) {
   return SavingsAccount(
     id: readString(data['id'], fallback: 'sa-local'),
     name: readString(data['name'], fallback: '未命名帳戶'),
-    amount: readDouble(data['amount']),
+    openingBalance: readDouble(data['openingBalance']),
     links: readRelatedItemLinks(data['links']),
   );
+}
+
+const int financeLedgerSchemaVersion = 2;
+
+Map<String, dynamic> migrateFinanceLedgerData(Map<String, dynamic> source) {
+  final data = cloneJsonMap(source);
+  if (readInt(data['financeLedgerVersion']) >= financeLedgerSchemaVersion) {
+    return data;
+  }
+
+  final accounts = readMapList(data['savingsAccounts']);
+  final entries = readMapList(data['financeEntries']);
+  final ids = accounts
+      .map((account) => readString(account['id']))
+      .where((id) => id.isNotEmpty)
+      .toSet();
+  final accountsByName = <String, List<Map<String, dynamic>>>{};
+  for (final account in accounts) {
+    final name = readString(account['name']).trim().toLowerCase();
+    accountsByName.putIfAbsent(name, () => []).add(account);
+  }
+  final duplicate = accountsByName.entries
+      .where((entry) => entry.value.length > 1)
+      .firstOrNull;
+  if (duplicate != null) {
+    throw FormatException(
+      '存餘帳戶含有同名資料：${readString(duplicate.value.first['name'])}。'
+      '請先在舊版本合併或重新命名後再轉換。',
+    );
+  }
+
+  String? unclassifiedId;
+  Map<String, dynamic> ensureUnclassifiedAccount() {
+    if (unclassifiedId != null) {
+      return accounts.singleWhere(
+        (account) => readString(account['id']) == unclassifiedId,
+      );
+    }
+    var candidate = 'sa-unclassified';
+    var suffix = 1;
+    while (ids.contains(candidate)) {
+      candidate = 'sa-unclassified-${suffix++}';
+    }
+    unclassifiedId = candidate;
+    ids.add(candidate);
+    final account = <String, dynamic>{
+      'id': candidate,
+      'name': '未分類帳戶',
+      'openingBalance': 0.0,
+      'links': <Object?>[],
+    };
+    accounts.add(account);
+    return account;
+  }
+
+  final incomeByAccount = <String, double>{};
+  final expenseByAccount = <String, double>{};
+  for (final entry in entries) {
+    final legacyName = readString(entry['account']).trim().toLowerCase();
+    final matched = accountsByName[legacyName];
+    final account = matched == null || matched.isEmpty
+        ? ensureUnclassifiedAccount()
+        : matched.single;
+    final accountId = readString(account['id']);
+    entry
+      ..remove('account')
+      ..['accountId'] = accountId;
+    final amount = readDouble(entry['amount']);
+    final totals = entry['type'] == EntryType.income.name
+        ? incomeByAccount
+        : expenseByAccount;
+    totals.update(accountId, (value) => value + amount, ifAbsent: () => amount);
+  }
+
+  for (final account in accounts) {
+    if (account.containsKey('openingBalance')) continue;
+    final accountId = readString(account['id']);
+    final observedBalance = readDouble(account['amount']);
+    account
+      ..remove('amount')
+      ..['openingBalance'] =
+          observedBalance -
+          (incomeByAccount[accountId] ?? 0) +
+          (expenseByAccount[accountId] ?? 0);
+  }
+  if (unclassifiedId != null) {
+    final account = accounts.singleWhere(
+      (item) => readString(item['id']) == unclassifiedId,
+    );
+    account['openingBalance'] =
+        -(incomeByAccount[unclassifiedId] ?? 0) +
+        (expenseByAccount[unclassifiedId] ?? 0);
+  }
+
+  data
+    ..['financeLedgerVersion'] = financeLedgerSchemaVersion
+    ..['financeEntries'] = entries
+    ..['savingsAccounts'] = accounts;
+  return data;
 }
 
 Map<String, dynamic> todoToJson(TodoItem item) {

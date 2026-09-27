@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/my_note_data.dart';
+import 'app_store_scope.dart';
 import 'basic_display.dart';
 import 'calendar_helpers.dart';
 import 'formatters.dart';
@@ -126,7 +127,7 @@ class FinanceTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isIncome = entry.type == EntryType.income;
-    final accountLabel = entry.account.trim().isEmpty ? '未指定帳戶' : entry.account;
+    final accountLabel = AppStoreScope.of(context).accountName(entry.accountId);
     final detailParts = [
       if (isIncome) '收入' else entry.category,
       formatTime(entry.date),

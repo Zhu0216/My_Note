@@ -37,7 +37,7 @@ class LocalDataBundle {
       if (data is! Map) {
         throw const FormatException('匯入檔缺少資料內容。');
       }
-      final payload = Map<String, dynamic>.from(data);
+      final payload = migrateFinanceLedgerData(Map<String, dynamic>.from(data));
       LocalDataValidator.validate(payload);
       return LocalDataBundle(
         schema: schema,
@@ -49,8 +49,9 @@ class LocalDataBundle {
     // The earliest local backups stored the app payload directly. Accept them
     // so users can recover without first opening an older build.
     if (map.containsKey('notes') || map.containsKey('_persistence')) {
-      LocalDataValidator.validate(map);
-      return LocalDataBundle(createdAt: DateTime.now(), data: map);
+      final payload = migrateFinanceLedgerData(map);
+      LocalDataValidator.validate(payload);
+      return LocalDataBundle(createdAt: DateTime.now(), data: payload);
     }
     throw const FormatException('不支援的匯入檔格式。');
   }
@@ -79,7 +80,7 @@ class LocalDataValidator {
       ids[key] = _validateRecords(data, key);
     }
     _validateFolders(data);
-    _validateKnownDatesAndNumbers(data);
+    _validateKnownDatesAndNumbers(data, ids);
     _validateTemplates(data, ids);
   }
 
@@ -139,7 +140,10 @@ class LocalDataValidator {
     return normalized.split('/').every((part) => part.trim().isNotEmpty);
   }
 
-  static void _validateKnownDatesAndNumbers(Map<String, dynamic> data) {
+  static void _validateKnownDatesAndNumbers(
+    Map<String, dynamic> data,
+    Map<String, Set<String>> ids,
+  ) {
     for (final note in _maps(data['notes'])) {
       _date(note, 'createdAt', '筆記');
       _date(note, 'updatedAt', '筆記');
@@ -173,9 +177,14 @@ class LocalDataValidator {
     for (final entry in _maps(data['financeEntries'])) {
       _date(entry, 'date', '記帳');
       _number(entry, 'amount', '記帳金額', nonNegative: true);
+      final accountId = _requiredId(entry['accountId'], '記帳帳戶');
+      final accountIds = ids['savingsAccounts'] ?? const <String>{};
+      if (!accountIds.contains(accountId)) {
+        throw FormatException('記帳指向不存在的帳戶：$accountId。');
+      }
     }
     for (final account in _maps(data['savingsAccounts'])) {
-      _number(account, 'amount', '帳戶金額');
+      _number(account, 'openingBalance', '帳戶期初餘額');
     }
     for (final todo in _maps(data['todos'])) {
       _date(todo, 'dueDate', '待辦', optional: true);

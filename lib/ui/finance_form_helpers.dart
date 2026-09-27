@@ -9,22 +9,16 @@ List<TextInputFormatter> moneyInputFormatters() {
 
 List<String> financeAccountOptions(
   AppStore store, {
-  String? currentAccount,
+  String? currentAccountId,
   bool includeCurrent = false,
 }) {
-  final values = <String>[];
-  for (final account in store.savingsAccounts) {
-    final name = account.name.trim();
-    if (name.isNotEmpty && !values.contains(name)) {
-      values.add(name);
-    }
-  }
-  final current = currentAccount?.trim() ?? '';
-  if (includeCurrent && current.isNotEmpty && !values.contains(current)) {
+  final values = store.savingsAccounts.map((account) => account.id).toList();
+  final current = currentAccountId?.trim() ?? '';
+  if (includeCurrent &&
+      current.isNotEmpty &&
+      store.savingsAccounts.any((account) => account.id == current) &&
+      !values.contains(current)) {
     values.insert(0, current);
-  }
-  if (values.isEmpty) {
-    values.add('未指定帳戶');
   }
   return values;
 }

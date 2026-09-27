@@ -331,6 +331,16 @@ class _RelatedItemCreatePageState extends State<RelatedItemCreatePage> {
           ),
         );
       case RelatedItemType.finance:
+        final account =
+            store.savingsAccounts.firstOrNull ??
+            SavingsAccount(
+              id: store.newId('sa'),
+              name: '未分類帳戶',
+              openingBalance: 0,
+            );
+        if (store.savingsAccounts.isEmpty) {
+          store.upsertSavingsAccount(account);
+        }
         store.upsertFinanceEntry(
           FinanceEntry(
             id: id,
@@ -338,9 +348,7 @@ class _RelatedItemCreatePageState extends State<RelatedItemCreatePage> {
             title: title,
             amount: amount,
             category: '其他',
-            account: store.savingsAccounts.isEmpty
-                ? '現金'
-                : store.savingsAccounts.first.name,
+            accountId: account.id,
             date: now,
             note: '',
           ),
@@ -360,7 +368,7 @@ class _RelatedItemCreatePageState extends State<RelatedItemCreatePage> {
         );
       case RelatedItemType.account:
         store.upsertSavingsAccount(
-          SavingsAccount(id: id, name: title, amount: amount),
+          SavingsAccount(id: id, name: title, openingBalance: amount),
         );
     }
     FocusManager.instance.primaryFocus?.unfocus();

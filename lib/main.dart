@@ -754,7 +754,7 @@ Future<void> showFinanceEditorSheet(
   final note = TextEditingController(text: entry?.note ?? '');
   var type = entry?.type ?? EntryType.expense;
   var category = entry?.category ?? '食物';
-  var account = entry?.account ?? '';
+  var account = entry?.accountId ?? '';
   var date = entry?.date ?? DateTime.now();
   var links = List<RelatedItemLink>.from(entry?.links ?? const []);
 
@@ -767,10 +767,10 @@ Future<void> showFinanceEditorSheet(
         builder: (context, setLocalState) {
           final accountOptions = financeAccountOptions(
             store,
-            currentAccount: account,
+            currentAccountId: account,
             includeCurrent: entry != null,
           );
-          if (!accountOptions.contains(account)) {
+          if (accountOptions.isNotEmpty && !accountOptions.contains(account)) {
             account = accountOptions.first;
           }
           Widget fieldBox(Widget child, {double width = 156}) {
@@ -880,12 +880,14 @@ Future<void> showFinanceEditorSheet(
                       fieldBox(
                         DropdownMenu<String>(
                           width: 156,
-                          initialSelection: account,
+                          initialSelection: account.isEmpty ? null : account,
                           label: const Text('帳戶'),
                           dropdownMenuEntries: accountOptions
                               .map(
-                                (item) =>
-                                    DropdownMenuEntry(value: item, label: item),
+                                (item) => DropdownMenuEntry(
+                                  value: item,
+                                  label: store.accountName(item),
+                                ),
                               )
                               .toList(),
                           onSelected: (value) =>
@@ -965,6 +967,14 @@ Future<void> showFinanceEditorSheet(
                     width: double.infinity,
                     child: FilledButton.icon(
                       onPressed: () {
+                        if (accountOptions.isEmpty) {
+                          ScaffoldMessenger.of(context)
+                            ..hideCurrentSnackBar()
+                            ..showSnackBar(
+                              const SnackBar(content: Text('請先建立存餘帳戶。')),
+                            );
+                          return;
+                        }
                         final selectedAccount = accountOptions.contains(account)
                             ? account
                             : accountOptions.first;
@@ -979,7 +989,7 @@ Future<void> showFinanceEditorSheet(
                             category: type == EntryType.income
                                 ? '收入'
                                 : category,
-                            account: selectedAccount,
+                            accountId: selectedAccount,
                             date: date,
                             note: note.text.trim(),
                             links: links,
@@ -1516,7 +1526,7 @@ class _SavingsAccountEditorDialogState
     final account = widget.account;
     nameController = TextEditingController(text: account?.name ?? '');
     amountController = TextEditingController(
-      text: account == null ? '0' : account.amount.toStringAsFixed(0),
+      text: account == null ? '0' : account.openingBalance.toStringAsFixed(0),
     );
     links = List<RelatedItemLink>.from(account?.links ?? const []);
   }
@@ -1532,7 +1542,7 @@ class _SavingsAccountEditorDialogState
     if (isNewAccount) {
       return '新增存餘帳戶';
     }
-    return widget.editName ? '編輯帳戶名稱' : '編輯帳戶金額';
+    return widget.editName ? '編輯帳戶名稱' : '編輯期初餘額';
   }
 
   void submit() {
@@ -1548,7 +1558,7 @@ class _SavingsAccountEditorDialogState
       final nextAccount = SavingsAccount(
         id: widget.store.newId('sa'),
         name: name,
-        amount: double.tryParse(amountController.text) ?? 0,
+        openingBalance: double.tryParse(amountController.text) ?? 0,
         links: links,
       );
       Navigator.of(context).pop();
@@ -1569,7 +1579,7 @@ class _SavingsAccountEditorDialogState
       final nextAccount = SavingsAccount(
         id: account.id,
         name: name,
-        amount: account.amount,
+        openingBalance: account.openingBalance,
         links: links,
       );
       Navigator.of(context).pop();
@@ -1582,7 +1592,8 @@ class _SavingsAccountEditorDialogState
     final nextAccount = SavingsAccount(
       id: account.id,
       name: account.name,
-      amount: double.tryParse(amountController.text) ?? account.amount,
+      openingBalance:
+          double.tryParse(amountController.text) ?? account.openingBalance,
       links: links,
     );
     Navigator.of(context).pop();
@@ -1627,7 +1638,7 @@ class _SavingsAccountEditorDialogState
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => submit(),
                 decoration: const InputDecoration(
-                  labelText: '金額',
+                  labelText: '期初餘額',
                   prefixText: r'$ ',
                   border: OutlineInputBorder(),
                 ),
@@ -1694,7 +1705,7 @@ Future<void> showSavingsAccountActions(
           ),
           ListTile(
             leading: const Icon(Icons.attach_money),
-            title: const Text('編輯金額'),
+            title: const Text('編輯期初餘額'),
             onTap: () {
               Navigator.pop(context);
               showSavingsAccountEditor(
@@ -1713,12 +1724,21 @@ Future<void> showSavingsAccountActions(
               final confirmed = await confirmDelete(
                 pageContext,
                 title: '刪除帳戶？',
-                message: '確定要刪除「${account.name}」嗎？既有記帳紀錄會保留原本的帳戶文字。',
+                message: '確定要刪除「${account.name}」嗎？',
               );
               if (!confirmed || !pageContext.mounted) {
                 return;
               }
-              AppStoreScope.of(pageContext).deleteSavingsAccount(account);
+              final store = AppStoreScope.of(pageContext);
+              if (store.financeEntries.any(
+                (entry) => entry.accountId == account.id,
+              )) {
+                ScaffoldMessenger.of(pageContext).showSnackBar(
+                  const SnackBar(content: Text('帳戶仍有記帳紀錄，請先移動紀錄。')),
+                );
+                return;
+              }
+              store.deleteSavingsAccount(account);
             },
           ),
         ],

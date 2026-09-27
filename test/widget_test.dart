@@ -624,6 +624,192 @@ void main() {
         store.dispose();
       },
     );
+
+    test(
+      'legacy ledger migration preserves balances and uses stable account IDs',
+      () async {
+        final decoded = LocalDataBundle.decode(
+          bundle({
+            'financeEntries': [
+              {
+                'id': 'income-1',
+                'type': 'income',
+                'title': '薪資',
+                'amount': 5000,
+                'category': '收入',
+                'account': '銀行',
+                'date': '2026-09-27T09:00:00.000',
+              },
+              {
+                'id': 'expense-1',
+                'type': 'expense',
+                'title': '採買',
+                'amount': 2000,
+                'category': '生活',
+                'account': '銀行',
+                'date': '2026-09-27T10:00:00.000',
+              },
+            ],
+            'savingsAccounts': [
+              {'id': 'bank', 'name': '銀行', 'amount': 20000},
+            ],
+          }),
+        );
+        expect(
+          decoded.data['financeLedgerVersion'],
+          financeLedgerSchemaVersion,
+        );
+        final accountJson =
+            (decoded.data['savingsAccounts'] as List).single as Map;
+        expect(accountJson['openingBalance'], 17000);
+        expect(accountJson, isNot(contains('amount')));
+        final entries = decoded.data['financeEntries'] as List;
+        expect(entries.every((entry) => entry['accountId'] == 'bank'), isTrue);
+        expect(entries.every((entry) => !entry.containsKey('account')), isTrue);
+
+        final store = AppStore.seeded(persistenceLocked: true);
+        try {
+          await store.importBundle(decoded.encode());
+          final account = store.savingsAccounts.single;
+          expect(store.accountBalance(account), 20000);
+
+          final income = store.financeEntries.singleWhere(
+            (entry) => entry.id == 'income-1',
+          );
+          store.upsertFinanceEntry(
+            FinanceEntry(
+              id: income.id,
+              type: income.type,
+              title: income.title,
+              amount: 7000,
+              category: income.category,
+              accountId: income.accountId,
+              date: income.date,
+              note: income.note,
+            ),
+          );
+          expect(store.accountBalance(account), 22000);
+
+          final expense = store.financeEntries.singleWhere(
+            (entry) => entry.id == 'expense-1',
+          );
+          store.deleteFinanceEntry(expense);
+          expect(store.accountBalance(account), 24000);
+
+          account.name = '主要銀行';
+          store.upsertSavingsAccount(account);
+          expect(store.financeEntries.single.accountId, account.id);
+          expect(store.accountBalance(account), 24000);
+        } finally {
+          store.dispose();
+        }
+      },
+    );
+
+    test('ambiguous legacy account names reject migration', () {
+      expect(
+        () => LocalDataBundle.decode(
+          bundle({
+            'financeEntries': [
+              {
+                'id': 'entry-1',
+                'type': 'expense',
+                'amount': 100,
+                'account': '現金',
+                'date': '2026-09-27T10:00:00.000',
+              },
+            ],
+            'savingsAccounts': [
+              {'id': 'cash-a', 'name': '現金', 'amount': 500},
+              {'id': 'cash-b', 'name': '現金', 'amount': 800},
+            ],
+          }),
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('同名'),
+          ),
+        ),
+      );
+    });
+
+    test('app startup checkpoints legacy ledger before writing v2', () async {
+      final wrapped =
+          jsonDecode(
+                bundle({
+                  'financeEntries': [
+                    {
+                      'id': 'cash-expense',
+                      'type': 'expense',
+                      'title': '早餐',
+                      'amount': 100,
+                      'category': '食物',
+                      'account': '現金',
+                      'date': '2026-09-27T08:00:00.000',
+                    },
+                  ],
+                  'savingsAccounts': [
+                    {'id': 'cash', 'name': '現金', 'amount': 900},
+                  ],
+                  '_persistence': {
+                    'revision': 8,
+                    'changedAt': '2026-09-27T08:30:00.000',
+                    'action': 'legacy.finance',
+                  },
+                }),
+              )
+              as Map<String, dynamic>;
+      final legacyRaw = jsonEncode(wrapped['data']);
+      SharedPreferences.setMockInitialValues({'my_note_local_v1': legacyRaw});
+
+      final store = await AppStore.load();
+      try {
+        expect(store.accountBalance(store.savingsAccounts.single), 900);
+        expect(store.financeEntries.single.accountId, 'cash');
+        final prefs = await SharedPreferences.getInstance();
+        final migrated = prefs.getString('my_note_local_v1')!;
+        expect(migrated, contains('"financeLedgerVersion":2'));
+        expect(migrated, contains('"openingBalance":1000.0'));
+        expect(migrated, isNot(contains('"account":"現金"')));
+        final history = prefs.getString('my_note_local_v1_backup_history')!;
+        expect(history, contains(r'\"amount\":900'));
+      } finally {
+        store.dispose();
+      }
+    });
+  });
+
+  testWidgets('finance editor requires and stores a stable account ID', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    store.upsertSavingsAccount(
+      SavingsAccount(id: 'bank', name: '銀行', openingBalance: 1200),
+    );
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: const MaterialApp(home: FinanceEditorPage()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('銀行'), findsWidgets);
+      await tester.enterText(find.byType(TextField).at(0), '外快收入');
+      await tester.enterText(find.byType(TextField).at(1), '500');
+      await tester.tap(find.text('收入'));
+      await tester.tap(find.text('儲存'));
+      await tester.pump();
+
+      expect(store.financeEntries.single.accountId, 'bank');
+      expect(store.accountBalance(store.savingsAccounts.single), 1700);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
   });
 
   test(
@@ -712,7 +898,7 @@ void main() {
           title: '記帳',
           amount: 10,
           category: '',
-          account: 'account',
+          accountId: 'account',
           date: now,
           note: '',
           links: const [noteLink],
@@ -722,7 +908,7 @@ void main() {
         SavingsAccount(
           id: 'account',
           name: '帳戶',
-          amount: 1000,
+          openingBalance: 1000,
           links: const [noteLink],
         ),
       );

@@ -125,7 +125,12 @@ extension AppStoreRelatedItemIndex on AppStore {
           type: RelatedItemType.finance,
           id: entry.id,
           title: entry.title,
-          subtitle: entry.account,
+          subtitle:
+              savingsAccounts
+                  .where((account) => account.id == entry.accountId)
+                  .map((account) => account.name)
+                  .firstOrNull ??
+              '未指定帳戶',
         ),
         entry.links,
       );

@@ -131,7 +131,7 @@ class FinanceEntry {
     required this.title,
     required this.amount,
     required this.category,
-    required this.account,
+    required this.accountId,
     required this.date,
     required this.note,
     List<RelatedItemLink>? links,
@@ -142,25 +142,24 @@ class FinanceEntry {
   String title;
   double amount;
   String category;
-  String account;
+  String accountId;
   DateTime date;
   String note;
   List<RelatedItemLink> links;
 }
 
-/// Legacy name retained during migration. [amount] will become opening balance
-/// once finance accounts calculate their live balance from ledger entries.
+/// Legacy name retained so existing feature code can migrate incrementally.
 class SavingsAccount {
   SavingsAccount({
     required this.id,
     required this.name,
-    required this.amount,
+    required this.openingBalance,
     List<RelatedItemLink>? links,
   }) : links = normalizeRelatedItemLinks(links);
 
   final String id;
   String name;
-  double amount;
+  double openingBalance;
   List<RelatedItemLink> links;
 }
 

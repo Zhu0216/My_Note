@@ -437,13 +437,26 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-016 — Ledger-derived account balances
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: accounts use opening balance plus income minus expense;
   finance entries select an account.
 - Acceptance: entry edits update balance immediately; legacy savings migrate
   without changing observed balance.
-- Dependencies: P0-007; explicit migration approval before execution.
-- Evidence: source still uses mutable `SavingsAccount.amount`.
+- Dependencies: P0-007; explicit migration approval granted by the user on
+  2026-09-27 after reviewing the before/after schema and rollback behavior.
+- Evidence: persisted finance entries now reference stable account IDs and
+  accounts store an opening balance. `AppStore.accountBalance` is the sole live
+  balance calculation (`opening + income - expense`); entry edits and deletes
+  therefore update totals immediately, and accounts with ledger entries cannot
+  be deleted. Legacy snapshots and exports migrate transactionally: account
+  names map to IDs, opening balances are derived without changing the observed
+  balance, unmatched entries move to a zero-balance unclassified account, and
+  ambiguous duplicate names reject the migration. Startup checkpoints the raw
+  legacy snapshot before writing v2. Focused tests cover balance preservation,
+  edit/delete recalculation, rename stability, startup backup, duplicate-name
+  rejection, and account selection in the finance editor. On 2026-09-27,
+  analysis was clean, all 98 tests passed, and the Web production build
+  completed successfully.
 
 ### P1-017 — Shared-account money meter
 
