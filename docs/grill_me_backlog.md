@@ -546,12 +546,17 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P2-005 — Web and X510 acceptance matrix
 
-- Status: `NEEDS VERIFICATION`
+- Status: `DONE`
 - User-visible behavior: completed features have Web and X510 evidence without
   immediate crash/red screen.
 - Acceptance: every completed task records Web build and X510 PASS/FAIL/SKIPPED.
 - Dependencies: device authorization and build tooling.
-- Evidence: X510 detected as SM-X510 / Android 16 / API 36; matrix absent.
+- Evidence: `docs/v1_acceptance_matrix.md` maps every completed P0/P1/P2 item
+  to direct tests or recorded behavior checks plus the integrated Web/X510
+  baseline. On commit `f976658`, the Web release build passed and the debug APK
+  built, installed, and remained foregrounded on SM-X510 `R52X200FM7F`, Android
+  16 / API 36 (PID 12580); all 104 automated tests passed. P2-004 commit
+  `2b593a0` is documentation-only and does not change that binary baseline.
 
 ### P2-006 — Kotlin plugin warning watch
 
