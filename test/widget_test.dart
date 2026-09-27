@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:my_note/main.dart';
+import 'package:my_note/features/notes/life_project_editor.dart';
 import 'package:my_note/features/notes/mind_map_canvas_editor.dart';
 import 'package:my_note/features/notes/plan_tree_editor.dart';
 
@@ -1840,9 +1841,9 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.textContaining('專案基金 | 金錢'), findsOneWidget);
-      expect(find.textContaining('整理作品集 | 完成率'), findsOneWidget);
-      expect(find.text('保留舊人生專案備註'), findsOneWidget);
+      expect(find.text('專案基金'), findsOneWidget);
+      expect(find.text('整理作品集'), findsOneWidget);
+      expect(find.text('專案概覽'), findsOneWidget);
       expect(store.notes.single.templateData['schema'], 'life_sheet.v1');
 
       await tester.enterText(find.byType(TextField).first, '舊人生試算表（已編輯）');
@@ -1869,6 +1870,170 @@ void main() {
       store.dispose();
     }
   });
+
+  testWidgets('life project dashboard edits status weight and progress', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    var document = LifeProjectDocument(
+      items: [
+        LifeProjectItem(
+          id: 'fund',
+          name: '專案基金',
+          targetAmount: 100,
+          manualCurrentAmount: 25,
+          weight: 1,
+        ),
+        LifeProjectItem(
+          id: 'portfolio',
+          name: '作品集',
+          displayMode: LifeItemDisplayMode.progress,
+          progress: 0.75,
+          weight: 3,
+          sortOrder: 1,
+        ),
+      ],
+    );
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: StatefulBuilder(
+                  builder: (context, setState) => LifeProjectEditor(
+                    document: document,
+                    onChanged: (value) => setState(() => document = value),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('63%'), findsOneWidget);
+      await tester.tap(find.text('完成'));
+      await tester.pump();
+      expect(document.status, LifeProjectStatus.completed);
+
+      await tester.tap(find.text('作品集'));
+      await tester.pumpAndSettle();
+      expect(find.text('專案項目'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).at(1), '2');
+      await tester.enterText(find.byType(TextField).at(2), '100');
+      await tester.tap(find.byTooltip('儲存'));
+      await tester.pumpAndSettle();
+
+      final edited = document.items.singleWhere(
+        (item) => item.id == 'portfolio',
+      );
+      expect(edited.weight, 2);
+      expect(edited.progress, 1);
+      expect(edited.completed, isTrue);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  test(
+    'life project dashboard data survives restart and export import',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final source = await AppStore.load();
+      final linkedTodo = TodoItem(id: 'life-linked-todo', title: '完成作品集');
+      final document = LifeProjectDocument(
+        status: LifeProjectStatus.completed,
+        startDate: DateTime(2026, 9, 1),
+        targetDate: DateTime(2027, 3, 1),
+        items: [
+          LifeProjectItem(
+            id: 'second',
+            name: '第二項',
+            displayMode: LifeItemDisplayMode.progress,
+            progress: 0.8,
+            completed: false,
+            weight: 2,
+            sortOrder: 1,
+            links: [
+              RelatedItemLink(
+                type: RelatedItemType.todo,
+                targetId: linkedTodo.id,
+              ),
+            ],
+          ),
+          LifeProjectItem(
+            id: 'first',
+            name: '第一項',
+            targetAmount: 50000,
+            manualCurrentAmount: 25000,
+            weight: 4,
+            sortOrder: 0,
+          ),
+        ],
+      );
+      source.upsertTodo(linkedTodo);
+      source.upsertNote(
+        NoteItem(
+          id: 'life-dashboard-roundtrip',
+          title: '人生專案',
+          body: '',
+          category: '',
+          tags: const [],
+          createdAt: DateTime(2026, 9, 27),
+          updatedAt: DateTime(2026, 9, 27),
+          templateType: NoteTemplateType.lifeSheet,
+          templateData: document.toJson(),
+        ),
+      );
+      await source.flushPersistence();
+      final exported = await source.exportBundle();
+      final persisted = (await SharedPreferences.getInstance()).getString(
+        'my_note_local_v1',
+      );
+      expect(persisted, contains('life-dashboard-roundtrip'));
+      source.dispose();
+
+      final reloaded = await AppStore.load();
+      final restored = AppStore.seeded(persistenceLocked: true);
+      try {
+        expect(
+          reloaded.notes.map((note) => note.id),
+          contains('life-dashboard-roundtrip'),
+        );
+        final restarted = LifeProjectDocument.fromJson(
+          reloaded.notes
+              .singleWhere((note) => note.id == 'life-dashboard-roundtrip')
+              .templateData,
+        );
+        expect(restarted.status, LifeProjectStatus.completed);
+        expect(restarted.items.map((item) => item.sortOrder), [1, 0]);
+        expect(restarted.items.first.weight, 2);
+        expect(restarted.items.first.progress, 0.8);
+        expect(restarted.items.first.links.single.targetId, linkedTodo.id);
+
+        await restored.importBundle(exported);
+        final saved = LifeProjectDocument.fromJson(
+          restored.notes
+              .singleWhere((note) => note.id == 'life-dashboard-roundtrip')
+              .templateData,
+        );
+        expect(saved.status, LifeProjectStatus.completed);
+        expect(saved.items.map((item) => item.sortOrder), [1, 0]);
+        expect(saved.items.first.weight, 2);
+        expect(saved.items.first.progress, 0.8);
+        expect(saved.items.first.links.single.targetId, linkedTodo.id);
+        expect(saved.items.last.targetAmount, 50000);
+        expect(saved.items.last.manualCurrentAmount, 25000);
+      } finally {
+        reloaded.dispose();
+        restored.dispose();
+      }
+    },
+  );
 
   testWidgets('mind map canvas adds moves locks and collapses nodes', (
     tester,

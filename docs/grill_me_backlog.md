@@ -420,12 +420,20 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-015 — Life-project dashboard and weighted progress
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: active/completed cards show weighted total progress and
   money/status items.
 - Acceptance: status, items, weights, order, progress, and links survive restart.
 - Dependencies: P1-014, P1-002.
-- Evidence: none.
+- Evidence: the life-project template now opens as a dedicated project-card
+  dashboard with active/completed status, start and target dates, weighted
+  total progress, reorderable money/progress item cards, and focused item
+  editing for display mode, weight, amount/progress, and common typed links.
+  Item changes normalize and persist their explicit order. Widget acceptance
+  verifies status and weighted progress edits; restart plus JSON export/import
+  acceptance verifies status, items, weights, order, progress, amounts, and
+  links. On 2026-09-27, analysis was clean, all 94 tests passed, and the Web
+  production build succeeded.
 
 ### P1-016 — Ledger-derived account balances
 

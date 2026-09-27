@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_box_transform/flutter_box_transform.dart' as fbt;
 
 import 'data/my_note_data.dart';
+import 'features/notes/life_project_editor.dart';
 import 'features/notes/mind_map_canvas_editor.dart';
 import 'features/notes/plan_tree_editor.dart';
 import 'services/note_file_service.dart';
@@ -7254,7 +7255,9 @@ class NoteTemplateFields extends StatelessWidget {
         },
       ],
     );
-    return type == NoteTemplateType.plan ? content : InfoCard(child: content);
+    return type == NoteTemplateType.plan || type == NoteTemplateType.lifeSheet
+        ? content
+        : InfoCard(child: content);
   }
 
   List<Widget> buildPlanFields() {
@@ -7318,109 +7321,10 @@ class NoteTemplateFields extends StatelessWidget {
 
   List<Widget> buildLifeSheetFields() {
     final document = LifeProjectDocument.fromJson(data);
-    final moneyItems = document.items.where(
-      (item) => item.displayMode == LifeItemDisplayMode.money,
-    );
-    final totalTarget = moneyItems.fold<double>(
-      0,
-      (sum, item) => sum + item.targetAmount,
-    );
-    final totalCurrent = moneyItems.fold<double>(
-      0,
-      (sum, item) => sum + item.manualCurrentAmount,
-    );
     return [
-      TemplateTextField(
-        label: '連結計劃',
-        value: document.linkedPlanIds.join(', '),
-        onChanged: (value) {
-          document.linkedPlanIds
-            ..clear()
-            ..addAll(
-              value
-                  .split(',')
-                  .map((item) => item.trim())
-                  .where((item) => item.isNotEmpty),
-            );
-          onChanged(document.toJson());
-        },
-      ),
-      TemplateTextField(
-        label: '項目（名稱 | 金錢/完成率 | 目標 | 目前）',
-        value: document.items.map(formatLifeProjectItemLine).join('\n'),
-        minLines: 4,
-        onChanged: (value) {
-          final items = value
-              .split('\n')
-              .where((line) => line.trim().isNotEmpty)
-              .indexed
-              .map(
-                (entry) => parseLifeProjectItemLine(
-                  entry.$2,
-                  entry.$1,
-                  existing: entry.$1 < document.items.length
-                      ? document.items[entry.$1]
-                      : null,
-                ),
-              )
-              .toList();
-          document.items
-            ..clear()
-            ..addAll(items);
-          onChanged(document.toJson());
-        },
-      ),
-      LinearProgressIndicator(value: document.weightedProgress),
-      const SizedBox(height: 8),
-      Text('金額對比'),
-      const SizedBox(height: 8),
-      SizedBox(
-        height: 88,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            AmountBar(label: '目標金額', value: totalTarget, maxValue: totalTarget),
-            const SizedBox(width: 12),
-            AmountBar(
-              label: '目前金額',
-              value: totalCurrent,
-              maxValue: totalTarget,
-            ),
-          ],
-        ),
-      ),
-      TemplateTextField(
-        label: '開始時間',
-        value: document.startDate?.toIso8601String() ?? '',
-        onChanged: (value) {
-          document.startDate = DateTime.tryParse(value.trim());
-          onChanged(document.toJson());
-        },
-      ),
-      TemplateTextField(
-        label: '目標時間',
-        value: document.targetDate?.toIso8601String() ?? '',
-        onChanged: (value) {
-          document.targetDate = DateTime.tryParse(value.trim());
-          onChanged(document.toJson());
-        },
-      ),
-      TemplateTextField(
-        label: '進行時間',
-        value: document.spentHours.toString(),
-        onChanged: (value) {
-          document.spentHours = double.tryParse(value) ?? 0;
-          onChanged(document.toJson());
-        },
-      ),
-      TemplateTextField(
-        label: '備註',
-        value: document.notes,
-        minLines: 2,
-        onChanged: (value) {
-          document.notes = value;
-          onChanged(document.toJson());
-        },
+      LifeProjectEditor(
+        document: document,
+        onChanged: (value) => onChanged(value.toJson()),
       ),
     ];
   }
@@ -7563,50 +7467,6 @@ class NoteAssetsSummary extends StatelessWidget {
                 '${background['image']}  ${noteBackgroundModeLabel(readEnum(NoteBackgroundMode.values, background['mode'], NoteBackgroundMode.fill))}',
               ),
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class AmountBar extends StatelessWidget {
-  const AmountBar({
-    super.key,
-    required this.label,
-    required this.value,
-    required this.maxValue,
-  });
-
-  final String label;
-  final double value;
-  final double maxValue;
-
-  @override
-  Widget build(BuildContext context) {
-    final heightFactor = maxValue <= 0
-        ? 0.0
-        : (value / maxValue).clamp(0.05, 1.0);
-    return Expanded(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          Expanded(
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              child: FractionallySizedBox(
-                heightFactor: heightFactor,
-                widthFactor: 1,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(label),
         ],
       ),
     );
@@ -7960,47 +7820,6 @@ Map<String, dynamic> parseMindMapNodeLine(String line) {
     'color': parts.length > 4 ? parts[4] : '#7C8B5F',
     'expanded': parts.length <= 5 || parts[5] != 'false',
   };
-}
-
-String formatLifeProjectItemLine(LifeProjectItem item) {
-  if (item.displayMode == LifeItemDisplayMode.progress) {
-    return '${item.name} | 完成率 | ${(item.progress * 100).round()}';
-  }
-  return '${item.name} | 金錢 | ${item.targetAmount} | ${item.manualCurrentAmount}';
-}
-
-LifeProjectItem parseLifeProjectItemLine(
-  String line,
-  int index, {
-  LifeProjectItem? existing,
-}) {
-  final parts = line.split('|').map((item) => item.trim()).toList();
-  final progressMode =
-      parts.length > 1 &&
-      (parts[1] == '完成率' || parts[1].toLowerCase() == 'progress');
-  return LifeProjectItem(
-    id:
-        existing?.id ??
-        'life-item-${DateTime.now().microsecondsSinceEpoch}-$index',
-    name: parts.isNotEmpty ? parts[0] : '',
-    displayMode: progressMode
-        ? LifeItemDisplayMode.progress
-        : LifeItemDisplayMode.money,
-    targetAmount: progressMode || parts.length <= 2
-        ? 0
-        : double.tryParse(parts[2]) ?? 0,
-    manualCurrentAmount: progressMode || parts.length <= 3
-        ? 0
-        : double.tryParse(parts[3]) ?? 0,
-    progress: progressMode && parts.length > 2
-        ? ((double.tryParse(parts[2]) ?? 0) / 100).clamp(0, 1)
-        : 0,
-    completed: existing?.completed ?? false,
-    weight: existing?.weight ?? 1,
-    sortOrder: existing?.sortOrder ?? index,
-    accountIds: existing?.accountIds,
-    links: existing?.links,
-  );
 }
 
 String noteImageAlignmentLabel(NoteImageAlignment value) {
