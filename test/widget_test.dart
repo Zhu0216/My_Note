@@ -2057,7 +2057,6 @@ void main() {
         style: defaultNoteStyle(),
         images: const [],
         attachments: const [],
-        background: defaultNoteBackground(),
       ),
       isFalse,
     );
@@ -2071,7 +2070,6 @@ void main() {
         style: defaultNoteStyle(),
         images: const [],
         attachments: const [],
-        background: defaultNoteBackground(),
       ),
       isFalse,
     );
@@ -2085,7 +2083,6 @@ void main() {
         style: defaultNoteStyle(),
         images: const [],
         attachments: const [],
-        background: defaultNoteBackground(),
       ),
       isFalse,
     );
@@ -2102,7 +2099,6 @@ void main() {
         style: defaultNoteStyle(),
         images: const [],
         attachments: const [],
-        background: defaultNoteBackground(),
       ),
       isTrue,
     );
@@ -2118,7 +2114,6 @@ void main() {
           {'id': 'img-1'},
         ],
         attachments: const [],
-        background: defaultNoteBackground(),
       ),
       isTrue,
     );
@@ -3178,142 +3173,168 @@ void main() {
     }
   });
 
-  test('built-in note appearance themes meet text contrast requirements', () {
-    for (final palette in builtInNoteAppearanceThemes.values) {
-      expect(
-        noteAppearanceContrastRatio(
-          palette.foregroundHex,
-          palette.backgroundHex,
-        ),
-        greaterThanOrEqualTo(4.5),
-        reason: palette.label,
-      );
-    }
-  });
-
-  testWidgets('note appearance theme persists', (tester) async {
-    SharedPreferences.setMockInitialValues({});
-    final store = AppStore.seeded(persistenceLocked: true);
-    final note = NoteItem(
-      id: 'note-appearance',
-      title: '外觀測試',
-      body: '有內容的筆記',
-      category: '',
-      tags: const [],
-      createdAt: DateTime(2026, 9, 24),
-      updatedAt: DateTime(2026, 9, 24),
-    );
-    store.upsertNote(note);
-
-    try {
-      await tester.pumpWidget(
-        AppStoreScope(
-          store: store,
-          child: MaterialApp(home: NoteEditorPage(note: note)),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('更多'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('外觀與背景'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(ChoiceChip, '柔紙'));
-      await tester.pump();
-      await tester.tap(find.text('套用'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byIcon(Icons.arrow_back).first);
-      await tester.pumpAndSettle();
-
-      expect(store.notes.single.background['appearanceTheme'], 'paper');
-      expect(store.notes.single.background['color'], '#FFFDF5');
-      expect(store.notes.single.style['color'], '#2D2923');
-    } finally {
-      await tester.pumpWidget(const SizedBox.shrink());
-      store.dispose();
-    }
-  });
-
-  testWidgets('clean appearance theme removes the background image', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({});
-    final store = AppStore.seeded(persistenceLocked: true);
-    final note = NoteItem(
-      id: 'note-appearance-reset',
-      title: '重設外觀',
-      body: '有內容的筆記',
-      category: '',
-      tags: const [],
-      createdAt: DateTime(2026, 9, 24),
-      updatedAt: DateTime(2026, 9, 24),
-      style: {...defaultNoteStyle(), 'color': '#FFFFFF'},
-      background: {
-        ...defaultNoteBackground(),
-        'appearanceTheme': 'custom',
-        'type': 'image',
-        'image': 'background.png',
-        'imageBytesBase64':
-            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-      },
-    );
-    store.upsertNote(note);
-
-    try {
-      await tester.pumpWidget(
-        AppStoreScope(
-          store: store,
-          child: MaterialApp(home: NoteEditorPage(note: note)),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('更多'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('外觀與背景'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(ChoiceChip, '純白'));
-      await tester.pump();
-      await tester.tap(find.text('套用'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byIcon(Icons.arrow_back).first);
-      await tester.pumpAndSettle();
-
-      expect(store.notes.single.background['appearanceTheme'], 'clean');
-      expect(store.notes.single.background['imageBytesBase64'], isEmpty);
-      expect(store.notes.single.style['color'], '#202522');
-    } finally {
-      await tester.pumpWidget(const SizedBox.shrink());
-      store.dispose();
-    }
-  });
-
-  testWidgets('optional cover and background images render and can be removed', (
-    tester,
-  ) async {
+  test('legacy appearance migration preserves only the cover', () {
     const imageBase64 =
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
-    SharedPreferences.setMockInitialValues({});
-    final store = AppStore.seeded(persistenceLocked: true);
-    final note = NoteItem(
-      id: 'note-images',
-      title: '圖片外觀',
-      body: '文字保持可讀',
-      category: '',
-      tags: const [],
-      createdAt: DateTime(2026, 9, 24),
-      updatedAt: DateTime(2026, 9, 24),
-      background: {
-        ...defaultNoteBackground(),
+    final note = noteFromJson({
+      'id': 'legacy-appearance',
+      'title': '舊外觀',
+      'body': '內容',
+      'style': {'fontFamily': 'System', 'color': '#FFFFFF'},
+      'background': {
         'appearanceTheme': 'custom',
-        'type': 'image',
+        'color': '#000000',
         'image': 'background.png',
         'imageBytesBase64': imageBase64,
         'coverImage': 'cover.png',
         'coverImageBytesBase64': imageBase64,
       },
+    });
+
+    final encoded = noteToJson(note);
+    expect(encoded, isNot(contains('background')));
+    expect(note.style, isNot(contains('color')));
+    expect(note.cover['name'], 'cover.png');
+    expect(note.cover['bytesBase64'], imageBase64);
+  });
+
+  test(
+    'app load snapshots legacy appearance before committing migration',
+    () async {
+      const imageBase64 =
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+      final source = AppStore.seeded(persistenceLocked: true);
+      source.notes.add(
+        NoteItem(
+          id: 'legacy-load',
+          title: '舊外觀載入',
+          body: '保留內容',
+          category: '',
+          tags: const [],
+          createdAt: DateTime(2026, 10, 10),
+          updatedAt: DateTime(2026, 10, 10),
+        ),
+      );
+      final legacy = source.toJson();
+      final legacyNote = Map<String, dynamic>.from(
+        (legacy['notes'] as List).single as Map,
+      )..remove('cover');
+      legacyNote['style'] = {...defaultNoteStyle(), 'color': '#FFFFFF'};
+      legacyNote['background'] = {
+        'color': '#000000',
+        'imageBytesBase64': imageBase64,
+        'coverImage': 'legacy.png',
+        'coverImageBytesBase64': imageBase64,
+      };
+      legacy['notes'] = [legacyNote];
+      final legacyRaw = jsonEncode(legacy);
+      SharedPreferences.setMockInitialValues({'my_note_local_v1': legacyRaw});
+
+      final loaded = await AppStore.load(
+        attachmentBlobStore: MemoryAttachmentBlobStore(),
+      );
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final migratedRaw = prefs.getString('my_note_local_v1')!;
+        final migrated = jsonDecode(migratedRaw) as Map<String, dynamic>;
+        final migratedNote = (migrated['notes'] as List).single as Map;
+
+        final history =
+            jsonDecode(prefs.getString('my_note_local_v1_backup_history')!)
+                as List;
+        expect(
+          history.any((item) => (item as Map)['raw'] == legacyRaw),
+          isTrue,
+        );
+        expect(migratedNote, isNot(contains('background')));
+        expect((migratedNote['style'] as Map), isNot(contains('color')));
+        expect(loaded.notes.single.cover['name'], 'legacy.png');
+      } finally {
+        loaded.dispose();
+        source.dispose();
+      }
+    },
+  );
+
+  test('legacy rich-text custom colors are removed during migration', () {
+    final mark = RichNoteMark.fromJson({
+      'start': 0,
+      'end': 4,
+      'attributes': {'bold': true, 'color': '#FFFFFF'},
+    }, 4);
+
+    expect(mark, isNotNull);
+    expect(mark!.attributes[RichNoteAttribute.bold], isTrue);
+    expect(mark.attributes, isNot(contains('color')));
+  });
+
+  testWidgets('note text color follows light and dark app themes', (
+    tester,
+  ) async {
+    for (final brightness in Brightness.values) {
+      Color? actual;
+      Color? expected;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(brightness: brightness),
+          home: Builder(
+            builder: (context) {
+              actual = noteBodyTextStyle(
+                defaultNoteStyle(),
+                context: context,
+              ).color;
+              expected = Theme.of(context).colorScheme.onSurface;
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(actual, expected);
+    }
+  });
+
+  testWidgets('cover is absent from the editor and renders in every list mode', (
+    tester,
+  ) async {
+    const imageBase64 =
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    final note = NoteItem(
+      id: 'cover-preview',
+      title: '封面預覽',
+      body: '內容',
+      category: '',
+      tags: const [],
+      createdAt: DateTime(2026, 10, 10),
+      updatedAt: DateTime(2026, 10, 10),
+      cover: {'name': 'cover.png', 'bytesBase64': imageBase64},
     );
-    store.upsertNote(note);
+    final store = AppStore.seeded(persistenceLocked: true);
 
     try {
+      for (final mode in NotesViewMode.values) {
+        await tester.pumpWidget(
+          AppStoreScope(
+            store: store,
+            child: MaterialApp(
+              home: NoteTile(note: note, mode: mode, onTap: () {}),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final preview = find.byKey(ValueKey('note-cover-${mode.name}'));
+        expect(preview, findsOneWidget);
+        expect(tester.getSize(preview).height, 88);
+        expect(
+          tester
+              .widget<Image>(
+                find.descendant(of: preview, matching: find.byType(Image)),
+              )
+              .fit,
+          BoxFit.contain,
+        );
+      }
+
       await tester.pumpWidget(
         AppStoreScope(
           store: store,
@@ -3321,33 +3342,14 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-
-      expect(find.byKey(const ValueKey('note-cover-image')), findsOneWidget);
-      final backgroundImage = effectiveNoteBackgroundImage(note.background);
-      expect(backgroundImage, isNotNull);
-      expect(backgroundImage!.opacity, lessThanOrEqualTo(0.2));
-
-      await tester.tap(find.byTooltip('更多'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('外觀與背景'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('移除封面圖片'));
-      await tester.tap(find.byTooltip('移除背景圖片'));
-      await tester.tap(find.text('套用'));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('note-cover-image')), findsNothing);
-      await tester.tap(find.byIcon(Icons.arrow_back).first);
-      await tester.pumpAndSettle();
-
-      expect(store.notes.single.background['imageBytesBase64'], isEmpty);
-      expect(store.notes.single.background['coverImageBytesBase64'], isEmpty);
+      expect(find.bySemanticsLabel('筆記封面圖片'), findsNothing);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       store.dispose();
     }
   });
 
-  testWidgets('image picker selects and persists cover and background images', (
+  testWidgets('image picker selects and persists a cover image', (
     tester,
   ) async {
     const imageBase64 =
@@ -3376,27 +3378,18 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('更多'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('外觀與背景'));
+      await tester.tap(find.text('封面圖片'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('選擇封面圖片'));
-      await tester.pump();
-      await tester.tap(find.text('圖片'));
-      await tester.pump();
-      await tester.tap(find.text('選擇背景圖片'));
       await tester.pump();
       await tester.tap(find.text('套用'));
       await tester.pumpAndSettle();
       await tester.tap(find.byIcon(Icons.arrow_back).first);
       await tester.pumpAndSettle();
 
-      expect(store.notes.single.background['coverImage'], 'picked.png');
-      expect(
-        store.notes.single.background['coverImageBytesBase64'],
-        imageBase64,
-      );
-      expect(store.notes.single.background['image'], 'picked.png');
-      expect(store.notes.single.background['imageBytesBase64'], imageBase64);
+      expect(store.notes.single.cover['name'], 'picked.png');
+      expect(store.notes.single.cover['bytesBase64'], imageBase64);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       store.dispose();
@@ -4298,7 +4291,6 @@ void main() {
                 style: style,
                 images: images,
                 attachments: attachments,
-                background: defaultNoteBackground(),
                 onStyleChanged: (value) => setState(() => style = value),
                 onAddImage: () {},
                 onAddAttachment: () {},
@@ -4364,7 +4356,6 @@ void main() {
                 style: style,
                 images: images,
                 attachments: attachments,
-                background: defaultNoteBackground(),
                 onStyleChanged: (value) => setState(() => style = value),
                 onAddImage: () {},
                 onAddAttachment: () {},
@@ -4421,7 +4412,6 @@ void main() {
                 style: style,
                 images: images,
                 attachments: attachments,
-                background: defaultNoteBackground(),
                 onStyleChanged: (value) => setState(() => style = value),
                 onAddImage: () {},
                 onAddAttachment: () {},
@@ -4475,7 +4465,6 @@ void main() {
               style: defaultNoteStyle(),
               images: const [],
               attachments: const [],
-              background: defaultNoteBackground(),
               onStyleChanged: (_) {},
               onAddImage: () {},
               onAddAttachment: () {},
@@ -4513,7 +4502,6 @@ void main() {
                 style: defaultNoteStyle(),
                 images: const [],
                 attachments: const [],
-                background: defaultNoteBackground(),
                 onStyleChanged: (_) {},
                 onAddImage: () {},
                 onAddAttachment: () {},
@@ -4579,7 +4567,6 @@ void main() {
                   style: defaultNoteStyle(),
                   images: const [],
                   attachments: const [],
-                  background: defaultNoteBackground(),
                   onStyleChanged: (_) {},
                   onAddImage: () {},
                   onAddAttachment: () {},
@@ -4708,7 +4695,6 @@ void main() {
                 style: defaultNoteStyle(),
                 images: const [],
                 attachments: const [],
-                background: defaultNoteBackground(),
                 onStyleChanged: (_) {},
                 onAddImage: () {},
                 onAddAttachment: () {},
@@ -4790,7 +4776,6 @@ void main() {
               style: defaultNoteStyle(),
               images: nextImages,
               attachments: const [],
-              background: defaultNoteBackground(),
               onStyleChanged: (_) {},
               onAddImage: () {},
               onAddAttachment: () {},
@@ -4851,7 +4836,6 @@ void main() {
                 style: defaultNoteStyle(),
                 images: const [],
                 attachments: attachments,
-                background: defaultNoteBackground(),
                 onStyleChanged: (_) {},
                 onAddImage: () {},
                 onAddAttachment: () {},
@@ -5002,7 +4986,6 @@ void main() {
               style: defaultNoteStyle(),
               images: images,
               attachments: const [],
-              background: defaultNoteBackground(),
               onStyleChanged: (_) {},
               onAddImage: () {},
               onAddAttachment: () {},
@@ -5058,7 +5041,6 @@ void main() {
               style: defaultNoteStyle(),
               images: images,
               attachments: const [],
-              background: defaultNoteBackground(),
               onStyleChanged: (_) {},
               onAddImage: () {},
               onAddAttachment: () {},

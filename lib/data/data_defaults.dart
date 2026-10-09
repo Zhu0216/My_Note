@@ -37,12 +37,7 @@ T readEnum<T extends Enum>(List<T> values, Object? value, T fallback) {
 }
 
 Map<String, dynamic> defaultNoteStyle() {
-  return {
-    'fontFamily': 'System',
-    'fontSize': 16.0,
-    'color': '#202522',
-    'lineHeight': 1.5,
-  };
+  return {'fontFamily': 'System', 'fontSize': 16.0, 'lineHeight': 1.5};
 }
 
 const noteLineHeightValues = <double>[1.0, 1.25, 1.5, 1.75, 2.0];
@@ -57,23 +52,34 @@ double nearestNoteLineHeight(double value) {
 
 Map<String, dynamic> migratedNoteStyle(Object? value) {
   final style = readStringMap(value, fallback: defaultNoteStyle());
+  style.remove('color');
+  style.remove('textColor');
+  style.remove('foregroundColor');
   style['lineHeight'] = nearestNoteLineHeight(
     readDouble(style['lineHeight'], fallback: 1.5),
   );
   return style;
 }
 
-Map<String, dynamic> defaultNoteBackground() {
+Map<String, dynamic> defaultNoteCover() {
+  return {'name': '', 'bytesBase64': ''};
+}
+
+Map<String, dynamic> migratedNoteCover(
+  Object? value, {
+  Object? legacyBackground,
+}) {
+  final cover = readStringMap(value);
+  final legacy = readStringMap(legacyBackground);
   return {
-    'appearanceTheme': 'clean',
-    'type': 'color',
-    'color': '#FFFFFF',
-    'image': '',
-    'imageBytesBase64': '',
-    'imageOpacity': 0.14,
-    'mode': NoteBackgroundMode.fill.name,
-    'coverImage': '',
-    'coverImageBytesBase64': '',
+    'name': readString(
+      cover['name'],
+      fallback: readString(legacy['coverImage']),
+    ),
+    'bytesBase64': readString(
+      cover['bytesBase64'],
+      fallback: readString(legacy['coverImageBytesBase64']),
+    ),
   };
 }
 

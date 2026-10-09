@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../data/my_note_data.dart';
@@ -190,46 +193,56 @@ class NoteTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = AppStoreScope.of(context);
+    final colorScheme = Theme.of(context).colorScheme;
+    final coverBytes = _noteCoverBytes(note);
+    final content = switch (mode) {
+      NotesViewMode.grid => NoteGridContent(
+        note: note,
+        selectable: selectable,
+        selected: selected,
+        readOnly: readOnly,
+        onSelectionChanged: onSelectionChanged,
+        onTogglePinned: () => store.toggleNotePinned(note),
+      ),
+      NotesViewMode.list => NoteListContent(
+        note: note,
+        selectable: selectable,
+        selected: selected,
+        readOnly: readOnly,
+        onSelectionChanged: onSelectionChanged,
+        onTogglePinned: () => store.toggleNotePinned(note),
+      ),
+      NotesViewMode.compact => NoteCompactContent(
+        note: note,
+        selectable: selectable,
+        selected: selected,
+        readOnly: readOnly,
+        onSelectionChanged: onSelectionChanged,
+        onTogglePinned: () => store.toggleNotePinned(note),
+      ),
+    };
     final tile = Card(
       color: selected
-          ? Theme.of(
-              context,
-            ).colorScheme.primaryContainer.withValues(alpha: 0.65)
-          : Colors.white,
+          ? colorScheme.primaryContainer.withValues(alpha: 0.65)
+          : colorScheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: const BorderSide(color: Color(0xffe1e5e1)),
+        side: BorderSide(color: colorScheme.outlineVariant),
       ),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
         borderRadius: BorderRadius.circular(8),
-        child: switch (mode) {
-          NotesViewMode.grid => NoteGridContent(
-            note: note,
-            selectable: selectable,
-            selected: selected,
-            readOnly: readOnly,
-            onSelectionChanged: onSelectionChanged,
-            onTogglePinned: () => store.toggleNotePinned(note),
-          ),
-          NotesViewMode.list => NoteListContent(
-            note: note,
-            selectable: selectable,
-            selected: selected,
-            readOnly: readOnly,
-            onSelectionChanged: onSelectionChanged,
-            onTogglePinned: () => store.toggleNotePinned(note),
-          ),
-          NotesViewMode.compact => NoteCompactContent(
-            note: note,
-            selectable: selectable,
-            selected: selected,
-            readOnly: readOnly,
-            onSelectionChanged: onSelectionChanged,
-            onTogglePinned: () => store.toggleNotePinned(note),
-          ),
-        },
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (coverBytes != null)
+              NoteCoverPreview(bytes: coverBytes, mode: mode),
+            content,
+          ],
+        ),
       ),
     );
     if (onDelete == null || selectable) {
@@ -240,6 +253,47 @@ class NoteTile extends StatelessWidget {
       onDelete: onDelete!,
       child: tile,
     );
+  }
+}
+
+class NoteCoverPreview extends StatelessWidget {
+  const NoteCoverPreview({super.key, required this.bytes, required this.mode});
+
+  final Uint8List bytes;
+  final NotesViewMode mode;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: '筆記封面圖片',
+      image: true,
+      child: Container(
+        key: ValueKey('note-cover-${mode.name}'),
+        height: 88,
+        width: double.infinity,
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        alignment: Alignment.center,
+        child: Image.memory(
+          bytes,
+          width: double.infinity,
+          height: 88,
+          fit: BoxFit.contain,
+          alignment: Alignment.center,
+          gaplessPlayback: true,
+        ),
+      ),
+    );
+  }
+}
+
+Uint8List? _noteCoverBytes(NoteItem note) {
+  final encoded = readString(note.cover['bytesBase64']);
+  if (encoded.isEmpty) return null;
+  try {
+    final bytes = base64Decode(encoded);
+    return bytes.isEmpty ? null : bytes;
+  } on FormatException {
+    return null;
   }
 }
 

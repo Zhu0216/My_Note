@@ -27,11 +27,9 @@ enum NoteTemplateType { general, plan, mindMap, lifeSheet }
 
 enum NoteImageAlignment { free, left, center, right }
 
-enum NoteBackgroundMode { fill, stretch, repeat }
-
 enum AppNavBarStyle { template6 }
 
-enum NoteEditorMenuAction { background, insertNote, relatedItems, export }
+enum NoteEditorMenuAction { cover, insertNote, relatedItems, export }
 
 class NoteItem {
   NoteItem({
@@ -49,13 +47,13 @@ class NoteItem {
     Map<String, dynamic>? style,
     List<Map<String, dynamic>>? images,
     List<Map<String, dynamic>>? attachments,
-    Map<String, dynamic>? background,
+    Map<String, dynamic>? cover,
     List<RelatedItemLink>? links,
   }) : templateData = templateData ?? defaultNoteTemplateData(templateType),
        style = style ?? defaultNoteStyle(),
        images = images ?? <Map<String, dynamic>>[],
        attachments = attachments ?? <Map<String, dynamic>>[],
-       background = background ?? defaultNoteBackground(),
+       cover = cover ?? defaultNoteCover(),
        links = normalizeRelatedItemLinks(links);
 
   final String id;
@@ -72,7 +70,7 @@ class NoteItem {
   Map<String, dynamic> style;
   List<Map<String, dynamic>> images;
   List<Map<String, dynamic>> attachments;
-  Map<String, dynamic> background;
+  Map<String, dynamic> cover;
   List<RelatedItemLink> links;
 }
 

@@ -16,7 +16,7 @@ Map<String, dynamic> noteToJson(NoteItem note) {
     'style': note.style,
     'images': note.images,
     'attachments': note.attachments,
-    'background': note.background,
+    'cover': note.cover,
     'links': note.links.map((link) => link.toJson()).toList(),
   };
 }
@@ -45,9 +45,9 @@ NoteItem noteFromJson(Map<String, dynamic> data) {
     style: migratedNoteStyle(data['style']),
     images: readMapList(data['images']),
     attachments: readMapList(data['attachments']),
-    background: readStringMap(
-      data['background'],
-      fallback: defaultNoteBackground(),
+    cover: migratedNoteCover(
+      data['cover'],
+      legacyBackground: data['background'],
     ),
     links: readRelatedItemLinks(data['links']),
   );

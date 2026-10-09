@@ -21,7 +21,6 @@ import 'ui/app_store_scope.dart';
 import 'ui/finance_form_helpers.dart';
 import 'ui/formatters.dart';
 import 'ui/note_template_metadata.dart';
-import 'ui/note_appearance.dart';
 import 'ui/note_text_helpers.dart';
 import 'ui/prompt_dialogs.dart';
 import 'ui/related_item_picker.dart';
@@ -37,7 +36,6 @@ bool newNoteHasSavableContent({
   required Map<String, dynamic> style,
   required List<Map<String, dynamic>> images,
   required List<Map<String, dynamic>> attachments,
-  required Map<String, dynamic> background,
 }) {
   if (!noteEditorHasContent(
     body: body,
@@ -58,8 +56,7 @@ bool newNoteHasSavableContent({
   if (images.isNotEmpty || attachments.isNotEmpty) {
     return true;
   }
-  if (jsonEncode(style) != jsonEncode(defaultNoteStyle()) ||
-      jsonEncode(background) != jsonEncode(defaultNoteBackground())) {
+  if (jsonEncode(style) != jsonEncode(defaultNoteStyle())) {
     return true;
   }
   if (templateType == NoteTemplateType.general) {
@@ -198,7 +195,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   late Map<String, dynamic> noteStyle;
   late List<Map<String, dynamic>> noteImages;
   late List<Map<String, dynamic>> noteAttachments;
-  late Map<String, dynamic> noteBackground;
+  late Map<String, dynamic> noteCover;
   late List<RelatedItemLink> noteLinks;
   bool allowPop = false;
   bool didSave = false;
@@ -233,9 +230,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     noteAttachments = List<Map<String, dynamic>>.from(
       note?.attachments ?? <Map<String, dynamic>>[],
     );
-    noteBackground = Map<String, dynamic>.from(
-      note?.background ?? defaultNoteBackground(),
-    );
+    noteCover = Map<String, dynamic>.from(note?.cover ?? defaultNoteCover());
     noteLinks = List<RelatedItemLink>.from(note?.links ?? const []);
     if (templateType == NoteTemplateType.general) {
       migrateLegacyInlineAssets();
@@ -277,7 +272,6 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         style: noteStyle,
         images: noteImages,
         attachments: noteAttachments,
-        background: noteBackground,
       );
     }
     return nextTitle != note.title ||
@@ -289,7 +283,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         jsonEncode(noteStyle) != jsonEncode(note.style) ||
         jsonEncode(noteImages) != jsonEncode(note.images) ||
         jsonEncode(noteAttachments) != jsonEncode(note.attachments) ||
-        jsonEncode(noteBackground) != jsonEncode(note.background) ||
+        jsonEncode(noteCover) != jsonEncode(note.cover) ||
         jsonEncode(noteLinks.map((link) => link.toJson()).toList()) !=
             jsonEncode(note.links.map((link) => link.toJson()).toList());
   }
@@ -348,7 +342,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         style: noteStyle,
         images: noteImages,
         attachments: noteAttachments,
-        background: noteBackground,
+        cover: noteCover,
         links: noteLinks,
       ),
     );
@@ -566,89 +560,19 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
     setState(() => noteAttachments.add(attachment));
   }
 
-  Future<void> editBackground() async {
-    var backgroundType = readString(
-      noteBackground['type'],
-      fallback: readString(noteBackground['imageBytesBase64']).isNotEmpty
-          ? 'image'
-          : 'color',
-    );
-    var selectedColor = readString(
-      noteBackground['color'],
-      fallback: '#FFFFFF',
-    );
-    var appearanceTheme = noteAppearanceThemeFromName(
-      noteBackground['appearanceTheme'],
-    );
-    if (appearanceTheme == NoteAppearanceTheme.custom &&
-        readString(noteBackground['imageBytesBase64']).isEmpty) {
-      for (final entry in builtInNoteAppearanceThemes.entries) {
-        if (entry.value.backgroundHex.toUpperCase() ==
-            selectedColor.toUpperCase()) {
-          appearanceTheme = entry.key;
-          break;
-        }
-      }
-    }
-    var imageName = readString(noteBackground['image']);
-    var imageBytesBase64 = readString(noteBackground['imageBytesBase64']);
-    var coverImageName = readString(noteBackground['coverImage']);
-    var coverImageBytesBase64 = readString(
-      noteBackground['coverImageBytesBase64'],
-    );
-    var mode = readEnum(
-      NoteBackgroundMode.values,
-      noteBackground['mode'],
-      NoteBackgroundMode.fill,
-    );
+  Future<void> editCover() async {
+    var coverImageName = readString(noteCover['name']);
+    var coverImageBytesBase64 = readString(noteCover['bytesBase64']);
     await showDialog<void>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) => AlertDialog(
-          title: const Text('外觀與背景'),
+          title: const Text('封面圖片'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  '筆記外觀',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final entry in builtInNoteAppearanceThemes.entries)
-                      ChoiceChip(
-                        selected: appearanceTheme == entry.key,
-                        avatar: CircleAvatar(
-                          backgroundColor: noteAppearanceColor(
-                            entry.value.backgroundHex,
-                          ),
-                        ),
-                        label: Text(entry.value.label),
-                        onSelected: (_) => setModalState(() {
-                          appearanceTheme = entry.key;
-                          backgroundType = 'color';
-                          selectedColor = entry.value.backgroundHex;
-                          imageName = '';
-                          imageBytesBase64 = '';
-                        }),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  '封面圖片',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
@@ -686,126 +610,6 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                       ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(
-                      value: 'color',
-                      icon: Icon(Icons.palette_outlined),
-                      label: Text('顏色'),
-                    ),
-                    ButtonSegment(
-                      value: 'image',
-                      icon: Icon(Icons.image_outlined),
-                      label: Text('圖片'),
-                    ),
-                  ],
-                  selected: {backgroundType == 'image' ? 'image' : 'color'},
-                  onSelectionChanged: (values) =>
-                      setModalState(() => backgroundType = values.first),
-                ),
-                const SizedBox(height: 12),
-                if (backgroundType == 'color') ...[
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final color in const [
-                        '#FFFFFF',
-                        '#F7F8FC',
-                        '#FFF7D6',
-                        '#EAF7EF',
-                        '#EAF2FF',
-                        '#FDECEC',
-                        '#202522',
-                        '#5967D8',
-                        '#8A8F98',
-                      ])
-                        ChoiceChip(
-                          selected:
-                              selectedColor.toUpperCase() ==
-                              color.toUpperCase(),
-                          avatar: _ColorSwatch(
-                            value: color,
-                            selected:
-                                selectedColor.toUpperCase() ==
-                                color.toUpperCase(),
-                          ),
-                          label: Text(colorLabel(color)),
-                          onSelected: (_) => setModalState(() {
-                            selectedColor = color;
-                            appearanceTheme = NoteAppearanceTheme.custom;
-                          }),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                if (backgroundType == 'image') ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final file = await NoteFileService.pickImage();
-                            if (!mounted || file == null) {
-                              return;
-                            }
-                            final bytes = file.bytes;
-                            if (bytes == null || bytes.isEmpty) {
-                              showToast(this.context, '無法讀取背景圖片');
-                              return;
-                            }
-                            setModalState(() {
-                              backgroundType = 'image';
-                              appearanceTheme = NoteAppearanceTheme.custom;
-                              imageName = file.name;
-                              imageBytesBase64 = base64Encode(bytes);
-                            });
-                          },
-                          icon: const Icon(Icons.image_outlined),
-                          label: Text(
-                            imageName.isEmpty ? '選擇背景圖片' : imageName,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                      if (imageBytesBase64.isNotEmpty)
-                        IconButton(
-                          tooltip: '移除背景圖片',
-                          onPressed: () => setModalState(() {
-                            backgroundType = 'color';
-                            imageName = '';
-                            imageBytesBase64 = '';
-                          }),
-                          icon: const Icon(Icons.delete_outline),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '背景圖片會以低透明度顯示，保持文字清楚可讀。',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownMenu<NoteBackgroundMode>(
-                    initialSelection: mode,
-                    label: const Text('背景模式'),
-                    dropdownMenuEntries: NoteBackgroundMode.values
-                        .map(
-                          (item) => DropdownMenuEntry(
-                            value: item,
-                            label: noteBackgroundModeLabel(item),
-                          ),
-                        )
-                        .toList(),
-                    onSelected: (value) {
-                      if (value != null) {
-                        setModalState(() => mode = value);
-                      }
-                    },
-                  ),
-                ],
               ],
             ),
           ),
@@ -817,22 +621,9 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
             FilledButton(
               onPressed: () {
                 setState(() {
-                  final palette = builtInNoteAppearanceThemes[appearanceTheme];
-                  if (palette != null) {
-                    noteStyle = {...noteStyle, 'color': palette.foregroundHex};
-                  }
-                  noteBackground = {
-                    'appearanceTheme': appearanceTheme.name,
-                    'type': backgroundType,
-                    'color': selectedColor.trim().isEmpty
-                        ? '#FFFFFF'
-                        : selectedColor.trim(),
-                    'image': imageName.trim(),
-                    'imageBytesBase64': imageBytesBase64,
-                    'imageOpacity': 0.14,
-                    'mode': mode.name,
-                    'coverImage': coverImageName.trim(),
-                    'coverImageBytesBase64': coverImageBytesBase64,
+                  noteCover = {
+                    'name': coverImageName.trim(),
+                    'bytesBase64': coverImageBytesBase64,
                   };
                 });
                 Navigator.pop(context);
@@ -954,8 +745,8 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
 
   void handleEditorMenu(NoteEditorMenuAction action) {
     switch (action) {
-      case NoteEditorMenuAction.background:
-        unawaited(editBackground());
+      case NoteEditorMenuAction.cover:
+        unawaited(editCover());
         return;
       case NoteEditorMenuAction.insertNote:
         unawaited(insertNoteReference());
@@ -1004,10 +795,10 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                 itemBuilder: (context) => [
                   if (!readOnly)
                     const PopupMenuItem(
-                      value: NoteEditorMenuAction.background,
+                      value: NoteEditorMenuAction.cover,
                       child: ListTile(
-                        leading: Icon(Icons.format_color_fill_outlined),
-                        title: Text('外觀與背景'),
+                        leading: Icon(Icons.image_outlined),
+                        title: Text('封面圖片'),
                       ),
                     ),
                   if (!readOnly)
@@ -1046,7 +837,6 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                       style: noteStyle,
                       images: noteImages,
                       attachments: noteAttachments,
-                      background: noteBackground,
                       onStyleChanged: (value) =>
                           setState(() => noteStyle = value),
                       onAddImage: addImagePlaceholder,
@@ -1094,10 +884,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                           labelText: noteBodyLabel(templateType),
                           alignLabelWithHint: true,
                           filled: true,
-                          fillColor: effectiveNoteBackgroundColor(
-                            context,
-                            noteBackground,
-                          ),
+                          fillColor: Theme.of(context).colorScheme.surface,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(18),
                             borderSide: const BorderSide(
@@ -1116,7 +903,6 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                       NoteAssetsSummary(
                         images: noteImages,
                         attachments: noteAttachments,
-                        background: noteBackground,
                         readOnly: readOnly,
                         onImagesChanged: (value) =>
                             setState(() => noteImages = value),
@@ -1319,7 +1105,7 @@ class RichNoteMark {
   static RichNoteMark? fromJson(Map<String, dynamic> data, int textLength) {
     final start = readInt(data['start']).clamp(0, textLength).toInt();
     final end = readInt(data['end']).clamp(0, textLength).toInt();
-    final attributes = readStringMap(data['attributes']);
+    final attributes = migratedRichNoteAttributes(data['attributes']);
     final mark = RichNoteMark(
       start: math.min(start, end),
       end: math.max(start, end),
@@ -1327,6 +1113,14 @@ class RichNoteMark {
     );
     return mark.isValid ? mark : null;
   }
+}
+
+Map<String, dynamic> migratedRichNoteAttributes(Object? value) {
+  final attributes = readStringMap(value);
+  attributes.remove('color');
+  attributes.remove('textColor');
+  attributes.remove('foregroundColor');
+  return attributes;
 }
 
 class RichNoteEditingSnapshot {
@@ -2541,7 +2335,7 @@ List<RichNoteMark> normalizeRichNoteMarks(
     final next = RichNoteMark(
       start: math.min(start, end),
       end: math.max(start, end),
-      attributes: Map<String, dynamic>.from(mark.attributes),
+      attributes: migratedRichNoteAttributes(mark.attributes),
     );
     if (next.isValid) {
       normalized.add(next);
@@ -3364,7 +3158,6 @@ class GeneralRichTextEditorPanel extends StatefulWidget {
     required this.style,
     required this.images,
     required this.attachments,
-    required this.background,
     required this.onStyleChanged,
     required this.onAddImage,
     required this.onAddAttachment,
@@ -3378,7 +3171,6 @@ class GeneralRichTextEditorPanel extends StatefulWidget {
   final Map<String, dynamic> style;
   final List<Map<String, dynamic>> images;
   final List<Map<String, dynamic>> attachments;
-  final Map<String, dynamic> background;
   final ValueChanged<Map<String, dynamic>> onStyleChanged;
   final VoidCallback onAddImage;
   final VoidCallback onAddAttachment;
@@ -4461,12 +4253,6 @@ class _GeneralRichTextEditorPanelState
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final backgroundColor = effectiveNoteBackgroundColor(
-      context,
-      widget.background,
-    );
-    final backgroundImage = effectiveNoteBackgroundImage(widget.background);
-    final coverImageBytes = effectiveNoteCoverImageBytes(widget.background);
     removeStaleImageTapTargets();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -4521,9 +4307,7 @@ class _GeneralRichTextEditorPanelState
         ],
         Expanded(
           child: Material(
-            color: backgroundImage == null
-                ? backgroundColor
-                : Colors.transparent,
+            color: colorScheme.surface,
             elevation: 0,
             shape: RoundedRectangleBorder(
               borderRadius: const BorderRadius.vertical(
@@ -4533,22 +4317,10 @@ class _GeneralRichTextEditorPanelState
             ),
             clipBehavior: Clip.antiAlias,
             child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: backgroundColor,
-                image: backgroundImage,
-              ),
+              decoration: BoxDecoration(color: colorScheme.surface),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (coverImageBytes != null)
-                    Image.memory(
-                      coverImageBytes,
-                      key: const ValueKey('note-cover-image'),
-                      height: 144,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      semanticLabel: '筆記封面圖片',
-                    ),
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
@@ -7494,7 +7266,7 @@ class NoteEditorToolbar extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                '字型、顏色、行高',
+                '字型、行高',
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
                   color: const Color(0xff687386),
                 ),
@@ -7524,25 +7296,6 @@ class NoteEditorToolbar extends StatelessWidget {
                 onSelected: (value) {
                   if (value != null) {
                     onStyleChanged({...style, 'fontFamily': value});
-                  }
-                },
-              ),
-              DropdownMenu<String>(
-                initialSelection: readString(
-                  style['color'],
-                  fallback: '#202522',
-                ),
-                label: const Text('顏色'),
-                width: 128,
-                dropdownMenuEntries: const [
-                  DropdownMenuEntry(value: '#202522', label: '黑色'),
-                  DropdownMenuEntry(value: '#8B2F2F', label: '紅色'),
-                  DropdownMenuEntry(value: '#235A93', label: '藍色'),
-                  DropdownMenuEntry(value: '#4F6F35', label: '綠色'),
-                ],
-                onSelected: (value) {
-                  if (value != null) {
-                    onStyleChanged({...style, 'color': value});
                   }
                 },
               ),
@@ -7777,7 +7530,6 @@ class NoteAssetsSummary extends StatelessWidget {
     super.key,
     required this.images,
     required this.attachments,
-    required this.background,
     this.readOnly = false,
     required this.onImagesChanged,
     required this.onAttachmentsChanged,
@@ -7785,16 +7537,13 @@ class NoteAssetsSummary extends StatelessWidget {
 
   final List<Map<String, dynamic>> images;
   final List<Map<String, dynamic>> attachments;
-  final Map<String, dynamic> background;
   final bool readOnly;
   final ValueChanged<List<Map<String, dynamic>>> onImagesChanged;
   final ValueChanged<List<Map<String, dynamic>>> onAttachmentsChanged;
 
   @override
   Widget build(BuildContext context) {
-    if (images.isEmpty &&
-        attachments.isEmpty &&
-        readString(background['image']).isEmpty) {
+    if (images.isEmpty && attachments.isEmpty) {
       return const SizedBox.shrink();
     }
     return InfoCard(
@@ -7841,15 +7590,6 @@ class NoteAssetsSummary extends StatelessWidget {
                       },
                     ),
             ),
-          if (readString(background['image']).isNotEmpty)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.wallpaper_outlined),
-              title: const Text('下載'),
-              subtitle: Text(
-                '${background['image']}  ${noteBackgroundModeLabel(readEnum(NoteBackgroundMode.values, background['mode'], NoteBackgroundMode.fill))}',
-              ),
-            ),
         ],
       ),
     );
@@ -7861,15 +7601,10 @@ TextStyle noteBodyTextStyle(
   BuildContext? context,
 }) {
   final family = readString(style['fontFamily'], fallback: 'System');
-  final colorValue = readString(style['color'], fallback: '#202522');
-  final usesDefaultColor =
-      colorValue.toUpperCase() == '#202522' || colorValue.trim().isEmpty;
   return noteApplyFontFamily(
     TextStyle(
       fontSize: readDouble(style['fontSize'], fallback: 16),
-      color: usesDefaultColor && context != null
-          ? Theme.of(context).colorScheme.onSurface
-          : colorFromHex(colorValue),
+      color: context == null ? null : Theme.of(context).colorScheme.onSurface,
       height: readDouble(style['lineHeight'], fallback: 1.5),
       leadingDistribution: TextLeadingDistribution.even,
     ),
@@ -7883,55 +7618,8 @@ String noteLineHeightLabel(double value) {
       : value.toStringAsFixed(2).replaceFirst(RegExp(r'0$'), '');
 }
 
-Color effectiveNoteBackgroundColor(
-  BuildContext context,
-  Map<String, dynamic> background,
-) {
-  final colorValue = readString(background['color'], fallback: '#FFFFFF');
-  final usesDefaultColor =
-      colorValue.toUpperCase() == '#FFFFFF' || colorValue.trim().isEmpty;
-  if (usesDefaultColor) {
-    return Theme.of(context).colorScheme.surface;
-  }
-  return colorFromHex(colorValue);
-}
-
-DecorationImage? effectiveNoteBackgroundImage(Map<String, dynamic> background) {
-  if (readString(background['type'], fallback: 'color') != 'image') {
-    return null;
-  }
-  final bytes = decodeBase64BytesOrNull(
-    readString(background['imageBytesBase64']),
-  );
-  if (bytes == null || bytes.isEmpty) {
-    return null;
-  }
-  final mode = readEnum(
-    NoteBackgroundMode.values,
-    background['mode'],
-    NoteBackgroundMode.fill,
-  );
-  return DecorationImage(
-    image: MemoryImage(bytes),
-    opacity: readDouble(
-      background['imageOpacity'],
-      fallback: 0.14,
-    ).clamp(0.08, 0.2).toDouble(),
-    fit: switch (mode) {
-      NoteBackgroundMode.stretch => BoxFit.fill,
-      NoteBackgroundMode.repeat => BoxFit.none,
-      NoteBackgroundMode.fill => BoxFit.cover,
-    },
-    repeat: mode == NoteBackgroundMode.repeat
-        ? ImageRepeat.repeat
-        : ImageRepeat.noRepeat,
-  );
-}
-
-Uint8List? effectiveNoteCoverImageBytes(Map<String, dynamic> background) {
-  final bytes = decodeBase64BytesOrNull(
-    readString(background['coverImageBytesBase64']),
-  );
+Uint8List? effectiveNoteCoverImageBytes(Map<String, dynamic> cover) {
+  final bytes = decodeBase64BytesOrNull(readString(cover['bytesBase64']));
   return bytes == null || bytes.isEmpty ? null : bytes;
 }
 
@@ -8211,14 +7899,6 @@ String noteImageAlignmentLabel(NoteImageAlignment value) {
     NoteImageAlignment.left => '靠左',
     NoteImageAlignment.center => '置中',
     NoteImageAlignment.right => '靠右',
-  };
-}
-
-String noteBackgroundModeLabel(NoteBackgroundMode value) {
-  return switch (value) {
-    NoteBackgroundMode.fill => '填滿',
-    NoteBackgroundMode.stretch => '延伸',
-    NoteBackgroundMode.repeat => '重複',
   };
 }
 

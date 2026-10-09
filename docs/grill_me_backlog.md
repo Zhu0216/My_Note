@@ -273,7 +273,8 @@ the current behavior has not been independently accepted for this v1 baseline.
   `外觀與背景` dialog applies a theme, preserves custom colors as custom, and
   resets images and text color when returning to `純白`. Tests verify every
   palette exceeds a 4.5:1 contrast ratio, theme persistence, and clean reset.
-  Analyzer, all 77 tests, and the Web production build pass.
+  Analyzer, all 77 tests, and the Web production build pass. This historical
+  implementation is superseded by the approved P1-021 theme-derived migration.
 
 ### P1-007 — Optional cover and background image
 
@@ -290,7 +291,8 @@ the current behavior has not been independently accepted for this v1 baseline.
   map, so no schema migration was needed. Widget tests use a real FilePicker
   platform fake to verify selection and persistence, then verify rendering,
   removal, and low-opacity contrast. Analyzer, all 79 tests, and the Web
-  production build pass.
+  production build pass. P1-021 later removes backgrounds while preserving
+  cover data and moving cover presentation exclusively to note-list previews.
 
 ## P1 — Plan template
 
@@ -690,7 +692,7 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-021 — Theme-derived note appearance and cover previews
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: note colors follow the app theme, covers appear only in
   note-list previews, and removed backgrounds never reappear.
 - Acceptance: approved migration removes appearance/background fields and custom
@@ -699,7 +701,20 @@ the current behavior has not been independently accepted for this v1 baseline.
   uncropped contain layout in all note-list modes; light/dark theme contrast is
   verified.
 - Dependencies: appearance schema and list/grid cards.
-- Completion evidence: pending.
+- Completion evidence: the approved migration replaces persisted `background`
+  with a cover-only map, reads legacy cover bytes while dropping appearance,
+  background image/color, and custom text-color values, and relies on the
+  existing pre-migration snapshot written by `AppStore.load` before the
+  migrated primary snapshot is committed. The editor now exposes only cover
+  selection and no longer renders a cover or background inside note content.
+  `NoteTile` renders the cover at a fixed 88 px height with centered
+  `BoxFit.contain` in grid, list, and compact modes. Tests verify the recovery
+  history contains the untouched pre-migration JSON, persisted output excludes
+  `background` and custom colors, theme-derived text colors work in light and
+  dark modes, the cover picker persists, and all three list modes use the
+  uncropped preview while the editor does not render it. Static analysis, all
+  123 tests, Web debug build, and Android debug APK build pass on the task
+  commit.
 
 ### P1-022 — Rich-note newline placement
 

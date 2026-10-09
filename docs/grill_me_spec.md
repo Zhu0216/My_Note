@@ -77,12 +77,14 @@ Only the general note template contains the rich-text editor. It retains text
 formatting, lists, inline todo blocks, images, attachments, references, and
 export capabilities.
 
-Note appearance is optional and must not make editing feel like page design:
+Note appearance follows the app theme and must not make editing feel like page
+design:
 
-- The default is clean white paper with no cover or background.
-- Users may choose built-in appearance themes.
-- A cover image or low-contrast background image is optional.
-- Backgrounds must not compromise text contrast or rich-text editing.
+- The editor uses theme-derived surfaces and text colors in light and dark mode.
+- Per-note background colors, background images, and custom text colors are not
+  available.
+- A cover image is optional and appears only in note-list previews, never in
+  the editable note body.
 - Arbitrary CSS-like per-note layout controls are out of scope.
 
 ## Plan template
