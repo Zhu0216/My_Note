@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_box_transform/flutter_box_transform.dart' as fbt;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:my_note/main.dart';
@@ -4688,6 +4689,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ModernRichImageEditToolbar), findsOneWidget);
+    expect(find.byTooltip('移動'), findsNothing);
+    final transform = tester.widget<fbt.TransformableBox>(
+      find.byType(fbt.TransformableBox),
+    );
+    expect(transform.draggable, isTrue);
+    expect(transform.visibleHandles, hasLength(8));
   });
 
   testWidgets('note back closes image subtools before leaving the editor', (
@@ -4746,6 +4753,9 @@ void main() {
 
       await tester.tap(find.byType(InlineRichImageBlock));
       await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('框線線徑 0.0'));
+      await tester.pumpAndSettle();
+      expect(find.text('0.2 px'), findsOneWidget);
       await tester.tap(find.byTooltip('框線顏色'));
       await tester.pumpAndSettle();
       expect(find.byType(RichToolbarColorChoiceButton), findsWidgets);

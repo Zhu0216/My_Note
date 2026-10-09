@@ -2466,7 +2466,6 @@ class RichNoteTextController extends TextEditingController {
                 image: image,
                 selected: selected,
                 readOnly: _renderReadOnly,
-                moveEnabled: false,
                 contentWidth: _renderContentWidth,
                 onSelect: () => _onEmbedSelected?.call(type, id),
                 onBlockTap: () => _onEmbedBlockTapped?.call(type, id),
@@ -3369,7 +3368,6 @@ class _GeneralRichTextEditorPanelState
   Timer? restoreBodyFocusTimer;
   Timer? clearSuppressedParagraphTapTimer;
   bool suppressNextParagraphTap = false;
-  bool imageMoveEnabled = false;
   bool updatingFlowTextController = false;
   bool refreshingFlowFormatting = false;
   int? lastActiveFlowTextOrder;
@@ -3469,13 +3467,9 @@ class _GeneralRichTextEditorPanelState
       FocusManager.instance.primaryFocus?.unfocus();
       widget.controller.clearTextSelectionForImageInteraction();
     }
-    final isSameSelection = selectedEmbedType == type && selectedEmbedId == id;
     setState(() {
       selectedEmbedType = type;
       selectedEmbedId = id;
-      if (!isSameSelection || type != richNoteEmbedTypeImage) {
-        imageMoveEnabled = false;
-      }
     });
   }
 
@@ -3623,7 +3617,6 @@ class _GeneralRichTextEditorPanelState
       setState(() {
         selectedEmbedType = null;
         selectedEmbedId = null;
-        imageMoveEnabled = false;
       });
     }
   }
@@ -4275,10 +4268,7 @@ class _GeneralRichTextEditorPanelState
             ModernRichImageEditToolbar(
               key: imageToolbarKey,
               image: selectedImage!,
-              moveEnabled: imageMoveEnabled,
               onImageChanged: updateImage,
-              onMoveEnabledChanged: (value) =>
-                  setState(() => imageMoveEnabled = value),
               onCrop: cropSelectedImage,
               onDelete: deleteSelectedImage,
               onDone: clearEmbedSelection,
@@ -4527,7 +4517,6 @@ class _GeneralRichTextEditorPanelState
                                                     richNoteEmbedTypeImage &&
                                                 selectedEmbedId == block.id,
                                             readOnly: widget.readOnly,
-                                            moveEnabled: imageMoveEnabled,
                                             contentWidth: contentWidth,
                                             onSelect: () => selectEmbed(
                                               richNoteEmbedTypeImage,
@@ -4990,7 +4979,6 @@ class InlineRichImageBlock extends StatelessWidget {
     required this.image,
     required this.selected,
     required this.readOnly,
-    required this.moveEnabled,
     required this.contentWidth,
     required this.onSelect,
     required this.onBlockTap,
@@ -5002,7 +4990,6 @@ class InlineRichImageBlock extends StatelessWidget {
   final Map<String, dynamic> image;
   final bool selected;
   final bool readOnly;
-  final bool moveEnabled;
   final double? contentWidth;
   final VoidCallback onSelect;
   final VoidCallback onBlockTap;
@@ -5047,16 +5034,25 @@ class InlineRichImageBlock extends StatelessWidget {
           readString(image['borderColor'], fallback: '#5967D8'),
         );
         const blockVerticalPadding = 0.0;
-        const handlePadding = 0.0;
+        final handlePadding = selected && !readOnly && !locked ? 10.0 : 0.0;
+        final usableWidth = math.max(80.0, blockWidth - (handlePadding * 2));
+        final fittedWidth = math.min(visualWidth, usableWidth);
         final fixedLeft = switch (alignment) {
-          NoteImageAlignment.center => (blockWidth - visualWidth) / 2,
-          NoteImageAlignment.right => blockWidth - visualWidth,
-          _ => 0.0,
+          NoteImageAlignment.center =>
+            handlePadding + ((usableWidth - fittedWidth) / 2),
+          NoteImageAlignment.right => handlePadding + usableWidth - fittedWidth,
+          _ => handlePadding,
         };
         final freeLeft = readDouble(image['x'], fallback: fixedLeft);
         final imageLeft =
             (alignment == NoteImageAlignment.free ? freeLeft : fixedLeft)
-                .clamp(0.0, math.max(0, blockWidth - visualWidth))
+                .clamp(
+                  handlePadding,
+                  math.max(
+                    handlePadding,
+                    blockWidth - fittedWidth - handlePadding,
+                  ),
+                )
                 .toDouble();
         const imageOffsetY = 0.0;
         final imageTop = blockVerticalPadding + handlePadding + imageOffsetY;
@@ -5069,7 +5065,7 @@ class InlineRichImageBlock extends StatelessWidget {
         final imageRect = Rect.fromLTWH(
           imageLeft.toDouble(),
           imageTop,
-          visualWidth,
+          fittedWidth,
           visualHeight,
         );
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -5116,10 +5112,13 @@ class InlineRichImageBlock extends StatelessWidget {
         }
 
         void applyTransformRect(Rect rect) {
-          final nextWidth = rect.width.clamp(80.0, maxImageWidth).toDouble();
+          final nextWidth = rect.width.clamp(80.0, usableWidth).toDouble();
           final nextHeight = rect.height.clamp(60.0, 900.0).toDouble();
           final nextX = rect.left
-              .clamp(0.0, math.max(0.0, blockWidth - nextWidth))
+              .clamp(
+                handlePadding,
+                math.max(handlePadding, blockWidth - nextWidth - handlePadding),
+              )
               .toDouble();
           onChanged({
             ...image,
@@ -5133,7 +5132,7 @@ class InlineRichImageBlock extends StatelessWidget {
 
         Widget buildImageBox(Size size) {
           return MouseRegion(
-            cursor: selected && !readOnly && moveEnabled && !locked
+            cursor: selected && !readOnly && !locked
                 ? SystemMouseCursors.move
                 : SystemMouseCursors.click,
             child: Container(
@@ -5177,24 +5176,26 @@ class InlineRichImageBlock extends StatelessWidget {
         final transformableImage = selected && !readOnly && !locked
             ? fbt.TransformableBox(
                 rect: imageRect,
-                clampingRect: Rect.fromLTWH(0, 0, blockWidth, clampingHeight),
+                clampingRect: Rect.fromLTWH(
+                  handlePadding,
+                  handlePadding,
+                  usableWidth,
+                  clampingHeight - (handlePadding * 2),
+                ),
                 constraints: BoxConstraints(
                   minWidth: 80,
                   minHeight: 60,
-                  maxWidth: maxImageWidth,
+                  maxWidth: usableWidth,
                   maxHeight: 900,
                 ),
                 resizeModeResolver: () => fbt.ResizeMode.freeform,
-                draggable: moveEnabled,
+                draggable: true,
                 resizable: true,
                 allowFlippingWhileResizing: false,
                 enabledHandles: handleSet,
                 visibleHandles: handleSet,
                 onTap: handleImageVisualTap,
                 onDragUpdate: (result, event) {
-                  if (!moveEnabled) {
-                    return;
-                  }
                   if (event.delta.dy < -1.5) {
                     onMoveRequest?.call(-1);
                   } else if (event.delta.dy > 1.5) {
@@ -5220,7 +5221,7 @@ class InlineRichImageBlock extends StatelessWidget {
           width: blockWidth,
           height: imageBlockHeight,
           child: Stack(
-            clipBehavior: Clip.hardEdge,
+            clipBehavior: Clip.none,
             children: [
               Positioned.fill(
                 child: GestureDetector(
@@ -5474,18 +5475,14 @@ class ModernRichImageEditToolbar extends StatefulWidget {
   const ModernRichImageEditToolbar({
     super.key,
     required this.image,
-    required this.moveEnabled,
     required this.onImageChanged,
-    required this.onMoveEnabledChanged,
     required this.onCrop,
     required this.onDelete,
     required this.onDone,
   });
 
   final Map<String, dynamic> image;
-  final bool moveEnabled;
   final ValueChanged<Map<String, dynamic>> onImageChanged;
-  final ValueChanged<bool> onMoveEnabledChanged;
   final VoidCallback onCrop;
   final VoidCallback onDelete;
   final VoidCallback onDone;
@@ -5499,7 +5496,7 @@ class _ModernRichImageEditToolbarState
     extends State<ModernRichImageEditToolbar> {
   bool showColorToolbar = false;
   bool showBorderToolbar = false;
-  late final TextEditingController borderWidthController;
+  double lastEnabledBorderWidth = 0.2;
 
   static const borderColors = [
     '#202522',
@@ -5516,33 +5513,8 @@ class _ModernRichImageEditToolbarState
   @override
   void initState() {
     super.initState();
-    borderWidthController = TextEditingController(text: formattedBorderWidth);
-  }
-
-  @override
-  void didUpdateWidget(covariant ModernRichImageEditToolbar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final imageChanged =
-        readString(oldWidget.image['id']) != readString(widget.image['id']);
-    final widthChanged =
-        readDouble(oldWidget.image['borderWidth']) !=
-        readDouble(widget.image['borderWidth']);
-    if (imageChanged || (!showBorderToolbar && widthChanged)) {
-      borderWidthController.text = formattedBorderWidth;
-    }
-  }
-
-  @override
-  void dispose() {
-    borderWidthController.dispose();
-    super.dispose();
-  }
-
-  String get formattedBorderWidth {
     final current = readDouble(widget.image['borderWidth']);
-    return current == current.roundToDouble()
-        ? current.toStringAsFixed(0)
-        : current.toStringAsFixed(1);
+    if (current > 0) lastEnabledBorderWidth = current;
   }
 
   bool closeTransientToolbar() {
@@ -5553,7 +5525,6 @@ class _ModernRichImageEditToolbarState
     setState(() {
       showColorToolbar = false;
       showBorderToolbar = false;
-      borderWidthController.text = formattedBorderWidth;
     });
     return true;
   }
@@ -5563,7 +5534,6 @@ class _ModernRichImageEditToolbarState
   }
 
   void lockImage() {
-    widget.onMoveEnabledChanged(false);
     setState(() {
       showBorderToolbar = false;
       showColorToolbar = false;
@@ -5572,70 +5542,30 @@ class _ModernRichImageEditToolbarState
   }
 
   void toggleBorderWidthEditor() {
-    setState(() {
-      showBorderToolbar = !showBorderToolbar;
-      if (showBorderToolbar) {
-        showColorToolbar = false;
-        borderWidthController.text = formattedBorderWidth;
-      }
-    });
-  }
-
-  void cancelBorderWidthEdit() {
-    setState(() {
-      borderWidthController.text = formattedBorderWidth;
-      showBorderToolbar = false;
-    });
-  }
-
-  void applyBorderWidthEdit() {
-    final parsed = double.tryParse(borderWidthController.text.trim());
-    setValue('borderWidth', (parsed ?? 0).clamp(0.0, 24.0).toDouble());
-    setState(() => showBorderToolbar = false);
-  }
-
-  Future<void> editBorderWidth() async {
     final current = readDouble(widget.image['borderWidth']);
-    final controller = TextEditingController(
-      text: current == current.roundToDouble()
-          ? current.toStringAsFixed(0)
-          : current.toStringAsFixed(1),
-    );
-    final value = await showDialog<double>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('框線線徑'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
-          ],
-          decoration: const InputDecoration(
-            suffixText: 'px',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final parsed = double.tryParse(controller.text.trim());
-              Navigator.pop(context, parsed);
-            },
-            child: const Text('套用'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (value != null) {
-      setValue('borderWidth', value.clamp(0.0, 24.0).toDouble());
+    if (showBorderToolbar) {
+      if (current > 0) lastEnabledBorderWidth = current;
+      setValue('borderWidth', 0.0);
+      setState(() {
+        showBorderToolbar = false;
+        showColorToolbar = false;
+      });
+      return;
     }
+    final enabledWidth = current > 0
+        ? current.clamp(0.1, 5.0).toDouble()
+        : lastEnabledBorderWidth.clamp(0.1, 5.0).toDouble();
+    if (current <= 0) setValue('borderWidth', enabledWidth);
+    setState(() {
+      showBorderToolbar = true;
+      showColorToolbar = false;
+    });
+  }
+
+  void applyBorderWidth(double next) {
+    final value = next.clamp(0.1, 5.0).toDouble();
+    lastEnabledBorderWidth = value;
+    setValue('borderWidth', value);
   }
 
   @override
@@ -5675,27 +5605,10 @@ class _ModernRichImageEditToolbarState
               onPressed: widget.onCrop,
             ),
             RichToolbarIconButton(
-              tooltip: '移動',
-              icon: Icons.open_with,
-              active: widget.moveEnabled,
-              onPressed: () => widget.onMoveEnabledChanged(!widget.moveEnabled),
-            ),
-            RichToolbarIconButton(
               tooltip: '框線線徑 ${borderWidth.toStringAsFixed(1)}',
               icon: Icons.border_outer,
               active: showBorderToolbar || borderWidth > 0,
               onPressed: toggleBorderWidthEditor,
-            ),
-            RichToolbarColorToggleButton(
-              tooltip: '框線顏色',
-              selectedColor: borderColor,
-              active: showColorToolbar,
-              onPressed: () => setState(() {
-                showColorToolbar = !showColorToolbar;
-                if (showColorToolbar) {
-                  showBorderToolbar = false;
-                }
-              }),
             ),
             RichToolbarIconButton(
               tooltip: '靠左',
@@ -5739,38 +5652,17 @@ class _ModernRichImageEditToolbarState
           const SizedBox(height: 6),
           _RichAssetToolbarShell(
             children: [
-              SizedBox(
-                width: 112,
-                height: 40,
-                child: TextField(
-                  controller: borderWidthController,
-                  autofocus: true,
-                  textAlign: TextAlign.center,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(
-                      RegExp(r'^\d*\.?\d{0,2}'),
-                    ),
-                  ],
-                  onSubmitted: (_) => applyBorderWidthEdit(),
-                  decoration: const InputDecoration(
-                    suffixText: 'px',
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 10),
-                  ),
-                ),
+              RichBorderWidthPicker(
+                value: borderWidth.clamp(0.1, 5.0).toDouble(),
+                onChanged: applyBorderWidth,
               ),
-              RichToolbarIconButton(
-                tooltip: '取消',
-                icon: Icons.close,
-                onPressed: cancelBorderWidthEdit,
-              ),
-              RichToolbarIconButton(
-                tooltip: '套用',
-                icon: Icons.check,
-                onPressed: applyBorderWidthEdit,
+              RichToolbarColorToggleButton(
+                tooltip: '框線顏色',
+                selectedColor: borderColor,
+                active: showColorToolbar,
+                onPressed: () => setState(() {
+                  showColorToolbar = !showColorToolbar;
+                }),
               ),
             ],
           ),
@@ -5792,6 +5684,118 @@ class _ModernRichImageEditToolbarState
           ),
         ],
       ],
+    );
+  }
+}
+
+class RichBorderWidthPicker extends StatefulWidget {
+  const RichBorderWidthPicker({
+    super.key,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final double value;
+  final ValueChanged<double> onChanged;
+
+  @override
+  State<RichBorderWidthPicker> createState() => _RichBorderWidthPickerState();
+}
+
+class _RichBorderWidthPickerState extends State<RichBorderWidthPicker> {
+  double dragRemainder = 0;
+
+  void step(int direction) {
+    final next = ((widget.value * 10).round() + direction) / 10;
+    widget.onChanged(next.clamp(0.1, 5.0).toDouble());
+  }
+
+  void handleDrag(double delta) {
+    dragRemainder += delta;
+    while (dragRemainder.abs() >= 12) {
+      if (dragRemainder < 0) {
+        step(1);
+        dragRemainder += 12;
+      } else {
+        step(-1);
+        dragRemainder -= 12;
+      }
+    }
+  }
+
+  Future<void> openInput() async {
+    final controller = TextEditingController(
+      text: widget.value.toStringAsFixed(1),
+    );
+    final selected = await showDialog<double>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('框線線徑'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d?')),
+          ],
+          decoration: const InputDecoration(
+            suffixText: 'px',
+            helperText: '0.1 - 5.0',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (value) =>
+              Navigator.pop(dialogContext, double.tryParse(value)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              dialogContext,
+              double.tryParse(controller.text.trim()),
+            ),
+            child: const Text('套用'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (selected != null) widget.onChanged(selected);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: '上下滑動或點擊輸入框線線徑',
+      child: Listener(
+        onPointerSignal: (event) {
+          if (event is PointerScrollEvent && event.scrollDelta.dy != 0) {
+            step(event.scrollDelta.dy < 0 ? 1 : -1);
+          }
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: openInput,
+          onPanUpdate: (details) => handleDrag(details.delta.dy),
+          onPanEnd: (_) => dragRemainder = 0,
+          onPanCancel: () => dragRemainder = 0,
+          child: Container(
+            width: 82,
+            height: 42,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              '${widget.value.toStringAsFixed(1)} px',
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

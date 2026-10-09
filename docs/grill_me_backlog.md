@@ -642,7 +642,7 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-019 — Image crop, movement, border, and handle correctness
 
-- Status: `PLANNED`
+- Status: `NEEDS VERIFICATION`
 - User-visible behavior: selected unlocked images drag directly, crop only
   original pixels, and expose an unclipped eight-handle editor.
 - Acceptance: no crop padding or generated background; scaling may exceed source
@@ -651,7 +651,18 @@ the current behavior has not been independently accepted for this v1 baseline.
   toolbar without stealing focus; image controls work on Web and X510 and do not
   overlap text.
 - Dependencies: rich-note image blocks and crop service.
-- Completion evidence: pending.
+- Completion evidence: selected unlocked images now drag directly without a
+  move-mode toggle; eight freeform resize handles are enabled and kept inside
+  reserved layout padding with an unclipped Stack. The image block continues to
+  own its full rendered height so adjacent text remains outside the image range.
+  Crop uses `image_cropper`, whose crop viewport is constrained to source
+  pixels. Border defaults off; enabling starts at `0.2 px`, supports direct
+  input or 0.1-step vertical wheel/scroll adjustment through `5.0 px`, and
+  exposes width plus nine colors in secondary toolbars without autofocus.
+  Widget tests cover direct dragging, all eight handles, border activation, and
+  subtoolbar back behavior. `flutter analyze`, all 120 tests, and the Web debug
+  build passed on 2026-10-10. X510 visual interaction remains pending while the
+  device is offline.
 
 ### P1-020 — Functional attachments and inserted-note blocks
 
