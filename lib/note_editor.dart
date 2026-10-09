@@ -7,12 +7,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_box_transform/flutter_box_transform.dart' as fbt;
+import 'package:printing/printing.dart';
 
 import 'data/my_note_data.dart';
 import 'features/notes/life_project_editor.dart';
 import 'features/notes/mind_map_canvas_editor.dart';
 import 'features/notes/plan_tree_editor.dart';
 import 'services/note_file_service.dart';
+import 'services/attachment_external_open.dart';
 import 'services/device_font_registry.dart';
 import 'ui/app_pickers.dart';
 import 'ui/app_store_scope.dart';
@@ -922,7 +924,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       ),
     );
     if (note != null) {
-      insertBodyToken('[筆記:${note.title}]');
+      body.insertEmbedBlock(type: richNoteEmbedTypeNote, id: note.id);
     }
   }
 
@@ -1262,6 +1264,7 @@ const richNoteEmbedObject = '\uFFFC';
 const richNoteEmbedTypeImage = 'image';
 const richNoteEmbedTypeAttachment = 'attachment';
 const richNoteEmbedTypeTodo = 'todo';
+const richNoteEmbedTypeNote = 'noteReference';
 
 class RichNoteAttribute {
   const RichNoteAttribute._();
@@ -1563,6 +1566,28 @@ class RichNoteTextController extends TextEditingController {
     final mark = _marks[index];
     final range = _embedLineRange(mark);
     replaceTextRange(range.start, range.end, '');
+  }
+
+  bool retargetEmbedBlock({
+    required String type,
+    required String currentId,
+    required String nextId,
+  }) {
+    final index = _marks.indexWhere(
+      (mark) =>
+          mark.attributes[RichNoteAttribute.embedType] == type &&
+          mark.attributes[RichNoteAttribute.embedId] == currentId,
+    );
+    if (index < 0 || nextId.isEmpty || nextId == currentId) return false;
+    _pushCurrentUndo();
+    final mark = _marks[index];
+    _marks[index] = mark.copyWith(
+      attributes: {...mark.attributes, RichNoteAttribute.embedId: nextId},
+    );
+    _marks = normalizeRichNoteMarks(_marks, text.length);
+    _syncLastSnapshot();
+    notifyListeners();
+    return true;
   }
 
   bool moveEmbedBlock({
@@ -2907,6 +2932,8 @@ Map<String, dynamic> appFlowyMirrorJson({
             ),
           );
         }
+      } else if (type == richNoteEmbedTypeNote) {
+        nodes.add(afe.paragraphNode(text: '關聯筆記：$id'));
       }
       continue;
     }
@@ -3098,7 +3125,7 @@ class RichImageTapTarget {
   }
 }
 
-enum RichNoteFlowBlockType { text, image, attachment, todo }
+enum RichNoteFlowBlockType { text, image, attachment, todo, note }
 
 class RichNoteFlowBlock {
   const RichNoteFlowBlock({
@@ -3298,6 +3325,16 @@ List<RichNoteFlowBlock> richNoteFlowBlocks(RichNoteTextController controller) {
           id: id,
         ),
       );
+    } else if (type == richNoteEmbedTypeNote) {
+      blocks.add(
+        RichNoteFlowBlock(
+          type: RichNoteFlowBlockType.note,
+          order: order++,
+          start: index,
+          end: index + 1,
+          id: id,
+        ),
+      );
     }
 
     textStart = index + 1;
@@ -3395,6 +3432,15 @@ class _GeneralRichTextEditorPanelState
       }
     }
     return null;
+  }
+
+  NoteItem? get selectedNoteReference {
+    if (selectedEmbedType != richNoteEmbedTypeNote || selectedEmbedId == null) {
+      return null;
+    }
+    return AppStoreScope.of(
+      context,
+    ).notes.where((note) => note.id == selectedEmbedId).firstOrNull;
   }
 
   @override
@@ -3733,6 +3779,92 @@ class _GeneralRichTextEditorPanelState
       return;
     }
     widget.controller.removeEmbedBlock(type: richNoteEmbedTypeTodo, id: id);
+    clearEmbedSelection();
+  }
+
+  Future<void> previewSelectedNoteReference() async {
+    final note = selectedNoteReference;
+    if (note == null) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(note.title.trim().isEmpty ? '未命名筆記' : note.title),
+        content: SizedBox(
+          width: 460,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  noteTemplateLabel(note.templateType),
+                  style: Theme.of(dialogContext).textTheme.labelLarge,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  note.body.trim().isEmpty ? '此筆記目前沒有文字摘要' : note.body,
+                  maxLines: 12,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('關閉'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> editSelectedNoteReference() async {
+    final note = selectedNoteReference;
+    if (note == null) return;
+    await Navigator.of(
+      context,
+    ).push<void>(MaterialPageRoute(builder: (_) => NoteEditorPage(note: note)));
+  }
+
+  Future<void> retargetSelectedNoteReference() async {
+    final currentId = selectedEmbedId;
+    if (selectedEmbedType != richNoteEmbedTypeNote || currentId == null) return;
+    final candidates = AppStoreScope.of(
+      context,
+    ).visibleNotes.where((note) => note.id != currentId);
+    final selected = await showDialog<NoteItem>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('重新指定筆記'),
+        children: [
+          for (final note in candidates)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, note),
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(noteTemplateIcon(note.templateType)),
+                title: Text(note.title),
+                subtitle: Text(noteTemplateLabel(note.templateType)),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (!mounted || selected == null) return;
+    if (widget.controller.retargetEmbedBlock(
+      type: richNoteEmbedTypeNote,
+      currentId: currentId,
+      nextId: selected.id,
+    )) {
+      setState(() => selectedEmbedId = selected.id);
+    }
+  }
+
+  void removeSelectedNoteReference() {
+    final id = selectedEmbedId;
+    if (selectedEmbedType != richNoteEmbedTypeNote || id == null) return;
+    widget.controller.removeEmbedBlock(type: richNoteEmbedTypeNote, id: id);
     clearEmbedSelection();
   }
 
@@ -4195,6 +4327,7 @@ class _GeneralRichTextEditorPanelState
     if (!mounted) return;
     final preview = bytes == null ? null : safeUtf8Preview(bytes);
     final isImage = bytes != null && isImageFileName(name);
+    final isPdf = bytes != null && name.toLowerCase().endsWith('.pdf');
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -4204,6 +4337,17 @@ class _GeneralRichTextEditorPanelState
           child: SingleChildScrollView(
             child: isImage
                 ? Image.memory(bytes, fit: BoxFit.contain)
+                : isPdf
+                ? SizedBox(
+                    height: 520,
+                    child: PdfPreview(
+                      build: (_) async => bytes,
+                      allowPrinting: false,
+                      allowSharing: false,
+                      canChangeOrientation: false,
+                      canChangePageFormat: false,
+                    ),
+                  )
                 : preview == null || preview.trim().isEmpty
                 ? const Text('此附件無法在筆記內預覽，可下載後使用裝置上的其他 App 開啟。')
                 : SelectableText(preview),
@@ -4248,6 +4392,23 @@ class _GeneralRichTextEditorPanelState
       return;
     }
     showToast(context, savedPath == null ? '已取消下載' : '附件已儲存');
+  }
+
+  Future<void> openSelectedAttachmentExternally() async {
+    final attachment = selectedAttachment;
+    if (attachment == null) return;
+    final bytes = await AppStoreScope.of(context).attachmentBytes(attachment);
+    if (!mounted) return;
+    if (bytes == null || bytes.isEmpty) {
+      showToast(context, '附件內容無法開啟');
+      return;
+    }
+    final error = await openAttachmentWithSystemApp(
+      fileName: readString(attachment['name'], fallback: 'attachment'),
+      bytes: bytes,
+    );
+    if (!mounted) return;
+    if (error != null) showToast(context, error);
   }
 
   Future<void> renameSelectedAttachment() async {
@@ -4324,6 +4485,7 @@ class _GeneralRichTextEditorPanelState
             RichAttachmentEditToolbar(
               attachment: selectedAttachment!,
               onOpen: openSelectedAttachment,
+              onExternalOpen: openSelectedAttachmentExternally,
               onDownload: downloadSelectedAttachment,
               onRename: renameSelectedAttachment,
               onReplace: replaceSelectedAttachment,
@@ -4336,6 +4498,14 @@ class _GeneralRichTextEditorPanelState
               onMarkDone: () => setSelectedTodoReferenceDone(true),
               onMarkUndone: () => setSelectedTodoReferenceDone(false),
               onRemove: removeSelectedTodoReference,
+            )
+          else if (selectedEmbedType == richNoteEmbedTypeNote)
+            RichNoteReferenceEditToolbar(
+              onPreview: previewSelectedNoteReference,
+              onEdit: editSelectedNoteReference,
+              onRetarget: retargetSelectedNoteReference,
+              onRemove: removeSelectedNoteReference,
+              onDone: clearEmbedSelection,
             )
           else
             RichTextTemplateToolbar(
@@ -4612,6 +4782,18 @@ class _GeneralRichTextEditorPanelState
                                                 selectedEmbedId == block.id,
                                             onSelect: () => selectEmbed(
                                               richNoteEmbedTypeTodo,
+                                              block.id,
+                                            ),
+                                          ),
+                                        RichNoteFlowBlockType.note =>
+                                          InlineRichNoteReferenceBlock(
+                                            noteId: block.id,
+                                            selected:
+                                                selectedEmbedType ==
+                                                    richNoteEmbedTypeNote &&
+                                                selectedEmbedId == block.id,
+                                            onSelect: () => selectEmbed(
+                                              richNoteEmbedTypeNote,
                                               block.id,
                                             ),
                                           ),
@@ -4978,6 +5160,129 @@ class InlineRichTodoReferenceBlock extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class InlineRichNoteReferenceBlock extends StatelessWidget {
+  const InlineRichNoteReferenceBlock({
+    super.key,
+    required this.noteId,
+    required this.selected,
+    required this.onSelect,
+  });
+
+  final String noteId;
+  final bool selected;
+  final VoidCallback onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = AppStoreScope.of(context);
+    final note = store.notes.where((item) => item.id == noteId).firstOrNull;
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: InkWell(
+        onTap: onSelect,
+        borderRadius: BorderRadius.circular(10),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: colorScheme.secondaryContainer.withValues(alpha: 0.38),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected
+                  ? colorScheme.primary
+                  : colorScheme.outlineVariant,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                Icon(
+                  note == null
+                      ? Icons.link_off_outlined
+                      : noteTemplateIcon(note.templateType),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        note?.title ?? '筆記已不存在',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      if (note != null)
+                        Text(
+                          noteTemplateLabel(note.templateType),
+                          style: Theme.of(context).textTheme.labelMedium
+                              ?.copyWith(color: colorScheme.onSurfaceVariant),
+                        ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.link, size: 16),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class RichNoteReferenceEditToolbar extends StatelessWidget {
+  const RichNoteReferenceEditToolbar({
+    super.key,
+    required this.onPreview,
+    required this.onEdit,
+    required this.onRetarget,
+    required this.onRemove,
+    required this.onDone,
+  });
+
+  final VoidCallback onPreview;
+  final VoidCallback onEdit;
+  final VoidCallback onRetarget;
+  final VoidCallback onRemove;
+  final VoidCallback onDone;
+
+  @override
+  Widget build(BuildContext context) {
+    return _RichAssetToolbarShell(
+      children: [
+        RichToolbarIconButton(
+          tooltip: '預覽筆記',
+          icon: Icons.visibility_outlined,
+          onPressed: onPreview,
+        ),
+        RichToolbarIconButton(
+          tooltip: '編輯筆記',
+          icon: Icons.edit_outlined,
+          onPressed: onEdit,
+        ),
+        RichToolbarIconButton(
+          tooltip: '重新指定',
+          icon: Icons.swap_horiz,
+          onPressed: onRetarget,
+        ),
+        RichToolbarIconButton(
+          tooltip: '自本筆記移除',
+          icon: Icons.delete_outline,
+          onPressed: onRemove,
+        ),
+        RichToolbarIconButton(
+          tooltip: '完成',
+          icon: Icons.check,
+          onPressed: onDone,
+        ),
+      ],
     );
   }
 }
@@ -5854,6 +6159,7 @@ class RichAttachmentEditToolbar extends StatelessWidget {
     super.key,
     required this.attachment,
     required this.onOpen,
+    required this.onExternalOpen,
     required this.onDownload,
     required this.onRename,
     required this.onReplace,
@@ -5863,6 +6169,7 @@ class RichAttachmentEditToolbar extends StatelessWidget {
 
   final Map<String, dynamic> attachment;
   final VoidCallback onOpen;
+  final VoidCallback onExternalOpen;
   final VoidCallback onDownload;
   final VoidCallback onRename;
   final VoidCallback onReplace;
@@ -5874,9 +6181,14 @@ class RichAttachmentEditToolbar extends StatelessWidget {
     return _RichAssetToolbarShell(
       children: [
         RichToolbarIconButton(
-          tooltip: '開啟',
-          icon: Icons.open_in_new,
+          tooltip: '內建預覽',
+          icon: Icons.visibility_outlined,
           onPressed: onOpen,
+        ),
+        RichToolbarIconButton(
+          tooltip: '使用其他 App 開啟',
+          icon: Icons.open_in_new,
+          onPressed: onExternalOpen,
         ),
         RichToolbarIconButton(
           tooltip: '下載',

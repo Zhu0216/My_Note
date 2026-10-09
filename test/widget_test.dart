@@ -4630,6 +4630,127 @@ void main() {
     }
   });
 
+  testWidgets('inserted note block previews retargets and removes', (
+    tester,
+  ) async {
+    final target = NoteItem(
+      id: 'target-note',
+      title: '目標筆記',
+      body: '目標摘要',
+      category: '',
+      tags: const [],
+      createdAt: DateTime(2026, 10, 10),
+      updatedAt: DateTime(2026, 10, 10),
+    );
+    final replacement = NoteItem(
+      id: 'replacement-note',
+      title: '替代筆記',
+      body: '替代摘要',
+      category: '',
+      tags: const [],
+      createdAt: DateTime(2026, 10, 10),
+      updatedAt: DateTime(2026, 10, 10),
+    );
+    final controller = RichNoteTextController(
+      text: richNoteEmbedObject,
+      marks: const [
+        RichNoteMark(
+          start: 0,
+          end: 1,
+          attributes: {
+            RichNoteAttribute.embedType: richNoteEmbedTypeNote,
+            RichNoteAttribute.embedId: 'target-note',
+          },
+        ),
+      ],
+    );
+    final source = NoteItem(
+      id: 'source-note',
+      title: '來源筆記',
+      body: controller.text,
+      category: '',
+      tags: const [],
+      createdAt: DateTime(2026, 10, 10),
+      updatedAt: DateTime(2026, 10, 10),
+      templateData: generalNoteTemplateData(
+        defaultNoteTemplateData(NoteTemplateType.general),
+        controller,
+        const [],
+        const [],
+      ),
+    );
+    final store = AppStore.seeded(persistenceLocked: true)
+      ..upsertNote(target)
+      ..upsertNote(replacement)
+      ..upsertNote(source);
+
+    try {
+      expect(
+        store
+            .relatedItemsFrom(
+              const RelatedItemLink(
+                type: RelatedItemType.note,
+                targetId: 'source-note',
+              ),
+            )
+            .single
+            .id,
+        'target-note',
+      );
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(
+            home: Scaffold(
+              body: GeneralRichTextEditorPanel(
+                controller: controller,
+                readOnly: false,
+                style: defaultNoteStyle(),
+                images: const [],
+                attachments: const [],
+                background: defaultNoteBackground(),
+                onStyleChanged: (_) {},
+                onAddImage: () {},
+                onAddAttachment: () {},
+                onInsertTodo: () {},
+                onImagesChanged: (_) {},
+                onAttachmentsChanged: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(InlineRichNoteReferenceBlock));
+      await tester.pumpAndSettle();
+      expect(find.byType(RichNoteReferenceEditToolbar), findsOneWidget);
+
+      await tester.tap(find.byTooltip('預覽筆記'));
+      await tester.pumpAndSettle();
+      expect(find.text('目標摘要'), findsOneWidget);
+      await tester.tap(find.text('關閉'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('重新指定'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('替代筆記'));
+      await tester.pumpAndSettle();
+      expect(
+        controller.marks.single.attributes[RichNoteAttribute.embedId],
+        'replacement-note',
+      );
+
+      await tester.tap(find.byTooltip('自本筆記移除'));
+      await tester.pumpAndSettle();
+      expect(find.byType(InlineRichNoteReferenceBlock), findsNothing);
+    } finally {
+      controller.dispose();
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
   testWidgets('rich image block remains selectable from editor flow', (
     tester,
   ) async {
@@ -4748,6 +4869,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(RichAttachmentEditToolbar), findsOneWidget);
       expect(find.byTooltip('取代附件'), findsOneWidget);
+      expect(find.byTooltip('使用其他 App 開啟'), findsOneWidget);
 
       await tester.tap(find.byTooltip('重新命名'));
       await tester.pumpAndSettle();

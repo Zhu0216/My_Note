@@ -666,7 +666,7 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-020 — Functional attachments and inserted-note blocks
 
-- Status: `IN PROGRESS`
+- Status: `NEEDS VERIFICATION`
 - User-visible behavior: attachment and inserted-note blocks perform their real
   target actions instead of acting as placeholders.
 - Acceptance: attachments support preview, external open, save-as, rename,
@@ -675,13 +675,18 @@ the current behavior has not been independently accepted for this v1 baseline.
   summary preview, full edit with contextual return, retarget, and remove;
   embedded and ordinary relationship sources coexist without losing links.
 - Dependencies: P0-008, P1-002, P1-018.
-- Completion evidence: attachment blobs already satisfy the size limits through
-  P0-008. The inline attachment toolbar now performs built-in preview, save-as,
-  rename, atomic blob replacement, remove, and close actions; failed replacement
-  leaves the original metadata and blob reference unchanged. A widget test
-  covers selection, rename, and the replace action. External native-app open,
-  richer PDF preview, and the inserted-note block preview/edit/retarget/remove
-  flow remain unfinished.
+- Completion evidence: attachment blobs satisfy the size limits through P0-008.
+  The inline toolbar performs image/text/PDF preview, native external-app open,
+  save-as, rename, atomic blob replacement, remove, and close; failed replacement
+  leaves the original unchanged. Inserted notes are document-flow blocks rather
+  than title text tokens and support template-aware summary preview, full nested
+  editing with contextual return, retarget, remove, and missing-target recovery.
+  Embedded links are merged with ordinary links only when building the memory
+  index, so neither source overwrites the other. Widget tests cover attachment
+  actions and inserted-note preview/retarget/remove plus relationship discovery.
+  Static analysis passes; full tests and Web build are recorded with the task
+  commit. Native external open and device presentation still require X510
+  verification while the device is offline.
 
 ### P1-021 — Theme-derived note appearance and cover previews
 

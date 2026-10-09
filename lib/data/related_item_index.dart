@@ -94,7 +94,10 @@ extension AppStoreRelatedItemIndex on AppStore {
           title: note.title,
           subtitle: note.category.isEmpty ? '未分類' : note.category,
         ),
-        note.links,
+        normalizeRelatedItemLinks([
+          ...note.links,
+          ..._embeddedNoteLinks(note, notes),
+        ]),
       );
     }
     for (final todo in todos) {
@@ -158,6 +161,34 @@ extension AppStoreRelatedItemIndex on AppStore {
       );
     }
   }
+}
+
+List<RelatedItemLink> _embeddedNoteLinks(
+  NoteItem note,
+  Iterable<NoteItem> allNotes,
+) {
+  final richText = readStringMap(note.templateData['richText']);
+  final spans = readMapList(richText['spans']);
+  final links = <RelatedItemLink>[];
+  for (final span in spans) {
+    final attributes = readStringMap(span['attributes']);
+    if (attributes['embedType'] != 'noteReference') continue;
+    final targetId = readString(attributes['embedId']);
+    final target = allNotes.where((item) => item.id == targetId).firstOrNull;
+    if (target == null) continue;
+    links.add(
+      RelatedItemLink(
+        type: switch (target.templateType) {
+          NoteTemplateType.general => RelatedItemType.note,
+          NoteTemplateType.plan => RelatedItemType.plan,
+          NoteTemplateType.mindMap => RelatedItemType.mindMap,
+          NoteTemplateType.lifeSheet => RelatedItemType.lifeProject,
+        },
+        targetId: targetId,
+      ),
+    );
+  }
+  return links;
 }
 
 class _RelatedItemRecord {
