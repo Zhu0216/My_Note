@@ -4697,6 +4697,72 @@ void main() {
     expect(transform.visibleHandles, hasLength(8));
   });
 
+  testWidgets('attachment toolbar performs rename and exposes replace', (
+    tester,
+  ) async {
+    final store = AppStore.seeded(persistenceLocked: true);
+    final controller = RichNoteTextController(
+      text: richNoteEmbedObject,
+      marks: const [
+        RichNoteMark(
+          start: 0,
+          end: 1,
+          attributes: {
+            RichNoteAttribute.embedType: richNoteEmbedTypeAttachment,
+            RichNoteAttribute.embedId: 'attachment-1',
+          },
+        ),
+      ],
+    );
+    var attachments = <Map<String, dynamic>>[
+      {'id': 'attachment-1', 'name': 'original.txt', 'size': 12},
+    ];
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(
+            home: Scaffold(
+              body: GeneralRichTextEditorPanel(
+                controller: controller,
+                readOnly: false,
+                style: defaultNoteStyle(),
+                images: const [],
+                attachments: attachments,
+                background: defaultNoteBackground(),
+                onStyleChanged: (_) {},
+                onAddImage: () {},
+                onAddAttachment: () {},
+                onInsertTodo: () {},
+                onImagesChanged: (_) {},
+                onAttachmentsChanged: (value) => attachments = List.of(value),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(InlineRichAttachmentBlock));
+      await tester.pumpAndSettle();
+      expect(find.byType(RichAttachmentEditToolbar), findsOneWidget);
+      expect(find.byTooltip('取代附件'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('重新命名'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'renamed.txt');
+      await tester.tap(find.text('確認'));
+      await tester.pumpAndSettle();
+
+      expect(attachments.single['name'], 'renamed.txt');
+    } finally {
+      controller.dispose();
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
   testWidgets('note back closes image subtools before leaving the editor', (
     tester,
   ) async {

@@ -4250,6 +4250,53 @@ class _GeneralRichTextEditorPanelState
     showToast(context, savedPath == null ? '已取消下載' : '附件已儲存');
   }
 
+  Future<void> renameSelectedAttachment() async {
+    final attachment = selectedAttachment;
+    if (attachment == null) return;
+    final currentName = readString(attachment['name'], fallback: '附件');
+    final name = await promptForText(
+      context,
+      title: '重新命名附件',
+      label: '檔案名稱',
+      initialValue: currentName,
+    );
+    if (!mounted ||
+        name == null ||
+        name.trim().isEmpty ||
+        name == currentName) {
+      return;
+    }
+    updateAttachment({...attachment, 'name': name.trim()});
+  }
+
+  Future<void> replaceSelectedAttachment() async {
+    final attachment = selectedAttachment;
+    if (attachment == null) return;
+    final file = await NoteFileService.pickAttachment();
+    if (!mounted || file == null) return;
+    final bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      showToast(context, '無法讀取附件');
+      return;
+    }
+    try {
+      final replacement = await AppStoreScope.of(context)
+          .createAttachmentMetadata(
+            existingAttachments: widget.attachments.where(
+              (item) => readString(item['id']) != readString(attachment['id']),
+            ),
+            name: file.name,
+            bytes: bytes,
+          );
+      if (!mounted) return;
+      updateAttachment({...replacement, 'id': readString(attachment['id'])});
+    } on AttachmentLimitException catch (error) {
+      if (mounted) showToast(context, error.message);
+    } catch (_) {
+      if (mounted) showToast(context, '附件取代失敗，原附件未變更');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -4278,6 +4325,8 @@ class _GeneralRichTextEditorPanelState
               attachment: selectedAttachment!,
               onOpen: openSelectedAttachment,
               onDownload: downloadSelectedAttachment,
+              onRename: renameSelectedAttachment,
+              onReplace: replaceSelectedAttachment,
               onDelete: deleteSelectedAttachment,
               onDone: clearEmbedSelection,
             )
@@ -5806,6 +5855,8 @@ class RichAttachmentEditToolbar extends StatelessWidget {
     required this.attachment,
     required this.onOpen,
     required this.onDownload,
+    required this.onRename,
+    required this.onReplace,
     required this.onDelete,
     required this.onDone,
   });
@@ -5813,6 +5864,8 @@ class RichAttachmentEditToolbar extends StatelessWidget {
   final Map<String, dynamic> attachment;
   final VoidCallback onOpen;
   final VoidCallback onDownload;
+  final VoidCallback onRename;
+  final VoidCallback onReplace;
   final VoidCallback onDelete;
   final VoidCallback onDone;
 
@@ -5829,6 +5882,16 @@ class RichAttachmentEditToolbar extends StatelessWidget {
           tooltip: '下載',
           icon: Icons.download_outlined,
           onPressed: onDownload,
+        ),
+        RichToolbarIconButton(
+          tooltip: '重新命名',
+          icon: Icons.drive_file_rename_outline,
+          onPressed: onRename,
+        ),
+        RichToolbarIconButton(
+          tooltip: '取代附件',
+          icon: Icons.change_circle_outlined,
+          onPressed: onReplace,
         ),
         RichToolbarIconButton(
           tooltip: '刪除附件',
