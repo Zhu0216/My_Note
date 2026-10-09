@@ -311,12 +311,15 @@ class _NotesNavigationDrawerState extends State<NotesNavigationDrawer> {
               onTap: () async {
                 Navigator.pop(context);
                 final confirmed = await confirmDelete(
-                  context,
+                  this.context,
                   title: '刪除資料夾？',
                   message: '確定要刪除這個資料夾嗎？',
                 );
-                if (confirmed) {
-                  store.deleteNoteFolder(folder);
+                if (mounted && confirmed) {
+                  showPendingDeleteUndo(
+                    this.context,
+                    () => store.deleteNoteFolder(folder),
+                  );
                 }
               },
             ),
@@ -369,12 +372,15 @@ class _NotesNavigationDrawerState extends State<NotesNavigationDrawer> {
               onTap: () async {
                 Navigator.pop(context);
                 final confirmed = await confirmDelete(
-                  context,
+                  this.context,
                   title: '刪除筆記？',
                   message: '確定要刪除這筆筆記嗎？',
                 );
-                if (confirmed) {
-                  store.deleteNote(note);
+                if (mounted && confirmed) {
+                  showPendingDeleteUndo(
+                    this.context,
+                    () => store.deleteNote(note),
+                  );
                 }
               },
             ),
@@ -1374,8 +1380,11 @@ class NotesPageState extends State<NotesPage>
                   title: '刪除資料夾？',
                   message: '確定要刪除這個資料夾嗎？',
                 );
-                if (confirmed) {
-                  store.deleteNoteFolder(targetFolder);
+                if (mounted && confirmed) {
+                  showPendingDeleteUndo(
+                    this.context,
+                    () => store.deleteNoteFolder(targetFolder),
+                  );
                   setState(() {});
                 }
               },
@@ -1392,7 +1401,7 @@ class NotesPageState extends State<NotesPage>
       title: '刪除選取項目？',
       message: '確定要刪除選取的筆記與資料夾嗎？',
     );
-    if (!confirmed) {
+    if (!mounted || !confirmed) {
       return;
     }
     final deletingFolders = selectedFolderPaths.toList(growable: false);
@@ -1401,12 +1410,14 @@ class NotesPageState extends State<NotesPage>
           normalizeFolderPath(folder) == normalizeFolderPath(item) ||
           folderContains(item, folder),
     );
-    if (selectedNoteIds.isNotEmpty) {
-      store.deleteNotesById(selectedNoteIds);
-    }
-    for (final folderPath in deletingFolders) {
-      store.deleteNoteFolder(folderPath);
-    }
+    showPendingDeleteUndo(context, () {
+      if (selectedNoteIds.isNotEmpty) {
+        store.deleteNotesById(selectedNoteIds);
+      }
+      for (final folderPath in deletingFolders) {
+        store.deleteNoteFolder(folderPath);
+      }
+    });
     setState(() {
       batchMode = false;
       selectedNoteIds.clear();

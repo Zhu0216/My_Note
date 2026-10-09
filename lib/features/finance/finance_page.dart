@@ -296,8 +296,6 @@ class _FinancePageState extends State<FinancePage> {
                         padding: const EdgeInsets.only(bottom: 6),
                         child: SwipeDeleteTile(
                           itemKey: 'finance-subscription-${sub.id}',
-                          confirmTitle: '刪除訂閱？',
-                          confirmMessage: '這筆訂閱會從列表移除。',
                           onDelete: () => store.deleteSubscription(sub),
                           child: ListTile(
                             contentPadding: EdgeInsets.zero,

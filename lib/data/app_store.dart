@@ -14,6 +14,13 @@ class _StoredSnapshot {
   final DateTime? savedAt;
 }
 
+class _PendingDeletion {
+  const _PendingDeletion({required this.key, required this.restore});
+
+  final String key;
+  final VoidCallback restore;
+}
+
 class AppStore extends ChangeNotifier {
   AppStore._({
     required AttachmentBlobStore attachmentBlobStore,
@@ -43,6 +50,7 @@ class AppStore extends ChangeNotifier {
     _syncNoteFolders();
     _removeLegacySeedTodos();
     _cleanupCompletedTodos();
+    _cleanupDanglingRelationships();
     _normalizeTodoOrder();
     _nextId = _calculateNextId();
     _scheduleCompletedTodoCleanup();
@@ -89,6 +97,7 @@ class AppStore extends ChangeNotifier {
       'my_note_local_v1_change_journal';
   static const int _maxBackupSnapshots = 12;
   static const int _maxChangeJournalEntries = 200;
+  static const Duration deleteUndoDuration = Duration(seconds: 5);
 
   void _removeLegacySeedTodos() {
     const legacySeedTodoTitles = {'讀書計畫', '完成筆記模板整理', '設定 Firebase 專案'};
@@ -438,6 +447,41 @@ class AppStore extends ChangeNotifier {
   String _lastChangeAction = 'load';
   late final AttachmentBlobStore _attachmentBlobStore;
   final Set<String> _pendingAttachmentBlobIds = <String>{};
+  final List<_PendingDeletion> _pendingDeletions = <_PendingDeletion>[];
+  Timer? _deleteUndoTimer;
+
+  int get pendingDeleteCount => _pendingDeletions.length;
+
+  void _registerPendingDeletion(_PendingDeletion deletion) {
+    if (_pendingDeletions.any((item) => item.key == deletion.key)) return;
+    _pendingDeletions.add(deletion);
+    _deleteUndoTimer?.cancel();
+    _deleteUndoTimer = Timer(deleteUndoDuration, _finalizePendingDeletions);
+  }
+
+  void undoPendingDeletes() {
+    if (_pendingDeletions.isEmpty) return;
+    _deleteUndoTimer?.cancel();
+    for (final deletion in _pendingDeletions.reversed) {
+      deletion.restore();
+    }
+    final count = _pendingDeletions.length;
+    _pendingDeletions.clear();
+    _normalizeTodoOrder();
+    _commit('delete.undo:$count');
+  }
+
+  void _finalizePendingDeletions() {
+    if (_pendingDeletions.isEmpty) return;
+    _deleteUndoTimer?.cancel();
+    final count = _pendingDeletions.length;
+    _pendingDeletions.clear();
+    if (_cleanupDanglingRelationships()) {
+      _commit('delete.finalize:$count');
+    } else {
+      notifyListeners();
+    }
+  }
 
   String newId(String prefix) => '$prefix${_nextId++}';
 
@@ -641,6 +685,7 @@ class AppStore extends ChangeNotifier {
 
   /// Creates a portable snapshot. This never changes current app state.
   Future<String> exportBundle({bool includeAttachments = true}) async {
+    _finalizePendingDeletions();
     await flushPersistence();
     final data = cloneJsonMap(toJson());
     await _prepareAttachmentExport(
@@ -654,6 +699,7 @@ class AppStore extends ChangeNotifier {
   /// snapshot. The previous state is checkpointed before the imported one is
   /// committed, so a failed or unwanted import remains recoverable.
   Future<LocalImportResult> importBundle(String raw) async {
+    _finalizePendingDeletions();
     final bundle = LocalDataBundle.decode(raw);
     final candidateRaw = jsonEncode(bundle.data);
     final candidate = _tryLoadFromRaw(
@@ -899,6 +945,7 @@ class AppStore extends ChangeNotifier {
       return completedAt == null || completedAt.isBefore(cutoff);
     });
     if (before != todos.length) {
+      _cleanupDanglingRelationships();
       _normalizeTodoOrder();
       if (notify) {
         _commit('todo.cleanup.completed');
@@ -914,9 +961,119 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  bool _cleanupDanglingRelationships() {
+    final validIds = <RelatedItemType, Set<String>>{
+      for (final type in RelatedItemType.values) type: <String>{},
+    };
+    for (final note in notes) {
+      final type = switch (note.templateType) {
+        NoteTemplateType.general => RelatedItemType.note,
+        NoteTemplateType.plan => RelatedItemType.plan,
+        NoteTemplateType.mindMap => RelatedItemType.mindMap,
+        NoteTemplateType.lifeSheet => RelatedItemType.lifeProject,
+      };
+      validIds[type]!.add(note.id);
+    }
+    validIds[RelatedItemType.todo]!.addAll(todos.map((item) => item.id));
+    validIds[RelatedItemType.schedule]!.addAll(
+      schedules.map((item) => item.id),
+    );
+    validIds[RelatedItemType.finance]!.addAll(
+      financeEntries.map((item) => item.id),
+    );
+    validIds[RelatedItemType.subscription]!.addAll(
+      subscriptions.map((item) => item.id),
+    );
+    validIds[RelatedItemType.account]!.addAll(
+      savingsAccounts.map((item) => item.id),
+    );
+
+    bool isValid(RelatedItemLink link) =>
+        validIds[link.type]?.contains(link.targetId) == true;
+    var changed = false;
+    void cleanLinks(List<RelatedItemLink> links) {
+      final before = links.length;
+      links.removeWhere((link) => !isValid(link));
+      changed = changed || links.length != before;
+    }
+
+    for (final note in notes) {
+      cleanLinks(note.links);
+      if (_cleanupTemplateRelationships(note.templateData, validIds)) {
+        changed = true;
+      }
+    }
+    for (final item in schedules) {
+      cleanLinks(item.links);
+    }
+    for (final item in subscriptions) {
+      cleanLinks(item.links);
+    }
+    for (final item in financeEntries) {
+      cleanLinks(item.links);
+    }
+    for (final item in savingsAccounts) {
+      cleanLinks(item.links);
+    }
+    for (final item in todos) {
+      cleanLinks(item.links);
+    }
+    return changed;
+  }
+
+  static bool _cleanupTemplateRelationships(
+    Object? value,
+    Map<RelatedItemType, Set<String>> validIds,
+  ) {
+    var changed = false;
+    if (value is List) {
+      for (final child in value) {
+        if (_cleanupTemplateRelationships(child, validIds)) changed = true;
+      }
+      return changed;
+    }
+    if (value is! Map) return false;
+
+    final links = value['links'];
+    if (links is List) {
+      final before = links.length;
+      links.removeWhere((raw) {
+        if (raw is! Map) return true;
+        final typeName = readString(raw['type']);
+        final type = RelatedItemType.values
+            .where((item) => item.name == typeName)
+            .firstOrNull;
+        final targetId = readString(raw['targetId']);
+        return type == null ||
+            targetId.isEmpty ||
+            validIds[type]?.contains(targetId) != true;
+      });
+      if (links.length != before) changed = true;
+    }
+    final linkedTodoId = readString(value['linkedTodoId']);
+    if (linkedTodoId.isNotEmpty &&
+        validIds[RelatedItemType.todo]?.contains(linkedTodoId) != true) {
+      value['linkedTodoId'] = null;
+      changed = true;
+    }
+    final linkedScheduleId = readString(value['linkedScheduleId']);
+    if (linkedScheduleId.isNotEmpty &&
+        validIds[RelatedItemType.schedule]?.contains(linkedScheduleId) !=
+            true) {
+      value['linkedScheduleId'] = null;
+      changed = true;
+    }
+    for (final entry in value.entries) {
+      if (entry.key == 'links') continue;
+      if (_cleanupTemplateRelationships(entry.value, validIds)) changed = true;
+    }
+    return changed;
+  }
+
   @override
   void dispose() {
     _todoCleanupTimer?.cancel();
+    _deleteUndoTimer?.cancel();
     unawaited(flushPersistence());
     super.dispose();
   }
@@ -1084,6 +1241,19 @@ class AppStore extends ChangeNotifier {
   void deleteNotesById(Set<String> ids) {
     final now = DateTime.now();
     for (final note in notes.where((item) => ids.contains(item.id))) {
+      if (note.deletedAt != null) continue;
+      final previousDeletedAt = note.deletedAt;
+      final previousUpdatedAt = note.updatedAt;
+      _registerPendingDeletion(
+        _PendingDeletion(
+          key: 'note:${note.id}',
+          restore: () {
+            note
+              ..deletedAt = previousDeletedAt
+              ..updatedAt = previousUpdatedAt;
+          },
+        ),
+      );
       note.deletedAt = now;
       note.updatedAt = now;
     }
@@ -1103,9 +1273,11 @@ class AppStore extends ChangeNotifier {
   }
 
   void permanentlyDeleteNotesById(Set<String> ids) {
+    _finalizePendingDeletions();
     notes.removeWhere(
       (item) => ids.contains(item.id) && item.deletedAt != null,
     );
+    _cleanupDanglingRelationships();
     _commit('note.delete.permanent:${ids.join(',')}');
   }
 
@@ -1209,6 +1381,33 @@ class AppStore extends ChangeNotifier {
     if (path.isEmpty) {
       return;
     }
+    final removedFolders = <(int, String)>[
+      for (var index = 0; index < noteFolders.length; index++)
+        if (folderContains(path, noteFolders[index]))
+          (index, noteFolders[index]),
+    ];
+    final affectedNotes = <(NoteItem, DateTime?, DateTime)>[
+      for (final note in notes)
+        if (folderContains(path, note.category))
+          (note, note.deletedAt, note.updatedAt),
+    ];
+    _registerPendingDeletion(
+      _PendingDeletion(
+        key: 'folder:$path',
+        restore: () {
+          for (final (note, deletedAt, updatedAt) in affectedNotes) {
+            note
+              ..deletedAt = deletedAt
+              ..updatedAt = updatedAt;
+          }
+          for (final (index, value) in removedFolders) {
+            if (!noteFolders.contains(value)) {
+              noteFolders.insert(math.min(index, noteFolders.length), value);
+            }
+          }
+        },
+      ),
+    );
     final now = DateTime.now();
     for (final note in notes.where(
       (item) => folderContains(path, item.category),
@@ -1246,13 +1445,13 @@ class AppStore extends ChangeNotifier {
   }
 
   void deleteNote(NoteItem note) {
-    note.deletedAt = DateTime.now();
-    note.updatedAt = DateTime.now();
-    _commit('note.trash:${note.id}');
+    deleteNotesById({note.id});
   }
 
   void clearTrashNotes() {
+    _finalizePendingDeletions();
     notes.removeWhere((item) => item.deletedAt != null);
+    _cleanupDanglingRelationships();
     _commit('note.trash.clear');
   }
 
@@ -1267,7 +1466,17 @@ class AppStore extends ChangeNotifier {
   }
 
   void deleteSchedule(ScheduleItem item) {
-    schedules.removeWhere((schedule) => schedule.id == item.id);
+    final index = schedules.indexWhere((schedule) => schedule.id == item.id);
+    if (index < 0) return;
+    final snapshot = scheduleFromJson(scheduleToJson(schedules[index]));
+    _registerPendingDeletion(
+      _PendingDeletion(
+        key: 'schedule:${item.id}',
+        restore: () =>
+            schedules.insert(math.min(index, schedules.length), snapshot),
+      ),
+    );
+    schedules.removeAt(index);
     _commit('schedule.delete:${item.id}:${item.title}');
   }
 
@@ -1282,7 +1491,21 @@ class AppStore extends ChangeNotifier {
   }
 
   void deleteSubscription(SubscriptionItem item) {
-    subscriptions.removeWhere((sub) => sub.id == item.id);
+    final index = subscriptions.indexWhere((sub) => sub.id == item.id);
+    if (index < 0) return;
+    final snapshot = subscriptionFromJson(
+      subscriptionToJson(subscriptions[index]),
+    );
+    _registerPendingDeletion(
+      _PendingDeletion(
+        key: 'subscription:${item.id}',
+        restore: () => subscriptions.insert(
+          math.min(index, subscriptions.length),
+          snapshot,
+        ),
+      ),
+    );
+    subscriptions.removeAt(index);
     _commit('subscription.delete:${item.id}:${item.name}');
   }
 
@@ -1297,7 +1520,21 @@ class AppStore extends ChangeNotifier {
   }
 
   void deleteFinanceEntry(FinanceEntry item) {
-    financeEntries.removeWhere((entry) => entry.id == item.id);
+    final index = financeEntries.indexWhere((entry) => entry.id == item.id);
+    if (index < 0) return;
+    final snapshot = financeEntryFromJson(
+      financeEntryToJson(financeEntries[index]),
+    );
+    _registerPendingDeletion(
+      _PendingDeletion(
+        key: 'finance:${item.id}',
+        restore: () => financeEntries.insert(
+          math.min(index, financeEntries.length),
+          snapshot,
+        ),
+      ),
+    );
+    financeEntries.removeAt(index);
     _commit('finance.delete:${item.id}');
   }
 
@@ -1316,6 +1553,7 @@ class AppStore extends ChangeNotifier {
       throw StateError('帳戶仍有記帳紀錄，無法刪除。');
     }
     savingsAccounts.removeWhere((item) => item.id == account.id);
+    _cleanupDanglingRelationships();
     _commit('savings.delete:${account.id}:${account.name}');
   }
 
@@ -1388,7 +1626,16 @@ class AppStore extends ChangeNotifier {
   }
 
   void deleteTodo(TodoItem todo) {
-    todos.removeWhere((item) => item.id == todo.id);
+    final index = todos.indexWhere((item) => item.id == todo.id);
+    if (index < 0) return;
+    final snapshot = todoFromJson(todoToJson(todos[index]));
+    _registerPendingDeletion(
+      _PendingDeletion(
+        key: 'todo:${todo.id}',
+        restore: () => todos.insert(math.min(index, todos.length), snapshot),
+      ),
+    );
+    todos.removeAt(index);
     _commit('todo.delete:${todo.id}:${todo.title}');
   }
 

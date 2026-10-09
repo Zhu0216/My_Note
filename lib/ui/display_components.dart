@@ -237,8 +237,6 @@ class NoteTile extends StatelessWidget {
     }
     return SwipeDeleteTile(
       itemKey: 'note-${note.id}',
-      confirmTitle: '刪除筆記？',
-      confirmMessage: '確定要刪除這筆筆記嗎？',
       onDelete: onDelete!,
       child: tile,
     );

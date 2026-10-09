@@ -104,8 +104,6 @@ class ScheduleTile extends StatelessWidget {
     }
     return SwipeDeleteTile(
       itemKey: 'schedule-${event.id}',
-      confirmTitle: '刪除行程？',
-      confirmMessage: '確定要刪除這筆行程嗎？',
       onDelete: onDelete!,
       child: tile,
     );
@@ -155,8 +153,6 @@ class FinanceTile extends StatelessWidget {
     }
     return SwipeDeleteTile(
       itemKey: 'finance-${entry.id}',
-      confirmTitle: '刪除記帳？',
-      confirmMessage: '確定要刪除這筆記帳紀錄嗎？',
       onDelete: onDelete!,
       child: tile,
     );

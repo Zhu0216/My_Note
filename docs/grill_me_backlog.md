@@ -601,7 +601,7 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P0-009 — Batched delete, undo, and relationship cleanup
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: swipe delete is immediate, consecutive deletes form one
   five-second undo batch, and undo restores every record exactly.
 - Acceptance: each new delete restarts five seconds; mixed record types restore
@@ -609,7 +609,18 @@ the current behavior has not been independently accepted for this v1 baseline.
   restart completes interrupted cleanup; trashed notes retain links until
   permanent deletion; protected domain deletes remain protected.
 - Dependencies: revision journal and typed-link index.
-- Completion evidence: pending.
+- Completion evidence: `AppStore` now maintains one five-second mixed-type
+  deletion batch, resets the timer after each delete, restores records/folders
+  in their original positions, and delays incoming-link cleanup until expiry or
+  permanent deletion. Startup removes links left dangling by an interrupted
+  cleanup. `SwipeDeleteTile` deletes without a confirmation dialog and exposes
+  one merged undo action; todo and Notes batch/folder actions use the same
+  coordinator while protected permanent/account deletes retain confirmation or
+  referential guards. `test/delete_undo_test.dart` proves timer reset, mixed
+  restoration, folder/link preservation, template-link cleanup, restart cleanup,
+  trash semantics, and no swipe confirmation. Full `flutter test` passed (118
+  tests), `flutter analyze` passed, and Flutter Web debug build passed on
+  2026-10-10.
 
 ### P1-018 — Contextual return and note-delete destination
 

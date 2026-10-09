@@ -2,10 +2,35 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../data/my_note_data.dart';
+import 'app_store_scope.dart';
+
 void showToast(BuildContext context, String message) {
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(content: Text(message)));
+}
+
+void showPendingDeleteUndo(BuildContext context, VoidCallback deleteAction) {
+  final messenger = ScaffoldMessenger.of(context);
+  final store = AppStoreScope.of(context);
+  deleteAction();
+  final count = store.pendingDeleteCount;
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        duration: AppStore.deleteUndoDuration,
+        content: Text(count > 1 ? '已刪除 $count 個項目' : '已刪除'),
+        action: SnackBarAction(
+          label: '復原',
+          onPressed: () {
+            store.undoPendingDeletes();
+            messenger.showSnackBar(const SnackBar(content: Text('已復原刪除項目')));
+          },
+        ),
+      ),
+    );
 }
 
 class AppPage extends StatelessWidget {
@@ -510,15 +535,11 @@ class SwipeDeleteTile extends StatefulWidget {
     super.key,
     required this.itemKey,
     required this.child,
-    required this.confirmTitle,
-    required this.confirmMessage,
     required this.onDelete,
   });
 
   final String itemKey;
   final Widget child;
-  final String confirmTitle;
-  final String confirmMessage;
   final VoidCallback onDelete;
 
   @override
@@ -546,21 +567,9 @@ class _SwipeDeleteTileState extends State<SwipeDeleteTile> {
     }
   }
 
-  Future<void> requestDelete() async {
-    final confirmed = await confirmDelete(
-      context,
-      title: widget.confirmTitle,
-      message: widget.confirmMessage,
-    );
-    if (!mounted) {
-      return;
-    }
-    if (confirmed) {
-      setState(() => dragOffset = 0);
-      widget.onDelete();
-    } else {
-      setState(() => dragOffset = 0);
-    }
+  void requestDelete() {
+    setState(() => dragOffset = 0);
+    showPendingDeleteUndo(context, widget.onDelete);
   }
 
   @override

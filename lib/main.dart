@@ -1208,8 +1208,6 @@ Future<void> showSubscriptionManager(BuildContext context) async {
               padding: const EdgeInsets.only(bottom: 10),
               child: SwipeDeleteTile(
                 itemKey: 'subscription-${item.id}',
-                confirmTitle: '刪除訂閱？',
-                confirmMessage: '這筆訂閱會從列表移除。',
                 onDelete: () => store.deleteSubscription(item),
                 child: Card(
                   child: ListTile(
@@ -1954,8 +1952,7 @@ Future<void> showTodoActionSheet(BuildContext context, TodoItem todo) async {
       await openTodoEditorPage(context, todo: todo);
       break;
     case 'delete':
-      store.deleteTodo(todo);
-      showToast(context, '刪除待辦事項');
+      showPendingDeleteUndo(context, () => store.deleteTodo(todo));
       break;
     case 'complete':
       if (!todo.done) {
@@ -2261,18 +2258,9 @@ Future<void> showTodoDialog(BuildContext context, {TodoItem? todo}) async {
         actions: [
           if (todo != null)
             TextButton.icon(
-              onPressed: () async {
-                final confirmed = await confirmDelete(
-                  context,
-                  title: '刪除待辦事項？',
-                  message: '確定要刪除這個待辦事項嗎？',
-                );
-                if (confirmed) {
-                  store.deleteTodo(todo);
-                  if (context.mounted) {
-                    Navigator.pop(context);
-                  }
-                }
+              onPressed: () {
+                showPendingDeleteUndo(context, () => store.deleteTodo(todo));
+                Navigator.pop(context);
               },
               icon: const Icon(Icons.delete_outline),
               label: const Text('刪除'),

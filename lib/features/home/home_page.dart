@@ -765,8 +765,6 @@ class NotesHomeSection extends StatelessWidget {
           for (final note in notes)
             SwipeDeleteTile(
               itemKey: 'home-note-${note.id}',
-              confirmTitle: '刪除筆記？',
-              confirmMessage: '確定要刪除這則筆記嗎？',
               onDelete: () => store.deleteNote(note),
               child: SizedBox(
                 width: homeGridTileWidth(context),
