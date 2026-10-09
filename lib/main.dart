@@ -368,7 +368,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             .firstOrNull;
         if (schedule != null) {
           await showScheduleEditor(context, event: schedule);
-          if (mounted) setState(() => selectedIndex = 1);
         }
         return;
       case ReminderSourceType.subscription:
@@ -377,7 +376,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             .firstOrNull;
         if (subscription != null) {
           await showSubscriptionEditor(context, subscription: subscription);
-          if (mounted) setState(() => selectedIndex = 3);
         }
         return;
     }
@@ -576,14 +574,6 @@ Future<void> showNoteEditor(
   NoteTemplateType initialTemplateType = NoteTemplateType.general,
   bool readOnly = false,
 }) async {
-  final navigation = AppNavigationScope.maybeOf(context);
-  final targetFolder =
-      returnFolder ??
-      (note != null
-          ? note.category
-          : initialFolder.isEmpty
-          ? '所有筆記'
-          : initialFolder);
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (context) => NoteEditorPage(
@@ -596,10 +586,6 @@ Future<void> showNoteEditor(
       ),
     ),
   );
-  navigation?.onOpenNotesLocation(
-    targetFolder,
-    showTrash: note?.deletedAt != null,
-  );
 }
 
 Future<void> showScheduleEditor(
@@ -607,27 +593,23 @@ Future<void> showScheduleEditor(
   ScheduleItem? event,
   DateTime? initialDate,
 }) async {
-  final navigation = AppNavigationScope.maybeOf(context);
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (context) =>
           ScheduleEditorPage(event: event, initialDate: initialDate),
     ),
   );
-  navigation?.onNavigate(1);
 }
 
 Future<void> showFinanceEditor(
   BuildContext context, {
   FinanceEntry? entry,
 }) async {
-  final navigation = AppNavigationScope.maybeOf(context);
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (context) => FinanceEditorPage(entry: entry),
     ),
   );
-  navigation?.onNavigate(3);
 }
 
 Future<void> showNoteEditorSheet(BuildContext context, {NoteItem? note}) async {
@@ -1239,7 +1221,6 @@ Future<void> showSubscriptionEditor(
   BuildContext context, {
   SubscriptionItem? subscription,
 }) async {
-  final navigation = AppNavigationScope.maybeOf(context);
   await showDialog<void>(
     context: context,
     builder: (dialogContext) => SubscriptionEditorDialog(
@@ -1247,7 +1228,6 @@ Future<void> showSubscriptionEditor(
       subscription: subscription,
     ),
   );
-  navigation?.onNavigate(3);
 }
 
 class SubscriptionEditorDialog extends StatefulWidget {
@@ -1908,11 +1888,9 @@ Future<void> showSavingsAccountActions(
 }
 
 Future<void> openTodoEditorPage(BuildContext context, {TodoItem? todo}) async {
-  final navigation = AppNavigationScope.maybeOf(context);
   await Navigator.of(
     context,
   ).push<void>(MaterialPageRoute(builder: (_) => TodoEditorPage(todo: todo)));
-  navigation?.onNavigate(2);
 }
 
 Future<void> showTodoActionSheet(BuildContext context, TodoItem todo) async {

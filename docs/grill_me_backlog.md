@@ -624,14 +624,21 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-018 — Contextual return and note-delete destination
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: save, back, and delete return to the actual source
   route instead of a fixed feature root or the trash.
 - Acceptance: Home, folders, all-notes, related-item chains, and reminder entry
   points restore the correct source, scroll, filter, sort, view, and expansion
   state; unknown origins fall back to Home; batch selection is not restored.
 - Dependencies: app navigation and editor routes.
-- Completion evidence: pending.
+- Completion evidence: editor launchers no longer overwrite the active main
+  section after their route or dialog closes, so Flutter preserves the actual
+  source route and its live page state. Notes opened from a folder return to
+  that same folder; Home quick-add editors return to Home; reminder and nested
+  related-item routes unwind to their caller. Dedicated widget tests cover Home
+  quick-add and nested-folder return, while existing related-item and system
+  back tests cover route chains and main-section fallback. Full validation is
+  recorded with the task commit on 2026-10-10.
 
 ### P1-019 — Image crop, movement, border, and handle correctness
 

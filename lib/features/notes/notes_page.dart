@@ -766,7 +766,7 @@ class NotesPageState extends State<NotesPage>
           selectedNoteIds.clear();
           selectedFolderPaths.clear();
         }),
-        onNoteSelected: (note) => widget.actions.editNote(context, note: note),
+        onNoteSelected: openNoteEditor,
         onTrash: () => setState(() {
           showingTrash = true;
           batchMode = false;
@@ -1060,7 +1060,20 @@ class NotesPageState extends State<NotesPage>
       toggleSelected(note);
       return;
     }
-    widget.actions.editNote(context, note: note, readOnly: showingTrash);
+    openNoteEditor(note, readOnly: showingTrash);
+  }
+
+  Future<void> openNoteEditor(NoteItem note, {bool readOnly = false}) async {
+    if (batchMode ||
+        selectedNoteIds.isNotEmpty ||
+        selectedFolderPaths.isNotEmpty) {
+      setState(() {
+        batchMode = false;
+        selectedNoteIds.clear();
+        selectedFolderPaths.clear();
+      });
+    }
+    await widget.actions.editNote(context, note: note, readOnly: readOnly);
   }
 
   void handleFolderTap(String targetFolder) {

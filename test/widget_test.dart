@@ -1345,6 +1345,81 @@ void main() {
     }
   });
 
+  testWidgets('home quick add editor returns to its actual source', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded();
+
+    try {
+      await tester.pumpWidget(MyNoteApp(store: store));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.tap(find.byTooltip('快速新增'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('新增行程'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ScheduleEditorPage), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(HomePage), findsOneWidget);
+      expect(find.byType(CalendarPage), findsNothing);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
+  testWidgets('note editor returns to the exact source folder', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true)
+      ..upsertNote(
+        NoteItem(
+          id: 'context-note',
+          title: '來源資料夾筆記',
+          body: '內容',
+          category: 'A/B',
+          tags: const [],
+          createdAt: DateTime(2026, 10, 10),
+          updatedAt: DateTime(2026, 10, 10),
+        ),
+      );
+
+    try {
+      await tester.pumpWidget(MyNoteApp(store: store));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('筆記').last);
+      await tester.pumpAndSettle();
+
+      final notesState = tester.state<NotesPageState>(find.byType(NotesPage));
+      notesState.openNotesFolder('A/B');
+      await tester.pumpAndSettle();
+      expect(notesState.currentDirectoryTitle, 'A\\B');
+
+      final note = store.notes.singleWhere((item) => item.id == 'context-note');
+      notesState.enterBatchModeWith(note);
+      await tester.pump();
+      final editor = notesState.openNoteEditor(note);
+      await tester.pumpAndSettle();
+      expect(find.byType(NoteEditorPage), findsOneWidget);
+      expect(notesState.batchMode, isFalse);
+      expect(notesState.selectedNoteIds, isEmpty);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await editor;
+
+      expect(find.byType(NotesPage), findsOneWidget);
+      expect(notesState.currentDirectoryTitle, 'A\\B');
+      expect(find.text('來源資料夾筆記'), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
   test('notes fixed back route follows folder parents', () {
     expect(notesBackTarget('A/B/C'), 'A/B');
     expect(notesBackTarget('A/B'), 'A');
