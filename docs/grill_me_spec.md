@@ -13,6 +13,10 @@ Notes, plans, mind maps, life projects, finance, subscriptions, schedules,
 and todos are separate tools that can reference one another. Together they
 form a navigable memory network, not a visual graph.
 
+The visual graph is intentionally not part of the product roadmap. The term
+`memory network` describes linked records, reverse references, and navigation;
+it does not imply a node-and-edge canvas now or in a later release.
+
 ## v1 boundaries
 
 - v1 is local-first and must work offline.
@@ -62,7 +66,8 @@ Every supported record can expose a consistent `關聯項目` entry point.
   schedules, finance records, subscriptions, and accounts.
 - A user can create an item and link it immediately.
 - Links are navigable in both directions.
-- v1 does not render a graph visualization.
+- The product deliberately does not render a graph visualization. This is a
+  non-goal rather than deferred work.
 - v1 links do not require relationship labels such as `depends on` or
   `reference`; a simple untyped link is sufficient.
 
@@ -197,6 +202,93 @@ separate meter, not a replacement for total progress.
   imported snapshot.
 - Legacy direct snapshots remain importable.
 - All schema migrations must preserve existing records and be covered by tests.
+
+## v1 completion amendment
+
+The following requirements were confirmed after the original v1 acceptance
+pass. They reopen v1 until implementation and acceptance evidence are complete.
+
+### Deletion, undo, and contextual return
+
+- Every existing swipe-delete action deletes immediately without a confirmation
+  dialog and offers one app-wide `復原` action for five seconds.
+- Additional deletes within the active window join the same batch and restart
+  the full five-second timer. Undo restores the complete batch, including
+  original ordering, folders, and relationships.
+- Hard-deleted targets disappear immediately, but incoming relationships are
+  retained until the undo window expires. Expiry atomically removes the records
+  and dangling links; interrupted cleanup resumes after restart.
+- Moving a note to the trash retains its links. Incoming links are removed only
+  when the trash item is permanently deleted.
+- Editors and related-item routes return to the actual route that opened them.
+  Folder, search, filter, sort, view, expansion, and scroll state are restored;
+  batch selection is not restored. A route with no known origin returns Home.
+- Deleting a note returns to its origin instead of navigating to the trash.
+
+### General-note images
+
+- Cropping is confined to the original image bounds. It never pads, extends,
+  fills, or generates missing image content. Display scaling may exceed the
+  original display size.
+- An unlocked selected image moves by dragging the image itself; a separate move
+  mode is not required. Resize handles remain responsible only for resizing.
+- New images have no border. Enabling the border restores the last configured
+  width or starts at `0.2 px`; width ranges from `0` to `5 px` in `0.1 px`
+  steps. Border color and width live in a secondary toolbar that appears only
+  while the border is enabled and does not automatically focus its input.
+- The image, border, selection outline, and all eight resize handles remain
+  visible and operable on Web and Android without overlapping text.
+
+### Attachments and inserted notes
+
+- Attachment payloads no longer live in SharedPreferences snapshots. Android
+  stores blobs in private app files and Web stores blobs in IndexedDB. Notes,
+  checkpoints, and backup history reference content-addressed blob IDs so equal
+  files are not duplicated.
+- Legacy Base64 attachments migrate atomically: metadata changes only after the
+  blob is verified. Failure preserves the legacy attachment and current data.
+- A single attachment is limited to `25 MB`. `100 MB` is the per-note warning
+  boundary: a final upload may cross it, but a note already over `100 MB` cannot
+  accept another attachment. `125 MB` is the absolute per-note limit.
+- Automatic checkpoints and backup history retain attachment blobs. Manual JSON
+  export includes attachments by default and may explicitly exclude them;
+  incomplete exports preserve missing-attachment placeholders on import.
+- Attachment selection offers preview, external open, download/save-as, rename,
+  replace, and remove. Built-in preview supports images, paged PDF viewing, and
+  safe plain-text rendering for TXT, Markdown, JSON, and CSV. HTML is never
+  executed. Unsupported or damaged files remain downloadable and externally
+  openable.
+- An inserted-note block and the ordinary relationship picker share the same
+  typed link while independently tracking why the link exists. Removing one
+  representation preserves the link while the other still references it.
+- Inserted-note selection offers preview, edit, retarget, and remove-from-note;
+  it never deletes the target note. Editing follows the contextual return path.
+  v1 previews are read-only summaries appropriate to each note template.
+
+### Note appearance and editing correctness
+
+- Per-note appearance themes, background color, background image, opacity, and
+  background layout mode are removed from the schema and UI. Existing values
+  are discarded by the approved migration after a recovery snapshot is made.
+- Per-note and per-span custom text colors are removed. Text, links, quotes,
+  code, selection, and editor chrome derive their colors from the active app
+  theme in light and dark modes.
+- Cover images remain, but do not render inside the note body. List views use a
+  fixed-height, centered, uncropped `contain` presentation whose width follows
+  the source aspect ratio and never exceeds the available card width.
+- Pressing Enter between existing text creates and focuses a real empty
+  paragraph. It must not place the caret at the beginning of the following
+  paragraph. List modes create the correct next list item.
+
+### Home presentation and v1 truth audit
+
+- Adjacent visible Home sections are separated by a centered line using 90% of
+  the content width and the theme primary color at 40% opacity. Hidden sections
+  do not participate; collapsed visible sections do.
+- Every v1 control, menu, toolbar action, gesture, persistence path, restart,
+  export/import flow, and critical Web/X510 workflow must be re-audited. Any
+  previously `DONE` item that proves cosmetic, incomplete, non-persistent, or
+  broken returns to `IN PROGRESS` until it has current evidence.
 
 ## Architecture
 
