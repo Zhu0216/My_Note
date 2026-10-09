@@ -576,6 +576,119 @@ the current behavior has not been independently accepted for this v1 baseline.
   is documented as upstream and non-blocking until Built-in Kotlin releases are
   available.
 
+## Reopened v1 completion work
+
+### P0-008 — Attachment blob storage and migration
+
+- Status: `PLANNED`
+- User-visible behavior: attachments remain reliable without exhausting the
+  primary preference snapshot, migrate safely, and survive backup/restore.
+- Acceptance: Android private-file and Web IndexedDB blob stores use
+  content-addressed IDs; legacy Base64 migration is atomic; duplicate blobs are
+  deduplicated; garbage collection respects notes, trash, checkpoints, and the
+  12-entry backup history; interrupted or quota-failed migration preserves the
+  old attachment.
+- Dependencies: existing revision/checkpoint system; approved attachment schema
+  migration.
+- Completion evidence: pending.
+
+### P0-009 — Batched delete, undo, and relationship cleanup
+
+- Status: `PLANNED`
+- User-visible behavior: swipe delete is immediate, consecutive deletes form one
+  five-second undo batch, and undo restores every record exactly.
+- Acceptance: each new delete restarts five seconds; mixed record types restore
+  order, folder, and links; hard-delete expiry removes incoming links atomically;
+  restart completes interrupted cleanup; trashed notes retain links until
+  permanent deletion; protected domain deletes remain protected.
+- Dependencies: revision journal and typed-link index.
+- Completion evidence: pending.
+
+### P1-018 — Contextual return and note-delete destination
+
+- Status: `PLANNED`
+- User-visible behavior: save, back, and delete return to the actual source
+  route instead of a fixed feature root or the trash.
+- Acceptance: Home, folders, all-notes, related-item chains, and reminder entry
+  points restore the correct source, scroll, filter, sort, view, and expansion
+  state; unknown origins fall back to Home; batch selection is not restored.
+- Dependencies: app navigation and editor routes.
+- Completion evidence: pending.
+
+### P1-019 — Image crop, movement, border, and handle correctness
+
+- Status: `PLANNED`
+- User-visible behavior: selected unlocked images drag directly, crop only
+  original pixels, and expose an unclipped eight-handle editor.
+- Acceptance: no crop padding or generated background; scaling may exceed source
+  display size; border defaults off, enables at `0.2 px`, remembers its last
+  width, supports `0..5 px` by `0.1`, and exposes color/width in a secondary
+  toolbar without stealing focus; image controls work on Web and X510 and do not
+  overlap text.
+- Dependencies: rich-note image blocks and crop service.
+- Completion evidence: pending.
+
+### P1-020 — Functional attachments and inserted-note blocks
+
+- Status: `PLANNED`
+- User-visible behavior: attachment and inserted-note blocks perform their real
+  target actions instead of acting as placeholders.
+- Acceptance: attachments support preview, external open, save-as, rename,
+  replace, and remove; single-file limit is 25 MB, the warning boundary is
+  100 MB, and the hard per-note limit is 125 MB; inserted notes support template
+  summary preview, full edit with contextual return, retarget, and remove;
+  embedded and ordinary relationship sources coexist without losing links.
+- Dependencies: P0-008, P1-002, P1-018.
+- Completion evidence: pending.
+
+### P1-021 — Theme-derived note appearance and cover previews
+
+- Status: `PLANNED`
+- User-visible behavior: note colors follow the app theme, covers appear only in
+  note-list previews, and removed backgrounds never reappear.
+- Acceptance: approved migration removes appearance/background fields and custom
+  text-color marks after a recovery snapshot while preserving cover data;
+  legacy import discards removed fields; cover uses fixed-height, centered,
+  uncropped contain layout in all note-list modes; light/dark theme contrast is
+  verified.
+- Dependencies: appearance schema and list/grid cards.
+- Completion evidence: pending.
+
+### P1-022 — Rich-note newline placement
+
+- Status: `PLANNED`
+- User-visible behavior: Enter creates a real next paragraph or list item and
+  leaves the caret there.
+- Acceptance: plain text between existing paragraphs, numbered lists, bullet
+  lists, and checklists never jump the caret to the following existing text;
+  persistence and reload preserve the inserted empty paragraph where required.
+- Dependencies: rich-note controller.
+- Completion evidence: pending.
+
+### P2-007 — Home section separators
+
+- Status: `PLANNED`
+- User-visible behavior: visible Home categories have restrained theme-colored
+  separation.
+- Acceptance: a centered 90%-width primary-color line at 40% opacity appears
+  only between visible sections; collapsed sections participate and hidden
+  sections do not; no extra card or shadow is introduced.
+- Dependencies: Home section renderer.
+- Completion evidence: pending.
+
+### P2-008 — Full v1 functionality truth audit
+
+- Status: `PLANNED`
+- User-visible behavior: every claimed v1 function performs and persists its
+  advertised result instead of exposing placeholders or cosmetic-only actions.
+- Acceptance: Home, Notes, four templates, Calendar, Todos, Finance,
+  Subscriptions, Settings, reminders, and the memory network are exercised on
+  Web and X510, across restart and export/import; failures reopen their owning
+  backlog item and receive automated or explicit device evidence before v1 is
+  declared complete again.
+- Dependencies: P0-008 through P2-007 and all prior v1 items.
+- Completion evidence: pending.
+
 ## Deferred after v1
 
 ### D-001 — Firebase and cloud synchronization
@@ -588,11 +701,18 @@ the current behavior has not been independently accepted for this v1 baseline.
 - Dependencies: project owner configuration and approval.
 - Evidence: primary Log states Firebase Apps/options are not created.
 
-### D-002 — Store release and memory-network graph
+### D-002 — Store release
 
 - Status: `BLOCKED`
-- User-visible behavior: store release and visual graph remain deferred with no
-  impact on v1 local behavior.
-- Acceptance: begin only after v1 and separate product decision.
+- User-visible behavior: store release remains deferred with no impact on v1
+  local behavior.
+- Acceptance: begin only after v1 and a separate release decision.
 - Dependencies: release assets/accounts; D-001 where cloud is relevant.
-- Evidence: final Grill Me scope defers both.
+- Evidence: final Grill Me scope defers store release.
+
+## Product non-goals
+
+- A visual memory-network graph is intentionally not planned. The implemented
+  memory network consists of typed links, reverse references, search, and
+  navigable related-item views. This is a product decision, not deferred
+  backlog work.
