@@ -3557,6 +3557,35 @@ void main() {
     }
   });
 
+  test('rich newline stays in the inserted paragraph before existing text', () {
+    final cases = {
+      'Alpha\nBeta': ('Alpha\n\nBeta', 6),
+      '1. Alpha\n2. Beta': ('1. Alpha\n2. \n2. Beta', 12),
+      '• Alpha\n• Beta': ('• Alpha\n• \n• Beta', 10),
+      '☐ Alpha\n☐ Beta': ('☐ Alpha\n☐ \n☐ Beta', 10),
+    };
+
+    for (final entry in cases.entries) {
+      final controller = RichNoteTextController(
+        text: entry.key,
+        marks: const [],
+      );
+      final insertionOffset = entry.key.indexOf('\n');
+      controller.updateSelectionFromFlow(
+        TextSelection.collapsed(offset: insertionOffset),
+      );
+
+      controller.replaceTextRange(insertionOffset, insertionOffset, '\n');
+
+      expect(controller.text, entry.value.$1, reason: entry.key);
+      expect(
+        controller.selection.extentOffset,
+        entry.value.$2,
+        reason: entry.key,
+      );
+    }
+  });
+
   test('rich lists remove marker when marker trailing space is deleted', () {
     final cases = {
       '1. ': (2, ''),
@@ -4442,6 +4471,137 @@ void main() {
     final textField = tester.widget<TextField>(find.byType(TextField).last);
     expect(textField.controller?.text, '• Alpha\n• ');
     expect(textField.controller?.selection.extentOffset, '• Alpha\n• '.length);
+  });
+
+  testWidgets('rich flow Enter keeps focus in a new paragraph before text', (
+    tester,
+  ) async {
+    final controller = RichNoteTextController(
+      text: 'Alpha\nBeta',
+      marks: const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 800,
+            height: 520,
+            child: GeneralRichTextEditorPanel(
+              controller: controller,
+              readOnly: false,
+              style: defaultNoteStyle(),
+              images: const [],
+              attachments: const [],
+              onStyleChanged: (_) {},
+              onAddImage: () {},
+              onAddAttachment: () {},
+              onInsertTodo: () {},
+              onImagesChanged: (_) {},
+              onAttachmentsChanged: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final field = find.byType(TextField).last;
+    await tester.showKeyboard(field);
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: 'Alpha\n\nBeta',
+        selection: TextSelection.collapsed(offset: 6),
+      ),
+    );
+    await tester.pump();
+
+    expect(controller.text, 'Alpha\n\nBeta');
+    expect(controller.selection.extentOffset, 6);
+    final flowController = tester.widget<TextField>(field).controller!;
+    expect(flowController.selection.extentOffset, 6);
+  });
+
+  testWidgets('rich flow list Enter stays after the continued marker', (
+    tester,
+  ) async {
+    final cases = {
+      '1. Alpha\n2. Beta': ('1. Alpha\n2. \n2. Beta', 12),
+      '• Alpha\n• Beta': ('• Alpha\n• \n• Beta', 10),
+      '☐ Alpha\n☐ Beta': ('☐ Alpha\n☐ \n☐ Beta', 10),
+    };
+
+    for (final entry in cases.entries) {
+      final controller = RichNoteTextController(
+        text: entry.key,
+        marks: const [],
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 800,
+              height: 520,
+              child: GeneralRichTextEditorPanel(
+                controller: controller,
+                readOnly: false,
+                style: defaultNoteStyle(),
+                images: const [],
+                attachments: const [],
+                onStyleChanged: (_) {},
+                onAddImage: () {},
+                onAddAttachment: () {},
+                onInsertTodo: () {},
+                onImagesChanged: (_) {},
+                onAttachmentsChanged: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final insertionOffset = entry.key.indexOf('\n');
+      final field = find.byType(TextField).last;
+      await tester.showKeyboard(field);
+      tester.testTextInput.updateEditingValue(
+        TextEditingValue(
+          text: entry.key.replaceRange(insertionOffset, insertionOffset, '\n'),
+          selection: TextSelection.collapsed(offset: insertionOffset + 1),
+        ),
+      );
+      await tester.pump();
+
+      expect(controller.text, entry.value.$1, reason: entry.key);
+      expect(
+        controller.selection.extentOffset,
+        entry.value.$2,
+        reason: entry.key,
+      );
+      expect(
+        tester.widget<TextField>(field).controller!.selection.extentOffset,
+        entry.value.$2,
+        reason: entry.key,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    }
+  });
+
+  test('empty paragraph between text survives rich-note persistence', () {
+    final controller = RichNoteTextController(
+      text: 'Alpha\n\nBeta',
+      marks: const [],
+    );
+    final data = generalNoteTemplateData(
+      defaultNoteTemplateData(NoteTemplateType.general),
+      controller,
+      const [],
+      const [],
+    );
+
+    final restored = richNoteSeedFromTemplateData('', data);
+    expect(restored.text, 'Alpha\n\nBeta');
   });
 
   testWidgets('rich flow caret height follows active font size', (

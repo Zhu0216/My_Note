@@ -2379,6 +2379,7 @@ List<RichNoteMark> adjustRichNoteMarksAfterTextChange(
 RichNoteTextChange richNoteTextChange({
   required String oldText,
   required String newText,
+  int? preferredNewSelectionOffset,
 }) {
   var prefix = 0;
   while (prefix < oldText.length &&
@@ -2393,10 +2394,33 @@ RichNoteTextChange richNoteTextChange({
           newText.codeUnitAt(newText.length - 1 - suffix)) {
     suffix++;
   }
-  return RichNoteTextChange(
+  final change = RichNoteTextChange(
     oldStart: prefix,
     oldEnd: oldText.length - suffix,
     replacementLength: newText.length - prefix - suffix,
+    textLength: newText.length,
+  );
+  if (preferredNewSelectionOffset == null ||
+      change.oldStart != change.oldEnd ||
+      change.replacementLength <= 0) {
+    return change;
+  }
+  final preferredEnd = preferredNewSelectionOffset
+      .clamp(0, newText.length)
+      .toInt();
+  final preferredStart = preferredEnd - change.replacementLength;
+  if (preferredStart < 0 || preferredStart > oldText.length) {
+    return change;
+  }
+  final replacement = newText.substring(preferredStart, preferredEnd);
+  if (oldText.replaceRange(preferredStart, preferredStart, replacement) !=
+      newText) {
+    return change;
+  }
+  return RichNoteTextChange(
+    oldStart: preferredStart,
+    oldEnd: preferredStart,
+    replacementLength: replacement.length,
     textLength: newText.length,
   );
 }
@@ -3824,7 +3848,15 @@ class _GeneralRichTextEditorPanelState
     final safeStart = range.start.clamp(0, currentText.length).toInt();
     final safeEnd = range.end.clamp(safeStart, currentText.length).toInt();
     final previousText = currentText.substring(safeStart, safeEnd);
-    final change = richNoteTextChange(oldText: previousText, newText: nextText);
+    final localSelection = flowTextControllers[block.order]?.selection;
+    final change = richNoteTextChange(
+      oldText: previousText,
+      newText: nextText,
+      preferredNewSelectionOffset:
+          localSelection != null && localSelection.isValid
+          ? localSelection.extentOffset
+          : null,
+    );
     final replacement = nextText.substring(
       change.oldStart,
       change.replacementEnd,

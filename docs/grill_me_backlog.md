@@ -718,14 +718,21 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-022 — Rich-note newline placement
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: Enter creates a real next paragraph or list item and
   leaves the caret there.
 - Acceptance: plain text between existing paragraphs, numbered lists, bullet
   lists, and checklists never jump the caret to the following existing text;
   persistence and reload preserve the inserted empty paragraph where required.
 - Dependencies: rich-note controller.
-- Completion evidence: pending.
+- Completion evidence: flow-editor replacements now use the TextField's actual
+  post-edit selection to disambiguate insertion positions when adjacent newline
+  characters are identical. Plain paragraphs keep the caret in the inserted
+  empty line; numbered, bullet, and checklist items keep it after the continued
+  marker even when existing text follows. Rich-note serialization preserves the
+  empty paragraph. Controller and widget tests cover all four cases and reload;
+  static analysis, all 127 tests, and the Web debug build pass on the task
+  commit.
 
 ### P2-007 — Home section separators
 
