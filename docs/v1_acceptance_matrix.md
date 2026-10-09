@@ -1,6 +1,6 @@
 # V1 Web and X510 acceptance matrix
 
-Date: 2026-09-27
+Date: 2026-10-10
 
 Integrated baseline:
 
@@ -48,6 +48,21 @@ baseline.
 | P2-004 | PASS | PASS | Complete 104-test suite covers migration and critical data-safety paths |
 
 ## Remaining release observations
+
+### Current truth-audit increment
+
+- Web: debug build passed after the P2-008 note-export remediation.
+- Automated suite: all 131 tests passed, including PDF/TXT/Markdown conversion,
+  Traditional Chinese PDF generation, current persistence, templates,
+  Calendar, Home, deletion/undo, attachments, and relationship behavior.
+- P0-008, P0-009, P1-018, P1-021, P1-022, and P2-007 have direct automated
+  acceptance evidence recorded in the backlog and are included in this Web
+  build.
+- P1-019 and P1-020 remain `NEEDS VERIFICATION`: their implementation and Web
+  evidence pass, but current native image editing and external attachment
+  presentation still require an online, authorized X510.
+- P2-008 remains `IN PROGRESS` until that current X510 pass exercises the full
+  application and closes those two device-only observations.
 
 - The Android build still emits the non-blocking upstream Built-in Kotlin/KGP
   warning tracked by P2-006.

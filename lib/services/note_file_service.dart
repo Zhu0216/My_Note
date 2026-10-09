@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -83,9 +84,13 @@ class NoteFileService {
     required String title,
     required String body,
   }) async {
+    final notoSans = pw.Font.ttf(
+      await rootBundle.load('assets/fonts/NotoSansTC-VF.ttf'),
+    );
     final document = pw.Document();
     document.addPage(
       pw.MultiPage(
+        theme: pw.ThemeData.withFont(base: notoSans, bold: notoSans),
         build: (context) => [
           pw.Text(
             title.trim().isEmpty ? '未命名筆記' : title.trim(),

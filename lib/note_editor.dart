@@ -637,32 +637,69 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   }
 
   Future<void> showExportOptions() async {
-    await showModalBottomSheet<void>(
+    final format = await showModalBottomSheet<NoteExportFormat>(
       context: context,
       showDragHandle: true,
       builder: (context) => SafeArea(
         child: ListView(
           shrinkWrap: true,
-          children: const [
+          children: [
             ListTile(
-              leading: Icon(Icons.picture_as_pdf_outlined),
-              title: Text('另存為 PDF'),
-              subtitle: Text('另存為 PDF'),
+              leading: const Icon(Icons.picture_as_pdf_outlined),
+              title: const Text('另存為 PDF'),
+              subtitle: const Text('保留標題與可閱讀的筆記內容'),
+              onTap: () => Navigator.pop(context, NoteExportFormat.pdf),
             ),
             ListTile(
-              leading: Icon(Icons.text_snippet_outlined),
-              title: Text('另存為 TXT'),
-              subtitle: Text('另存為 txt'),
+              leading: const Icon(Icons.text_snippet_outlined),
+              title: const Text('另存為 TXT'),
+              subtitle: const Text('匯出純文字內容'),
+              onTap: () => Navigator.pop(context, NoteExportFormat.txt),
             ),
             ListTile(
-              leading: Icon(Icons.code_outlined),
-              title: Text('另存為 Markdown'),
-              subtitle: Text('另存為 Markdown'),
+              leading: const Icon(Icons.code_outlined),
+              title: const Text('另存為 Markdown'),
+              subtitle: const Text('保留粗體、斜體、刪除線與程式碼等格式'),
+              onTap: () => Navigator.pop(context, NoteExportFormat.markdown),
             ),
           ],
         ),
       ),
     );
+    if (format == null || !mounted) return;
+
+    final exportTitle = title.text.trim().isEmpty ? '未命名筆記' : title.text.trim();
+    final baseName = safeExportFileName(exportTitle);
+    final plainText = richNotePlainExportText(body.text, body.marks);
+    try {
+      final (fileName, bytes) = switch (format) {
+        NoteExportFormat.pdf => (
+          '$baseName.pdf',
+          await NoteFileService.buildNotePdf(
+            title: exportTitle,
+            body: plainText,
+          ),
+        ),
+        NoteExportFormat.txt => (
+          '$baseName.txt',
+          Uint8List.fromList(utf8.encode(plainText)),
+        ),
+        NoteExportFormat.markdown => (
+          '$baseName.md',
+          Uint8List.fromList(
+            utf8.encode(richNoteMarkdownExportText(body.text, body.marks)),
+          ),
+        ),
+      };
+      final location = await NoteFileService.saveBytes(
+        fileName: fileName,
+        bytes: bytes,
+      );
+      if (!mounted) return;
+      showToast(context, location == null ? '已取消匯出' : '已匯出 $fileName');
+    } catch (_) {
+      if (mounted) showToast(context, '匯出筆記失敗');
+    }
   }
 
   Future<void> insertTodoReference() async {
@@ -1052,6 +1089,8 @@ const richNoteEmbedTypeAttachment = 'attachment';
 const richNoteEmbedTypeTodo = 'todo';
 const richNoteEmbedTypeNote = 'noteReference';
 
+enum NoteExportFormat { pdf, txt, markdown }
+
 class RichNoteAttribute {
   const RichNoteAttribute._();
 
@@ -1069,6 +1108,115 @@ class RichNoteAttribute {
   static const quote = 'quote';
   static const embedType = 'embedType';
   static const embedId = 'embedId';
+}
+
+String richNotePlainExportText(String text, List<RichNoteMark> marks) {
+  final output = StringBuffer();
+  for (var index = 0; index < text.length; index++) {
+    if (text[index] != richNoteEmbedObject) {
+      output.write(text[index]);
+      continue;
+    }
+    final mark = firstRichNoteMarkAtOffset(marks, index);
+    final type = readString(mark?.attributes[RichNoteAttribute.embedType]);
+    output.write(switch (type) {
+      richNoteEmbedTypeImage => '[圖片]',
+      richNoteEmbedTypeAttachment => '[附件]',
+      richNoteEmbedTypeTodo => '[待辦事項]',
+      richNoteEmbedTypeNote => '[筆記連結]',
+      _ => '[內容]',
+    });
+  }
+  return output.toString();
+}
+
+String richNoteMarkdownExportText(String text, List<RichNoteMark> marks) {
+  final output = StringBuffer();
+  var index = 0;
+  while (index < text.length) {
+    if (text[index] == richNoteEmbedObject) {
+      final mark = firstRichNoteMarkAtOffset(marks, index);
+      final type = readString(mark?.attributes[RichNoteAttribute.embedType]);
+      final id = readString(mark?.attributes[RichNoteAttribute.embedId]);
+      output.write(switch (type) {
+        richNoteEmbedTypeImage => '![圖片](my-note:image:$id)',
+        richNoteEmbedTypeAttachment => '[附件](my-note:attachment:$id)',
+        richNoteEmbedTypeTodo => '[待辦事項](my-note:todo:$id)',
+        richNoteEmbedTypeNote => '[筆記連結](my-note:note:$id)',
+        _ => '[內容]',
+      });
+      index++;
+      continue;
+    }
+
+    final attributes = _markdownAttributesAt(marks, index);
+    var end = index + 1;
+    while (end < text.length &&
+        text[end] != richNoteEmbedObject &&
+        _sameMarkdownAttributes(
+          attributes,
+          _markdownAttributesAt(marks, end),
+        )) {
+      end++;
+    }
+    output.write(_markdownWrapped(text.substring(index, end), attributes));
+    index = end;
+  }
+  return output.toString();
+}
+
+Map<String, dynamic> _markdownAttributesAt(
+  List<RichNoteMark> marks,
+  int offset,
+) {
+  final attributes = <String, dynamic>{};
+  for (final mark in marks) {
+    if (mark.start <= offset && offset < mark.end) {
+      attributes.addAll(mark.attributes);
+    }
+  }
+  attributes.remove(RichNoteAttribute.embedType);
+  attributes.remove(RichNoteAttribute.embedId);
+  attributes.remove(RichNoteAttribute.fontSize);
+  attributes.remove(RichNoteAttribute.fontFamily);
+  return attributes;
+}
+
+bool _sameMarkdownAttributes(
+  Map<String, dynamic> left,
+  Map<String, dynamic> right,
+) => jsonEncode(left) == jsonEncode(right);
+
+String _markdownWrapped(String value, Map<String, dynamic> attributes) {
+  var result = value;
+  if (attributes[RichNoteAttribute.inlineCode] == true) {
+    result = '`${result.replaceAll('`', r'\`')}`';
+  }
+  if (attributes[RichNoteAttribute.bold] == true) result = '**$result**';
+  if (attributes[RichNoteAttribute.italic] == true) result = '*$result*';
+  if (attributes[RichNoteAttribute.strikethrough] == true) {
+    result = '~~$result~~';
+  }
+  if (attributes[RichNoteAttribute.underline] == true) {
+    result = '<u>$result</u>';
+  }
+  if (attributes[RichNoteAttribute.subscript] == true) {
+    result = '<sub>$result</sub>';
+  }
+  if (attributes[RichNoteAttribute.superscript] == true) {
+    result = '<sup>$result</sup>';
+  }
+  if (attributes[RichNoteAttribute.codeBlock] == true) {
+    result = '```\n$result\n```';
+  } else if (attributes[RichNoteAttribute.quote] == true) {
+    result = result.split('\n').map((line) => '> $line').join('\n');
+  }
+  final heading = readInt(attributes[RichNoteAttribute.heading]);
+  if (heading >= 1 && heading <= 6) {
+    final prefix = List.filled(heading, '#').join();
+    result = result.split('\n').map((line) => '$prefix $line').join('\n');
+  }
+  return result;
 }
 
 class RichNoteMark {

@@ -754,7 +754,7 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P2-008 — Full v1 functionality truth audit
 
-- Status: `PLANNED`
+- Status: `IN PROGRESS`
 - User-visible behavior: every claimed v1 function performs and persists its
   advertised result instead of exposing placeholders or cosmetic-only actions.
 - Acceptance: Home, Notes, four templates, Calendar, Todos, Finance,
@@ -763,7 +763,15 @@ the current behavior has not been independently accepted for this v1 baseline.
   backlog item and receive automated or explicit device evidence before v1 is
   declared complete again.
 - Dependencies: P0-008 through P2-007 and all prior v1 items.
-- Completion evidence: pending.
+- Completion evidence: the first truth-audit pass found that the general-note
+  `另存為` sheet was visual-only. PDF, TXT, and Markdown rows now execute real
+  file exports, report cancellation/failure, replace embedded objects with
+  readable text, preserve supported rich marks in Markdown, and embed the
+  bundled Traditional Chinese font in PDF output. Focused tests verify plain
+  and Markdown conversion plus a Chinese PDF, and the complete 131-test suite,
+  static analysis, and Web debug build pass. The audit remains open for
+  current X510 execution of P1-019/P1-020 and the complete device acceptance
+  pass.
 
 ## Deferred after v1
 
