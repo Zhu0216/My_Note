@@ -194,9 +194,16 @@ class _LocalDataManagementCardState extends State<LocalDataManagementCard> {
   bool busy = false;
 
   Future<void> exportData() async {
+    final includeAttachments = await showDialog<bool>(
+      context: context,
+      builder: (_) => const _ExportOptionsDialog(),
+    );
+    if (includeAttachments == null || !mounted) return;
     setState(() => busy = true);
     try {
-      final raw = await AppStoreScope.read(context).exportBundle();
+      final raw = await AppStoreScope.read(
+        context,
+      ).exportBundle(includeAttachments: includeAttachments);
       final now = DateTime.now();
       final fileName =
           'my_note_${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}.json';
@@ -392,6 +399,44 @@ class _LocalDataManagementCardState extends State<LocalDataManagementCard> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ExportOptionsDialog extends StatefulWidget {
+  const _ExportOptionsDialog();
+
+  @override
+  State<_ExportOptionsDialog> createState() => _ExportOptionsDialogState();
+}
+
+class _ExportOptionsDialogState extends State<_ExportOptionsDialog> {
+  bool includeAttachments = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('匯出資料'),
+      content: CheckboxListTile(
+        contentPadding: EdgeInsets.zero,
+        value: includeAttachments,
+        onChanged: (value) {
+          setState(() => includeAttachments = value ?? true);
+        },
+        title: const Text('包含附件內容'),
+        subtitle: const Text('關閉後仍保留附件名稱與大小，但備份檔不包含附件檔案。'),
+        controlAffinity: ListTileControlAffinity.leading,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, includeAttachments),
+          child: const Text('匯出'),
+        ),
+      ],
     );
   }
 }

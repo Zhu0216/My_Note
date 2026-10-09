@@ -81,7 +81,62 @@ class LocalDataValidator {
     }
     _validateFolders(data);
     _validateKnownDatesAndNumbers(data, ids);
+    _validateAttachments(data);
     _validateTemplates(data, ids);
+  }
+
+  static void _validateAttachments(Map<String, dynamic> data) {
+    final blobIdPattern = RegExp(r'^[0-9a-f]{64}$');
+    for (final note in _maps(data['notes'])) {
+      final attachments = note['attachments'];
+      if (attachments == null) continue;
+      if (attachments is! List) {
+        throw const FormatException('筆記附件必須是清單。');
+      }
+      var totalBytes = 0;
+      for (final value in attachments) {
+        if (value is! Map) {
+          throw const FormatException('筆記附件不是有效資料物件。');
+        }
+        final attachment = Map<String, dynamic>.from(value);
+        final name = attachment['name'];
+        if (name is! String || name.trim().isEmpty) {
+          throw const FormatException('筆記附件缺少有效名稱。');
+        }
+        final size = attachment['size'];
+        if (size is! num || size < 0 || size != size.roundToDouble()) {
+          throw FormatException('附件 $name 的大小無效。');
+        }
+        final byteLength = size.toInt();
+        if (byteLength > maxAttachmentBytes) {
+          throw FormatException('附件 $name 超過 25 MB。');
+        }
+        totalBytes += byteLength;
+        final blobId = attachment['blobId'];
+        if (blobId != null &&
+            (blobId is! String || !blobIdPattern.hasMatch(blobId))) {
+          throw FormatException('附件 $name 的 blob ID 無效。');
+        }
+        final encoded = attachment['bytesBase64'];
+        if (encoded != null) {
+          if (encoded is! String) {
+            throw FormatException('附件 $name 的內容格式無效。');
+          }
+          Uint8List bytes;
+          try {
+            bytes = base64Decode(encoded);
+          } catch (_) {
+            throw FormatException('附件 $name 的 Base64 內容損毀。');
+          }
+          if (bytes.length != byteLength) {
+            throw FormatException('附件 $name 的大小與內容不一致。');
+          }
+        }
+      }
+      if (totalBytes > maxNoteAttachmentBytes) {
+        throw const FormatException('單一筆記的附件總量不可超過 125 MB。');
+      }
+    }
   }
 
   static Set<String> _validateRecords(Map<String, dynamic> data, String key) {

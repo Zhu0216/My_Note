@@ -3,9 +3,14 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'attachment_blob_store.dart';
+
+export 'attachment_blob_store.dart';
 
 part 'app_models.dart';
 part 'template_documents.dart';

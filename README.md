@@ -37,7 +37,7 @@ My Note 是一款 All-in-one 個人管理筆記本，目標是在手機、平板
 - 行高提供 1、1.25、1.5、1.75、2 五種設定，文字在每行內垂直置中。
 - 支援 Samsung 裝置字型偵測，字型選單可顯示 `裝置(目前字體)` 與已安裝裝置字型，例如 `少女體`、`Samsung One`、`Roboto`、`Foundation`。
 - 支援插入圖片，圖片可選取、縮放、移動、對齊、裁切、加框線與刪除。
-- 支援插入附件與待辦事項。
+- 支援插入附件與待辦事項；附件以內容雜湊去重，Android 儲存於 App 私有目錄，Web 儲存於 IndexedDB。
 - 支援背景顏色與背景圖片設定。
 - 支援返回自動儲存與刪除確認。
 - 新增筆記若內容為空不會建立資料；既有筆記若清空內容會保留原內容，避免誤覆蓋。
@@ -95,6 +95,8 @@ My Note 是一款 All-in-one 個人管理筆記本，目標是在手機、平板
 - 第一版目前以本機資料為主，適合離線開發、功能驗證與裝置測試。
 - 本機資料包含筆記、資料夾、行程、待辦、記帳紀錄、訂閱項目、存餘帳戶與首頁顯示設定。
 - 本機資料使用 `shared_preferences` 儲存；每次新增、修改、移動、刪除或設定變更都會立即建立版本並依序寫入，避免短時間連續操作造成舊寫入覆蓋新資料。
+- 附件內容不寫入 `shared_preferences`：Android 使用 App 私有檔案、Web 使用 IndexedDB，快照只保存 SHA-256 blob ID 與中繼資料；舊 Base64 附件會在驗證寫入成功後原子遷移。
+- 單一附件上限為 25 MB；每筆筆記超過 100 MB 後停止接受新附件，附件總量上限為 125 MB。JSON 匯出預設包含附件，也可手動排除檔案內容。
 - 儲存層包含主資料、checkpoint、變更 journal、最新備份與多版本備份歷史；啟動時會依版本、時間與資料完整度選擇最新可用狀態。
 - Web 本機開發統一使用 `localhost`，輸入 `127.0.0.1` 或 IPv6 loopback 時會自動導向，避免瀏覽器因不同 origin 建立兩套獨立本機資料。
 - 若偵測到舊版範例資料，會避免將其當成使用者資料復原；若主資料損毀，會依序嘗試 checkpoint 與備份歷史，而不以舊範例覆蓋使用者資料。
@@ -126,6 +128,9 @@ My Note 是一款 All-in-one 個人管理筆記本，目標是在手機、平板
 
 - `cupertino_icons`：pub.dev
 - `shared_preferences`：pub.dev
+- `crypto`：pub.dev
+- `path_provider`：pub.dev
+- `web`：pub.dev
 - `firebase_core`：pub.dev
 - `firebase_auth`：pub.dev
 - `cloud_firestore`：pub.dev

@@ -580,7 +580,7 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P0-008 — Attachment blob storage and migration
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: attachments remain reliable without exhausting the
   primary preference snapshot, migrate safely, and survive backup/restore.
 - Acceptance: Android private-file and Web IndexedDB blob stores use
@@ -590,7 +590,14 @@ the current behavior has not been independently accepted for this v1 baseline.
   old attachment.
 - Dependencies: existing revision/checkpoint system; approved attachment schema
   migration.
-- Completion evidence: pending.
+- Completion evidence: `lib/data/attachment_blob_store*.dart` provides SHA-256
+  content-addressed memory, Android private-file, and Web IndexedDB stores;
+  `AppStore` performs verified legacy Base64 migration, portable include/exclude
+  export, snapshot-aware garbage collection, and 25/100/125 MB enforcement.
+  `test/attachment_blob_store_test.dart` covers deduplication, limits, atomic
+  migration failure, corrupt payload rejection, portable export, and backup
+  retention. Full `flutter test` passed (111 tests), `flutter analyze` passed,
+  and Flutter Web debug build passed on 2026-10-10.
 
 ### P0-009 — Batched delete, undo, and relationship cleanup
 

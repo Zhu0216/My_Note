@@ -16,6 +16,7 @@ class _StoredSnapshot {
 
 class AppStore extends ChangeNotifier {
   AppStore._({
+    required AttachmentBlobStore attachmentBlobStore,
     required this.notes,
     required this.schedules,
     required this.subscriptions,
@@ -34,6 +35,7 @@ class AppStore extends ChangeNotifier {
     String lastChangeAction = 'load',
     bool persistenceLocked = false,
   }) {
+    _attachmentBlobStore = attachmentBlobStore;
     _persistenceRevision = persistenceRevision;
     _lastChangedAt = lastChangedAt;
     _lastChangeAction = lastChangeAction;
@@ -46,8 +48,12 @@ class AppStore extends ChangeNotifier {
     _scheduleCompletedTodoCleanup();
   }
 
-  factory AppStore.seeded({bool persistenceLocked = false}) {
+  factory AppStore.seeded({
+    bool persistenceLocked = false,
+    AttachmentBlobStore? attachmentBlobStore,
+  }) {
     return AppStore._(
+      attachmentBlobStore: attachmentBlobStore ?? MemoryAttachmentBlobStore(),
       monthlyBudget: 18000,
       homeSectionOrder: defaultHomeSectionOrder(),
       collapsedHomeSections: <HomeSectionId>{},
@@ -93,7 +99,11 @@ class AppStore extends ChangeNotifier {
     );
   }
 
-  static Future<AppStore> load() async {
+  static Future<AppStore> load({
+    AttachmentBlobStore? attachmentBlobStore,
+  }) async {
+    final blobStore =
+        attachmentBlobStore ?? createPlatformAttachmentBlobStore();
     final prefs = await SharedPreferences.getInstance();
     final primaryRaw = prefs.getString(_storageKey);
     final candidates = _readStoredSnapshots(prefs);
@@ -104,8 +114,15 @@ class AppStore extends ChangeNotifier {
       if (_rawIsLegacySeedSnapshot(candidate.raw)) {
         continue;
       }
-      final loaded = _tryLoadFromRaw(candidate.raw);
+      final loaded = _tryLoadFromRaw(
+        candidate.raw,
+        attachmentBlobStore: blobStore,
+      );
       if (loaded == null) {
+        continue;
+      }
+      if (!await loaded._prepareAttachments()) {
+        loaded.dispose();
         continue;
       }
       final isPrimaryOrCheckpoint =
@@ -124,9 +141,12 @@ class AppStore extends ChangeNotifier {
     if (selectedSnapshot == null || selectedStore == null) {
       if (primaryRaw != null) {
         await prefs.setString(_recoveryStorageKey, primaryRaw);
-        return AppStore.seeded(persistenceLocked: true);
+        return AppStore.seeded(
+          persistenceLocked: true,
+          attachmentBlobStore: blobStore,
+        );
       }
-      return AppStore.seeded();
+      return AppStore.seeded(attachmentBlobStore: blobStore);
     }
 
     final migratedRaw = jsonEncode(selectedStore.toJson());
@@ -318,7 +338,10 @@ class AppStore extends ChangeNotifier {
     await prefs.setString(_backupHistoryStorageKey, jsonEncode(history));
   }
 
-  static AppStore? _tryLoadFromRaw(String raw) {
+  static AppStore? _tryLoadFromRaw(
+    String raw, {
+    required AttachmentBlobStore attachmentBlobStore,
+  }) {
     try {
       final decoded = jsonDecode(raw) as Map<String, dynamic>;
       final data = migrateFinanceLedgerData(decoded);
@@ -327,6 +350,7 @@ class AppStore extends ChangeNotifier {
           ? Map<String, dynamic>.from(persistence)
           : const <String, dynamic>{};
       return AppStore._(
+        attachmentBlobStore: attachmentBlobStore,
         notes: listOf(data['notes'], noteFromJson),
         schedules: listOf(data['schedules'], scheduleFromJson),
         subscriptions: listOf(data['subscriptions'], subscriptionFromJson),
@@ -412,6 +436,8 @@ class AppStore extends ChangeNotifier {
   int _persistenceRevision = 0;
   DateTime? _lastChangedAt;
   String _lastChangeAction = 'load';
+  late final AttachmentBlobStore _attachmentBlobStore;
+  final Set<String> _pendingAttachmentBlobIds = <String>{};
 
   String newId(String prefix) => '$prefix${_nextId++}';
 
@@ -466,13 +492,162 @@ class AppStore extends ChangeNotifier {
     };
   }
 
+  Future<Map<String, dynamic>> createAttachmentMetadata({
+    required Iterable<Map<String, dynamic>> existingAttachments,
+    required String name,
+    required Uint8List bytes,
+    String mimeType = '',
+  }) async {
+    final currentBytes = existingAttachments.fold<int>(
+      0,
+      (total, item) => total + readInt(item['size']),
+    );
+    validateAttachmentCapacity(
+      currentBytes: currentBytes,
+      newAttachmentBytes: bytes.length,
+    );
+    final blobId = await _attachmentBlobStore.put(bytes);
+    final verified = await _attachmentBlobStore.read(blobId);
+    if (verified == null || attachmentBlobId(verified) != blobId) {
+      throw StateError('附件儲存驗證失敗');
+    }
+    _pendingAttachmentBlobIds.add(blobId);
+    return {
+      'id': DateTime.now().microsecondsSinceEpoch.toString(),
+      'name': name,
+      'mimeType': mimeType,
+      'mode': 'file',
+      'blobId': blobId,
+      'size': bytes.length,
+      'content': '',
+      'payloadIncluded': true,
+    };
+  }
+
+  Future<Uint8List?> attachmentBytes(Map<String, dynamic> attachment) async {
+    final legacy = readString(attachment['bytesBase64']);
+    if (legacy.isNotEmpty) {
+      try {
+        return base64Decode(legacy);
+      } catch (_) {
+        return null;
+      }
+    }
+    final blobId = readString(attachment['blobId']);
+    return blobId.isEmpty ? null : _attachmentBlobStore.read(blobId);
+  }
+
+  Future<bool> _prepareAttachments() async {
+    final prepared = <(NoteItem, List<Map<String, dynamic>>)>[];
+    try {
+      for (final note in notes) {
+        final next = <Map<String, dynamic>>[];
+        for (final original in note.attachments) {
+          final attachment = Map<String, dynamic>.from(original);
+          final encoded = readString(attachment['bytesBase64']);
+          final declaredBlobId = readString(attachment['blobId']);
+          if (encoded.isNotEmpty) {
+            final bytes = base64Decode(encoded);
+            final expectedBlobId = attachmentBlobId(bytes);
+            if (declaredBlobId.isNotEmpty && declaredBlobId != expectedBlobId) {
+              return false;
+            }
+            final storedBlobId = await _attachmentBlobStore.put(bytes);
+            final verified = await _attachmentBlobStore.read(storedBlobId);
+            if (verified == null ||
+                attachmentBlobId(verified) != storedBlobId) {
+              return false;
+            }
+            attachment
+              ..remove('bytesBase64')
+              ..remove('path')
+              ..['blobId'] = storedBlobId
+              ..['size'] = bytes.length
+              ..['payloadIncluded'] = true;
+          } else if (declaredBlobId.isNotEmpty) {
+            final available = await _attachmentBlobStore.contains(
+              declaredBlobId,
+            );
+            if (!available && attachment['payloadIncluded'] != false) {
+              return false;
+            }
+          } else if (readInt(attachment['size']) > 0) {
+            attachment['payloadIncluded'] = false;
+          }
+          next.add(attachment);
+        }
+        prepared.add((note, next));
+      }
+    } catch (_) {
+      return false;
+    }
+    for (final (note, attachments) in prepared) {
+      note.attachments = attachments;
+    }
+    return true;
+  }
+
+  Future<void> _prepareAttachmentExport(
+    Map<String, dynamic> data, {
+    required bool includeAttachments,
+  }) async {
+    final noteMaps = readMapList(data['notes']);
+    for (final note in noteMaps) {
+      final attachments = readMapList(note['attachments']);
+      for (final attachment in attachments) {
+        final bytes = includeAttachments
+            ? await attachmentBytes(attachment)
+            : null;
+        attachment.remove('path');
+        attachment.remove('bytesBase64');
+        if (!includeAttachments) {
+          attachment['payloadIncluded'] = false;
+          continue;
+        }
+        if (bytes == null) {
+          if (attachment['payloadIncluded'] == false) continue;
+          throw StateError('附件 ${readString(attachment['name'])} 的內容遺失');
+        }
+        attachment
+          ..['bytesBase64'] = base64Encode(bytes)
+          ..['payloadIncluded'] = true;
+      }
+      note['attachments'] = attachments;
+    }
+    data['notes'] = noteMaps;
+  }
+
+  Future<void> _garbageCollectAttachmentBlobs(SharedPreferences prefs) async {
+    final referenced = <String>{..._pendingAttachmentBlobIds};
+    for (final snapshot in _readStoredSnapshots(prefs)) {
+      try {
+        final data = jsonDecode(snapshot.raw);
+        if (data is! Map) continue;
+        for (final note in readMapList(data['notes'])) {
+          for (final attachment in readMapList(note['attachments'])) {
+            final blobId = readString(attachment['blobId']);
+            if (blobId.isNotEmpty) referenced.add(blobId);
+          }
+        }
+      } catch (_) {
+        // A damaged snapshot cannot contribute reliable blob references.
+      }
+    }
+    final stored = await _attachmentBlobStore.listIds();
+    for (final blobId in stored.difference(referenced)) {
+      await _attachmentBlobStore.delete(blobId);
+    }
+  }
+
   /// Creates a portable snapshot. This never changes current app state.
-  Future<String> exportBundle() async {
+  Future<String> exportBundle({bool includeAttachments = true}) async {
     await flushPersistence();
-    return LocalDataBundle(
-      createdAt: DateTime.now(),
-      data: cloneJsonMap(toJson()),
-    ).encode();
+    final data = cloneJsonMap(toJson());
+    await _prepareAttachmentExport(
+      data,
+      includeAttachments: includeAttachments,
+    );
+    return LocalDataBundle(createdAt: DateTime.now(), data: data).encode();
   }
 
   /// Validates and replaces the in-memory state from an export or legacy local
@@ -481,8 +656,12 @@ class AppStore extends ChangeNotifier {
   Future<LocalImportResult> importBundle(String raw) async {
     final bundle = LocalDataBundle.decode(raw);
     final candidateRaw = jsonEncode(bundle.data);
-    final candidate = _tryLoadFromRaw(candidateRaw);
-    if (candidate == null) {
+    final candidate = _tryLoadFromRaw(
+      candidateRaw,
+      attachmentBlobStore: _attachmentBlobStore,
+    );
+    if (candidate == null || !await candidate._prepareAttachments()) {
+      candidate?.dispose();
       throw const FormatException('匯入資料無法讀取。');
     }
 
@@ -551,7 +730,10 @@ class AppStore extends ChangeNotifier {
     final seen = <String>{};
     for (final raw in _readBackupSnapshots(prefs)) {
       if (!seen.add(raw)) continue;
-      final candidate = _tryLoadFromRaw(raw);
+      final candidate = _tryLoadFromRaw(
+        raw,
+        attachmentBlobStore: _attachmentBlobStore,
+      );
       if (candidate == null || !_rawHasRecoverableUserContent(raw)) {
         candidate?.dispose();
         continue;
@@ -600,6 +782,7 @@ class AppStore extends ChangeNotifier {
     }
     await prefs.setString(_storageKey, raw);
     await _writeBackupSnapshot(prefs, raw);
+    await _garbageCollectAttachmentBlobs(prefs);
   }
 
   static Future<void> _appendChangeJournal(

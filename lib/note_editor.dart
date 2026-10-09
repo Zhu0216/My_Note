@@ -542,15 +542,21 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
       showToast(context, '無法讀取附件');
       return;
     }
-    final attachment = {
-      'id': DateTime.now().microsecondsSinceEpoch.toString(),
-      'name': file.name,
-      'mode': 'file',
-      'bytesBase64': base64Encode(bytes),
-      'size': file.size,
-      'content': '',
-      'path': file.path ?? '',
-    };
+    Map<String, dynamic> attachment;
+    try {
+      attachment = await AppStoreScope.of(context).createAttachmentMetadata(
+        existingAttachments: noteAttachments,
+        name: file.name,
+        bytes: bytes,
+      );
+    } on AttachmentLimitException catch (error) {
+      if (mounted) showToast(context, error.message);
+      return;
+    } catch (_) {
+      if (mounted) showToast(context, '附件儲存失敗，原有內容未變更');
+      return;
+    }
+    if (!mounted) return;
     body.insertEmbedBlock(
       type: richNoteEmbedTypeAttachment,
       id: readString(attachment['id']),
@@ -4192,9 +4198,8 @@ class _GeneralRichTextEditorPanelState
       return;
     }
     final name = readString(attachment['name'], fallback: '附件');
-    final bytes = decodeBase64BytesOrNull(
-      readString(attachment['bytesBase64']),
-    );
+    final bytes = await AppStoreScope.of(context).attachmentBytes(attachment);
+    if (!mounted) return;
     final preview = bytes == null ? null : safeUtf8Preview(bytes);
     final isImage = bytes != null && isImageFileName(name);
     await showDialog<void>(
@@ -4236,9 +4241,8 @@ class _GeneralRichTextEditorPanelState
     if (attachment == null) {
       return;
     }
-    final bytes = decodeBase64BytesOrNull(
-      readString(attachment['bytesBase64']),
-    );
+    final bytes = await AppStoreScope.of(context).attachmentBytes(attachment);
+    if (!mounted) return;
     if (bytes == null || bytes.isEmpty) {
       showToast(context, '附件內容無法下載');
       return;
