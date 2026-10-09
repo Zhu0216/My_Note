@@ -736,14 +736,21 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P2-007 — Home section separators
 
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: visible Home categories have restrained theme-colored
   separation.
 - Acceptance: a centered 90%-width primary-color line at 40% opacity appears
   only between visible sections; collapsed sections participate and hidden
   sections do not; no extra card or shadow is introduced.
 - Dependencies: Home section renderer.
-- Completion evidence: pending.
+- Completion evidence: `HomePage` derives one ordered visible-section list and
+  inserts `HomeSectionDivider` only between adjacent entries. Each line uses
+  90% of the content width, one physical layout pixel of height, and the active
+  theme primary color at 40% opacity. Collapsed sections remain in the list;
+  hidden sections are removed before adjacency is calculated. A widget test
+  verifies count, adjacency, width, opacity, collapsed participation, and hidden
+  omission. Static analysis, all 128 tests, and the Web debug build pass on the
+  task commit.
 
 ### P2-008 — Full v1 functionality truth audit
 

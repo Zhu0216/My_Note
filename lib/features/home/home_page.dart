@@ -135,6 +135,9 @@ class HomePageState extends State<HomePage>
   @override
   Widget build(BuildContext context) {
     final store = AppStoreScope.of(context);
+    final visibleSections = store.homeSectionOrder
+        .where((section) => !store.hiddenHomeSections.contains(section))
+        .toList(growable: false);
 
     return HomeFeatureActionsScope(
       actions: widget.actions,
@@ -194,16 +197,48 @@ class HomePageState extends State<HomePage>
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
               children: [
-                for (final section in store.homeSectionOrder)
-                  if (!store.hiddenHomeSections.contains(section))
-                    HomeSection(
-                      section: section,
-                      onNavigate: widget.onNavigate,
+                for (
+                  var index = 0;
+                  index < visibleSections.length;
+                  index++
+                ) ...[
+                  HomeSection(
+                    section: visibleSections[index],
+                    onNavigate: widget.onNavigate,
+                  ),
+                  if (index < visibleSections.length - 1)
+                    HomeSectionDivider(
+                      before: visibleSections[index],
+                      after: visibleSections[index + 1],
                     ),
+                ],
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class HomeSectionDivider extends StatelessWidget {
+  const HomeSectionDivider({
+    super.key,
+    required this.before,
+    required this.after,
+  });
+
+  final HomeSectionId before;
+  final HomeSectionId after;
+
+  @override
+  Widget build(BuildContext context) {
+    return FractionallySizedBox(
+      widthFactor: 0.9,
+      child: ColoredBox(
+        key: ValueKey('home-section-divider-${before.name}-${after.name}'),
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
+        child: const SizedBox(height: 1),
       ),
     );
   }

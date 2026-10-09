@@ -1831,6 +1831,48 @@ void main() {
     }
   });
 
+  testWidgets('home dividers separate only visible sections', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    store.hiddenHomeSections.add(HomeSectionId.schedule);
+    store.collapsedHomeSections.add(HomeSectionId.notes);
+    await tester.binding.setSurfaceSize(const Size(412, 915));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    try {
+      await tester.pumpWidget(MyNoteApp(store: store));
+      await tester.pumpAndSettle();
+
+      final dividers = find.byType(HomeSectionDivider);
+      expect(dividers, findsNWidgets(3));
+      expect(
+        find.byKey(
+          const ValueKey('home-section-divider-metrics-subscriptions'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('home-section-divider-notes-todos')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('home-section-divider-metrics-schedule')),
+        findsNothing,
+      );
+
+      final line = find.byKey(
+        const ValueKey('home-section-divider-metrics-subscriptions'),
+      );
+      expect(tester.getSize(line).width, closeTo(342, 0.5));
+      expect(tester.getSize(line).height, 1);
+      final color = tester.widget<ColoredBox>(line).color;
+      expect(color.a, closeTo(0.4, 0.01));
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
   test('upcoming aggregation follows source edits and hidden state', () {
     final store = AppStore.seeded(persistenceLocked: true);
     final now = DateTime.now();
