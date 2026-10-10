@@ -1,8 +1,8 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_box_transform/flutter_box_transform.dart' as fbt;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -5003,6 +5003,205 @@ void main() {
     );
     expect(transform.draggable, isTrue);
     expect(transform.visibleHandles, hasLength(8));
+  });
+
+  testWidgets('Delete removes the selected image block and metadata', (
+    tester,
+  ) async {
+    final controller = RichNoteTextController(
+      text: 'before\n$richNoteEmbedObject\nafter',
+      marks: const [
+        RichNoteMark(
+          start: 7,
+          end: 8,
+          attributes: {
+            RichNoteAttribute.embedType: richNoteEmbedTypeImage,
+            RichNoteAttribute.embedId: 'keyboard-image',
+          },
+        ),
+      ],
+    );
+    addTearDown(controller.dispose);
+    var images = <Map<String, dynamic>>[
+      {
+        'id': 'keyboard-image',
+        'name': 'keyboard.png',
+        'width': 120.0,
+        'height': 80.0,
+        'alignment': NoteImageAlignment.center.name,
+      },
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 640,
+            height: 520,
+            child: GeneralRichTextEditorPanel(
+              controller: controller,
+              readOnly: false,
+              style: defaultNoteStyle(),
+              images: images,
+              attachments: const [],
+              onStyleChanged: (_) {},
+              onAddImage: () {},
+              onAddAttachment: () {},
+              onInsertTodo: () {},
+              onImagesChanged: (value) => images = List.of(value),
+              onAttachmentsChanged: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(InlineRichImageBlock));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(InlineRichImageBlock), findsNothing);
+    expect(images, isEmpty);
+    expect(
+      controller.hasEmbedBlock(
+        type: richNoteEmbedTypeImage,
+        id: 'keyboard-image',
+      ),
+      isFalse,
+    );
+  });
+
+  testWidgets('Backspace removes the selected attachment block and metadata', (
+    tester,
+  ) async {
+    final controller = RichNoteTextController(
+      text: richNoteEmbedObject,
+      marks: const [
+        RichNoteMark(
+          start: 0,
+          end: 1,
+          attributes: {
+            RichNoteAttribute.embedType: richNoteEmbedTypeAttachment,
+            RichNoteAttribute.embedId: 'keyboard-attachment',
+          },
+        ),
+      ],
+    );
+    addTearDown(controller.dispose);
+    var attachments = <Map<String, dynamic>>[
+      {'id': 'keyboard-attachment', 'name': 'keyboard.txt', 'size': 12},
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 640,
+            height: 520,
+            child: GeneralRichTextEditorPanel(
+              controller: controller,
+              readOnly: false,
+              style: defaultNoteStyle(),
+              images: const [],
+              attachments: attachments,
+              onStyleChanged: (_) {},
+              onAddImage: () {},
+              onAddAttachment: () {},
+              onInsertTodo: () {},
+              onImagesChanged: (_) {},
+              onAttachmentsChanged: (value) => attachments = List.of(value),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(InlineRichAttachmentBlock));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(InlineRichAttachmentBlock), findsNothing);
+    expect(attachments, isEmpty);
+    expect(
+      controller.hasEmbedBlock(
+        type: richNoteEmbedTypeAttachment,
+        id: 'keyboard-attachment',
+      ),
+      isFalse,
+    );
+  });
+
+  testWidgets('Delete removes a selected todo reference but keeps its source', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    store.todos.clear();
+    store.addTodo('鍵盤移除測試');
+    final todo = store.todos.single;
+    final controller = RichNoteTextController(
+      text: richNoteEmbedObject,
+      marks: [
+        RichNoteMark(
+          start: 0,
+          end: 1,
+          attributes: {
+            RichNoteAttribute.embedType: richNoteEmbedTypeTodo,
+            RichNoteAttribute.embedId: todo.id,
+          },
+        ),
+      ],
+    );
+
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 640,
+                height: 520,
+                child: GeneralRichTextEditorPanel(
+                  controller: controller,
+                  readOnly: false,
+                  style: defaultNoteStyle(),
+                  images: const [],
+                  attachments: const [],
+                  onStyleChanged: (_) {},
+                  onAddImage: () {},
+                  onAddAttachment: () {},
+                  onInsertTodo: () {},
+                  onImagesChanged: (_) {},
+                  onAttachmentsChanged: (_) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(InlineRichTodoReferenceBlock));
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(InlineRichTodoReferenceBlock), findsNothing);
+      expect(store.todos.single.id, todo.id);
+      expect(
+        controller.hasEmbedBlock(type: richNoteEmbedTypeTodo, id: todo.id),
+        isFalse,
+      );
+    } finally {
+      controller.dispose();
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
   });
 
   testWidgets('attachment toolbar performs rename and exposes replace', (

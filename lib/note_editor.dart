@@ -3360,6 +3360,9 @@ class _GeneralRichTextEditorPanelState
   final imageToolbarKey = GlobalKey<_ModernRichImageEditToolbarState>();
   String? selectedEmbedType;
   String? selectedEmbedId;
+  final FocusNode embedKeyboardFocusNode = FocusNode(
+    debugLabel: 'rich-note-selected-embed',
+  );
   final FocusNode bodyFocusNode = FocusNode(debugLabel: 'rich-note-body');
   final Map<int, TextEditingController> flowTextControllers = {};
   final Map<int, FocusNode> flowTextFocusNodes = {};
@@ -3437,6 +3440,7 @@ class _GeneralRichTextEditorPanelState
     for (final focusNode in flowTextFocusNodes.values) {
       focusNode.dispose();
     }
+    embedKeyboardFocusNode.dispose();
     bodyFocusNode.dispose();
     super.dispose();
   }
@@ -3473,7 +3477,11 @@ class _GeneralRichTextEditorPanelState
     if (widget.readOnly) {
       return;
     }
-    if (type == richNoteEmbedTypeImage) {
+    final acceptsKeyboardDelete =
+        type == richNoteEmbedTypeImage ||
+        type == richNoteEmbedTypeAttachment ||
+        type == richNoteEmbedTypeTodo;
+    if (acceptsKeyboardDelete) {
       FocusManager.instance.primaryFocus?.unfocus();
       widget.controller.clearTextSelectionForImageInteraction();
     }
@@ -3481,6 +3489,13 @@ class _GeneralRichTextEditorPanelState
       selectedEmbedType = type;
       selectedEmbedId = id;
     });
+    if (acceptsKeyboardDelete) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && selectedEmbedType == type && selectedEmbedId == id) {
+          embedKeyboardFocusNode.requestFocus();
+        }
+      });
+    }
   }
 
   void blockEmbedBackgroundTap(String type, String id) {
@@ -3624,6 +3639,7 @@ class _GeneralRichTextEditorPanelState
 
   void clearEmbedSelection() {
     if (selectedEmbedType != null || selectedEmbedId != null) {
+      embedKeyboardFocusNode.unfocus();
       setState(() {
         selectedEmbedType = null;
         selectedEmbedId = null;
@@ -3744,6 +3760,30 @@ class _GeneralRichTextEditorPanelState
     }
     widget.controller.removeEmbedBlock(type: richNoteEmbedTypeTodo, id: id);
     clearEmbedSelection();
+  }
+
+  KeyEventResult handleSelectedEmbedKeyEvent(FocusNode node, KeyEvent event) {
+    if (widget.readOnly || event is! KeyDownEvent) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    if (key != LogicalKeyboardKey.delete &&
+        key != LogicalKeyboardKey.backspace) {
+      return KeyEventResult.ignored;
+    }
+    switch (selectedEmbedType) {
+      case richNoteEmbedTypeImage:
+        deleteSelectedImage();
+        return KeyEventResult.handled;
+      case richNoteEmbedTypeAttachment:
+        deleteSelectedAttachment();
+        return KeyEventResult.handled;
+      case richNoteEmbedTypeTodo:
+        removeSelectedTodoReference();
+        return KeyEventResult.handled;
+      default:
+        return KeyEventResult.ignored;
+    }
   }
 
   Future<void> previewSelectedNoteReference() async {
@@ -4432,6 +4472,14 @@ class _GeneralRichTextEditorPanelState
 
   @override
   Widget build(BuildContext context) {
+    return Focus(
+      focusNode: embedKeyboardFocusNode,
+      onKeyEvent: handleSelectedEmbedKeyEvent,
+      child: buildEditor(context),
+    );
+  }
+
+  Widget buildEditor(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     removeStaleImageTapTargets();
     return Column(
