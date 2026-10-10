@@ -3757,6 +3757,112 @@ void main() {
     );
   });
 
+  test('Markdown import converts approved blocks without touching tables', () {
+    const markdown = '''# 標題
+> 引用
+- 項目
+[ ] 待辦
+```
+code
+```
+---
+| A | B |''';
+    final seed = richNoteFromMarkdown(markdown);
+
+    expect(seed.text, contains('標題'));
+    expect(seed.text, contains('• 項目'));
+    expect(seed.text, contains('☐ 待辦'));
+    expect(seed.text, contains('────────'));
+    expect(seed.text, contains('| A | B |'));
+    expect(
+      seed.marks.any((mark) => mark.attributes[RichNoteAttribute.heading] == 1),
+      isTrue,
+    );
+    expect(
+      seed.marks.any(
+        (mark) => mark.attributes[RichNoteAttribute.quote] == true,
+      ),
+      isTrue,
+    );
+    expect(
+      seed.marks.any(
+        (mark) => mark.attributes[RichNoteAttribute.codeBlock] == true,
+      ),
+      isTrue,
+    );
+  });
+
+  test('converted Markdown paste is one undoable rich-text transaction', () {
+    final controller = RichNoteTextController(text: '前後', marks: const []);
+    controller.updateSelectionFromFlow(
+      const TextSelection.collapsed(offset: 1),
+    );
+    controller.replaceSelectionWithRichText(richNoteFromMarkdown('**粗體**'));
+
+    expect(controller.text, '前粗體後');
+    expect(
+      controller.marks.any(
+        (mark) => mark.attributes[RichNoteAttribute.bold] == true,
+      ),
+      isTrue,
+    );
+    controller.undoRichChange();
+    expect(controller.text, '前後');
+  });
+
+  test('Markdown import and export round-trip supported structures', () {
+    const source = '''# 標題
+> 引用
+- 項目
+[ ] 待辦
+`code`
+[網站](https://example.com)
+---''';
+    final first = richNoteFromMarkdown(source);
+    final exported = richNoteMarkdownExportText(first.text, first.marks);
+    final restored = richNoteFromMarkdown(exported);
+
+    expect(restored.text, first.text);
+    for (final attribute in [
+      RichNoteAttribute.heading,
+      RichNoteAttribute.quote,
+      RichNoteAttribute.inlineCode,
+      RichNoteAttribute.linkUrl,
+      RichNoteAttribute.horizontalRule,
+    ]) {
+      expect(
+        restored.marks.any((mark) => mark.attributes.containsKey(attribute)),
+        isTrue,
+        reason: attribute,
+      );
+    }
+  });
+
+  testWidgets('general note fields install the Markdown paste choice menu', (
+    tester,
+  ) async {
+    final store = AppStore.seeded(persistenceLocked: true);
+    try {
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: const MaterialApp(home: NoteEditorPage()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final richField = tester
+          .widgetList<TextField>(find.byType(TextField))
+          .firstWhere(
+            (field) => field.controller is RichNoteFlowTextController,
+          );
+      expect(richField.contextMenuBuilder, isNotNull);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
   test('rich toolbar typing mode toggles off inherited inline styles', () {
     const attributes = [
       RichNoteAttribute.bold,

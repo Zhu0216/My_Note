@@ -1190,7 +1190,7 @@ bool _sameMarkdownAttributes(
 ) => jsonEncode(left) == jsonEncode(right);
 
 String _markdownWrapped(String value, Map<String, dynamic> attributes) {
-  if (attributes[RichNoteAttribute.horizontalRule] == true) return '---\n';
+  if (attributes[RichNoteAttribute.horizontalRule] == true) return '---';
   var result = value;
   if (attributes[RichNoteAttribute.inlineCode] == true) {
     result = '`${result.replaceAll('`', r'\`')}`';
@@ -1410,6 +1410,115 @@ RichMarkdownConversion? markdownInlineConversion(String line) {
     );
   }
   return null;
+}
+
+bool looksLikeMarkdown(String value) => RegExp(
+  r'(^|\n)(#{1,3} |> |- |\* |\+ |\d+\. |\[[ xX]\] |```|---\s*$)|\*\*[^*\n]+\*\*|~~[^~\n]+~~|`[^`\n]+`|\[[^\]\n]+\]\([^)\n]+\)',
+  multiLine: true,
+).hasMatch(value);
+
+RichNoteSeed richNoteFromMarkdown(String markdown) {
+  final output = StringBuffer();
+  final marks = <RichNoteMark>[];
+  var fencedCode = false;
+  final lines = markdown.split('\n');
+  for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    var line = lines[lineIndex];
+    if (line.trim() == '```') {
+      fencedCode = !fencedCode;
+      continue;
+    }
+    final attributes = <String, dynamic>{};
+    final heading = RegExp(r'^(#{1,3})\s+').firstMatch(line);
+    if (heading != null) {
+      attributes[RichNoteAttribute.heading] = heading.group(1)!.length;
+      line = line.substring(heading.end);
+    } else if (line.startsWith('> ')) {
+      attributes[RichNoteAttribute.quote] = true;
+      line = line.substring(2);
+    } else if (RegExp(r'^[-+*]\s+').hasMatch(line)) {
+      line = line.replaceFirst(RegExp(r'^[-+*]\s+'), '• ');
+    } else if (RegExp(r'^\[ \]\s+').hasMatch(line)) {
+      line = line.replaceFirst(RegExp(r'^\[ \]\s+'), '☐ ');
+    } else if (RegExp(r'^\[[xX]\]\s+').hasMatch(line)) {
+      line = line.replaceFirst(RegExp(r'^\[[xX]\]\s+'), '☑ ');
+    }
+    if (fencedCode) attributes[RichNoteAttribute.codeBlock] = true;
+    if (line.trim() == '---' || line.trim() == '***' || line.trim() == '___') {
+      line = '────────';
+      attributes[RichNoteAttribute.horizontalRule] = true;
+    }
+    _appendMarkdownInline(output, marks, line, attributes);
+    if (lineIndex < lines.length - 1) output.write('\n');
+  }
+  return RichNoteSeed(
+    text: output.toString(),
+    marks: normalizeRichNoteMarks(marks, output.length),
+  );
+}
+
+void _appendMarkdownInline(
+  StringBuffer output,
+  List<RichNoteMark> marks,
+  String line,
+  Map<String, dynamic> blockAttributes,
+) {
+  final token = RegExp(
+    r'\*\*([^*\n]+)\*\*|~~([^~\n]+)~~|`([^`\n]+)`|\[([^\]\n]+)\]\(([^)\n]+)\)|(?<!\*)\*([^*\n]+)\*',
+  );
+  var cursor = 0;
+  for (final match in token.allMatches(line)) {
+    if (match.start > cursor) {
+      _appendMarkedText(
+        output,
+        marks,
+        line.substring(cursor, match.start),
+        blockAttributes,
+      );
+    }
+    final attributes = Map<String, dynamic>.from(blockAttributes);
+    late final String text;
+    if (match.group(1) != null) {
+      text = match.group(1)!;
+      attributes[RichNoteAttribute.bold] = true;
+    } else if (match.group(2) != null) {
+      text = match.group(2)!;
+      attributes[RichNoteAttribute.strikethrough] = true;
+    } else if (match.group(3) != null) {
+      text = match.group(3)!;
+      attributes[RichNoteAttribute.inlineCode] = true;
+    } else if (match.group(4) != null) {
+      text = match.group(4)!;
+      attributes[RichNoteAttribute.linkUrl] = match.group(5)!;
+    } else {
+      text = match.group(6)!;
+      attributes[RichNoteAttribute.italic] = true;
+    }
+    _appendMarkedText(output, marks, text, attributes);
+    cursor = match.end;
+  }
+  if (cursor < line.length) {
+    _appendMarkedText(output, marks, line.substring(cursor), blockAttributes);
+  }
+}
+
+void _appendMarkedText(
+  StringBuffer output,
+  List<RichNoteMark> marks,
+  String value,
+  Map<String, dynamic> attributes,
+) {
+  final start = output.length;
+  output.write(value);
+  if (value.isNotEmpty && attributes.isNotEmpty) {
+    marks.add(
+      RichNoteMark(
+        start: start,
+        end: output.length,
+        attributes: Map<String, dynamic>.from(attributes),
+      ),
+    );
+  }
 }
 
 class RichNoteSeed {
@@ -1990,6 +2099,38 @@ class RichNoteTextController extends TextEditingController {
       text: nextText,
       selection: TextSelection.collapsed(
         offset: range.start + replacement.length,
+      ),
+    );
+    _syncLastSnapshot();
+    _applyingChange = false;
+    notifyListeners();
+  }
+
+  void replaceSelectionWithRichText(RichNoteSeed seed) {
+    final range = normalizedSelectionRange();
+    _pushCurrentUndo();
+    _applyingChange = true;
+    final nextText = text.replaceRange(range.start, range.end, seed.text);
+    _marks = adjustRichNoteMarksForReplacement(
+      _marks,
+      oldStart: range.start,
+      oldEnd: range.end,
+      replacementLength: seed.text.length,
+      textLength: nextText.length,
+    );
+    _marks.addAll(
+      seed.marks.map(
+        (mark) => mark.copyWith(
+          start: range.start + mark.start,
+          end: range.start + mark.end,
+        ),
+      ),
+    );
+    _marks = normalizeRichNoteMarks(_marks, nextText.length);
+    value = TextEditingValue(
+      text: nextText,
+      selection: TextSelection.collapsed(
+        offset: range.start + seed.text.length,
       ),
     );
     _syncLastSnapshot();
@@ -4275,6 +4416,94 @@ class _GeneralRichTextEditorPanelState
     focusFlowTextBlock(targetBlock, atStart: atStart);
   }
 
+  Future<void> pasteIntoRichTextBlock(
+    BuildContext fieldContext,
+    RichNoteFlowBlock block,
+    RichNoteFlowTextController flowController,
+    EditableTextState editableTextState,
+  ) async {
+    editableTextState.hideToolbar();
+    final clipboard = await Clipboard.getData(Clipboard.kTextPlain);
+    final pastedText = clipboard?.text;
+    if (!mounted ||
+        !fieldContext.mounted ||
+        pastedText == null ||
+        pastedText.isEmpty) {
+      return;
+    }
+    flowController.parent.updateSelectionFromFlow(
+      TextSelection(
+        baseOffset: block.start + flowController.selection.baseOffset,
+        extentOffset: block.start + flowController.selection.extentOffset,
+      ),
+    );
+
+    var convert = false;
+    if (looksLikeMarkdown(pastedText)) {
+      final choice = await showDialog<String>(
+        context: fieldContext,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('貼上 Markdown'),
+          content: const Text('要保留原始文字，或轉換成筆記格式？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, 'plain'),
+              child: const Text('保留純文字'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, 'convert'),
+              child: const Text('轉換格式'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || choice == null) return;
+      convert = choice == 'convert';
+    }
+
+    if (convert) {
+      widget.controller.replaceSelectionWithRichText(
+        richNoteFromMarkdown(pastedText),
+      );
+    } else {
+      widget.controller.replaceSelection(pastedText);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) flowTextFocusNodeFor(block).requestFocus();
+    });
+  }
+
+  Widget buildRichTextContextMenu(
+    BuildContext context,
+    RichNoteFlowBlock block,
+    RichNoteFlowTextController controller,
+    EditableTextState editableTextState,
+  ) {
+    final items = editableTextState.contextMenuButtonItems
+        .map((item) {
+          if (item.type != ContextMenuButtonType.paste) return item;
+          return ContextMenuButtonItem(
+            type: ContextMenuButtonType.paste,
+            label: item.label,
+            onPressed: () => pasteIntoRichTextBlock(
+              context,
+              block,
+              controller,
+              editableTextState,
+            ),
+          );
+        })
+        .toList(growable: false);
+    return AdaptiveTextSelectionToolbar.buttonItems(
+      anchors: editableTextState.contextMenuAnchors,
+      buttonItems: items,
+    );
+  }
+
   void handleFlowTextControllerChanged(int order) {
     if (updatingFlowTextController || refreshingFlowFormatting) {
       return;
@@ -4915,6 +5144,19 @@ class _GeneralRichTextEditorPanelState
                                                     controller: controller,
                                                     focusNode: focusNode,
                                                     readOnly: widget.readOnly,
+                                                    contextMenuBuilder:
+                                                        widget.readOnly
+                                                        ? null
+                                                        : (
+                                                            context,
+                                                            editableTextState,
+                                                          ) => buildRichTextContextMenu(
+                                                            context,
+                                                            block,
+                                                            controller
+                                                                as RichNoteFlowTextController,
+                                                            editableTextState,
+                                                          ),
                                                     cursorHeight: cursorHeight,
                                                     strutStyle:
                                                         flowStrutStyleForBlock(

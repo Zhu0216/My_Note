@@ -883,13 +883,18 @@ reserved for the v2 second-half Grill Me.
 ### V2-P1-004 — Markdown paste choice and round-trip safety
 
 - Priority: `P1`
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: pasted Markdown can remain plain text or convert into
   supported editor structures without losing unsupported rich attributes.
 - Acceptance: paste choice works on Web and Android; export/import round trips
   headings, links, lists, quotes, code, and dividers; no table UI is introduced.
 - Dependencies: V2-P1-003 and existing Markdown export.
-- Completion evidence: none; specified in the v2 first-half Grill Me.
+- Completion evidence: implemented on 2026-10-11 through the shared Flutter
+  text-selection context menu used by Web and Android. Markdown-looking
+  clipboard content offers cancel, plain-text paste, or rich conversion;
+  supported structures round-trip through Markdown while tables remain plain
+  text and native rich/embed data outside the pasted range is untouched. All
+  157 Flutter tests and the Web debug build pass.
 
 ### V2-P1-005 — Optional sign-in entry and linked authentication
 
