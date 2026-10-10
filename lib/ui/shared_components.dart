@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -11,26 +12,63 @@ void showToast(BuildContext context, String message) {
     ..showSnackBar(SnackBar(content: Text(message)));
 }
 
+class _DeleteUndoPresentation {
+  _DeleteUndoPresentation(this.timer);
+
+  final Timer timer;
+}
+
+final Expando<_DeleteUndoPresentation> _deleteUndoPresentations =
+    Expando<_DeleteUndoPresentation>();
+
 void showPendingDeleteUndo(BuildContext context, VoidCallback deleteAction) {
   final messenger = ScaffoldMessenger.of(context);
   final store = AppStoreScope.of(context);
+  _deleteUndoPresentations[messenger]?.timer.cancel();
+  _deleteUndoPresentations[messenger] = null;
+  messenger.removeCurrentSnackBar(reason: SnackBarClosedReason.remove);
   deleteAction();
   final count = store.pendingDeleteCount;
-  messenger
-    ..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(
-        duration: AppStore.deleteUndoDuration,
-        content: Text(count > 1 ? '已刪除 $count 個項目' : '已刪除'),
-        action: SnackBarAction(
-          label: '復原',
-          onPressed: () {
-            store.undoPendingDeletes();
-            messenger.showSnackBar(const SnackBar(content: Text('已復原刪除項目')));
-          },
-        ),
+  if (count == 0) {
+    return;
+  }
+  late final _DeleteUndoPresentation presentation;
+  final timer = Timer(AppStore.deleteUndoDuration, () {
+    if (_deleteUndoPresentations[messenger] != presentation) {
+      return;
+    }
+    _deleteUndoPresentations[messenger] = null;
+    messenger.removeCurrentSnackBar(reason: SnackBarClosedReason.timeout);
+  });
+  presentation = _DeleteUndoPresentation(timer);
+  _deleteUndoPresentations[messenger] = presentation;
+  messenger.showSnackBar(
+    SnackBar(
+      duration: AppStore.deleteUndoDuration,
+      content: Text(count > 1 ? '已刪除 $count 個項目' : '已刪除'),
+      action: SnackBarAction(
+        label: '復原',
+        onPressed: () {
+          if (_deleteUndoPresentations[messenger] != presentation) {
+            return;
+          }
+          presentation.timer.cancel();
+          _deleteUndoPresentations[messenger] = null;
+          messenger.removeCurrentSnackBar(reason: SnackBarClosedReason.action);
+          final restoredCount = store.undoPendingDeletes();
+          if (restoredCount > 0) {
+            messenger.showSnackBar(
+              SnackBar(
+                content: Text(
+                  restoredCount > 1 ? '已復原 $restoredCount 個刪除項目' : '已復原刪除項目',
+                ),
+              ),
+            );
+          }
+        },
       ),
-    );
+    ),
+  );
 }
 
 class AppPage extends StatelessWidget {

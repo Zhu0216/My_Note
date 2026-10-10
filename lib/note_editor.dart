@@ -2239,6 +2239,9 @@ class RichNoteTextController extends TextEditingController {
       }
       return selectionHasExistingAttribute(attribute, value: value);
     }
+    if (text.substring(range.start, range.end).trim().isEmpty) {
+      return false;
+    }
     return rangeHasAttribute(range, attribute, value: value);
   }
 
@@ -2250,6 +2253,9 @@ class RichNoteTextController extends TextEditingController {
         return override == false ? null : override;
       }
       return attributeValueAtOffset(attribute, range.start);
+    }
+    if (text.substring(range.start, range.end).trim().isEmpty) {
+      return null;
     }
 
     Object? sharedValue;
@@ -2549,13 +2555,31 @@ RichNoteTextChange richNoteTextChange({
     textLength: newText.length,
   );
   if (preferredNewSelectionOffset == null ||
-      change.oldStart != change.oldEnd ||
-      change.replacementLength <= 0) {
+      (change.oldStart != change.oldEnd && change.replacementLength > 0)) {
     return change;
   }
   final preferredEnd = preferredNewSelectionOffset
       .clamp(0, newText.length)
       .toInt();
+  if (change.replacementLength == 0 && change.oldEnd > change.oldStart) {
+    final deletedLength = change.oldEnd - change.oldStart;
+    final preferredOldStart = preferredEnd;
+    final preferredOldEnd = preferredOldStart + deletedLength;
+    if (preferredOldEnd <= oldText.length &&
+        oldText.replaceRange(preferredOldStart, preferredOldEnd, '') ==
+            newText) {
+      return RichNoteTextChange(
+        oldStart: preferredOldStart,
+        oldEnd: preferredOldEnd,
+        replacementLength: 0,
+        textLength: newText.length,
+      );
+    }
+    return change;
+  }
+  if (change.replacementLength <= 0) {
+    return change;
+  }
   final preferredStart = preferredEnd - change.replacementLength;
   if (preferredStart < 0 || preferredStart > oldText.length) {
     return change;

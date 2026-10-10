@@ -3628,6 +3628,49 @@ void main() {
     }
   });
 
+  test('rich backspace stays at the removed blank paragraph boundary', () {
+    final change = richNoteTextChange(
+      oldText: 'Alpha\n\nBeta',
+      newText: 'Alpha\nBeta',
+      preferredNewSelectionOffset: 5,
+    );
+
+    expect(change.oldStart, 5);
+    expect(change.oldEnd, 6);
+    expect(change.replacementLength, 0);
+  });
+
+  test('blank-only selection does not inherit rich toolbar state', () {
+    const attributes = [
+      RichNoteAttribute.bold,
+      RichNoteAttribute.italic,
+      RichNoteAttribute.underline,
+      RichNoteAttribute.strikethrough,
+      RichNoteAttribute.inlineCode,
+      RichNoteAttribute.subscript,
+      RichNoteAttribute.superscript,
+    ];
+    final controller = RichNoteTextController(
+      text: 'Alpha\n \nBeta',
+      marks: [
+        for (final attribute in attributes)
+          RichNoteMark(start: 5, end: 8, attributes: {attribute: true}),
+      ],
+    );
+    controller.updateSelectionFromFlow(
+      const TextSelection(baseOffset: 5, extentOffset: 8),
+    );
+
+    for (final attribute in attributes) {
+      expect(
+        controller.selectionHasAttribute(attribute, value: true),
+        isFalse,
+        reason: attribute,
+      );
+      expect(controller.selectionAttributeValue(attribute), isNull);
+    }
+  });
+
   test('rich lists remove marker when marker trailing space is deleted', () {
     final cases = {
       '1. ': (2, ''),
@@ -4562,6 +4605,57 @@ void main() {
     expect(controller.selection.extentOffset, 6);
     final flowController = tester.widget<TextField>(field).controller!;
     expect(flowController.selection.extentOffset, 6);
+  });
+
+  testWidgets('rich flow Backspace stays before the following paragraph', (
+    tester,
+  ) async {
+    final controller = RichNoteTextController(
+      text: 'Alpha\n\nBeta',
+      marks: const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 800,
+            height: 520,
+            child: GeneralRichTextEditorPanel(
+              controller: controller,
+              readOnly: false,
+              style: defaultNoteStyle(),
+              images: const [],
+              attachments: const [],
+              onStyleChanged: (_) {},
+              onAddImage: () {},
+              onAddAttachment: () {},
+              onInsertTodo: () {},
+              onImagesChanged: (_) {},
+              onAttachmentsChanged: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final field = find.byType(TextField).last;
+    await tester.showKeyboard(field);
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: 'Alpha\nBeta',
+        selection: TextSelection.collapsed(offset: 5),
+      ),
+    );
+    await tester.pump();
+
+    expect(controller.text, 'Alpha\nBeta');
+    expect(controller.selection.extentOffset, 5);
+    expect(
+      tester.widget<TextField>(field).controller!.selection.extentOffset,
+      5,
+    );
   });
 
   testWidgets('rich flow list Enter stays after the continued marker', (

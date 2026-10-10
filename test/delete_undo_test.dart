@@ -253,6 +253,94 @@ void main() {
     tester.widget<SnackBar>(find.byType(SnackBar)).action!.onPressed();
     await tester.pump();
     expect(store.todos.single.id, 't1');
+    expect(find.text('已復原刪除項目'), findsOneWidget);
+    store.dispose();
+  });
+
+  testWidgets(
+    'delete undo prompt expires and stale action cannot report undo',
+    (tester) async {
+      final store = AppStore.seeded(persistenceLocked: true);
+      final todo = _todo('t1');
+      store.upsertTodo(todo);
+      await tester.pumpWidget(
+        AppStoreScope(
+          store: store,
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => showPendingDeleteUndo(
+                    context,
+                    () => store.deleteTodo(todo),
+                  ),
+                  child: const Text('刪除'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('刪除'));
+      await tester.pump();
+      final staleUndo = tester.widget<SnackBar>(find.byType(SnackBar)).action!;
+      expect(find.text('復原'), findsOneWidget);
+
+      await tester.pump(AppStore.deleteUndoDuration);
+      await tester.pump();
+      expect(find.text('復原'), findsNothing);
+      expect(store.pendingDeleteCount, 0);
+
+      staleUndo.onPressed();
+      await tester.pump();
+      expect(find.textContaining('已復原'), findsNothing);
+      expect(store.todos, isEmpty);
+      store.dispose();
+    },
+  );
+
+  testWidgets('consecutive delete replaces prompt before extending batch', (
+    tester,
+  ) async {
+    final store = AppStore.seeded(persistenceLocked: true);
+    final first = _todo('t1');
+    final second = _todo('t2');
+    store
+      ..upsertTodo(first)
+      ..upsertTodo(second);
+    var next = 0;
+    await tester.pumpWidget(
+      AppStoreScope(
+        store: store,
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => showPendingDeleteUndo(context, () {
+                  store.deleteTodo(next++ == 0 ? first : second);
+                }),
+                child: const Text('刪除'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('刪除'));
+    await tester.pump(const Duration(seconds: 4));
+    await tester.tap(find.text('刪除'));
+    await tester.pump();
+
+    expect(find.text('已刪除 2 個項目'), findsOneWidget);
+    expect(find.text('復原'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 4));
+    expect(find.text('復原'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('復原'), findsNothing);
+    expect(store.pendingDeleteCount, 0);
     store.dispose();
   });
 }

@@ -459,8 +459,8 @@ class AppStore extends ChangeNotifier {
     _deleteUndoTimer = Timer(deleteUndoDuration, _finalizePendingDeletions);
   }
 
-  void undoPendingDeletes() {
-    if (_pendingDeletions.isEmpty) return;
+  int undoPendingDeletes() {
+    if (_pendingDeletions.isEmpty) return 0;
     _deleteUndoTimer?.cancel();
     for (final deletion in _pendingDeletions.reversed) {
       deletion.restore();
@@ -469,6 +469,7 @@ class AppStore extends ChangeNotifier {
     _pendingDeletions.clear();
     _normalizeTodoOrder();
     _commit('delete.undo:$count');
+    return count;
   }
 
   void _finalizePendingDeletions() {
