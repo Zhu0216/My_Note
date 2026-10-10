@@ -4,12 +4,18 @@ Date: 2026-10-10
 
 Integrated baseline:
 
-- Web: `flutter build web --release --no-pub` passed on commit `f976658`.
-- Android: debug APK built, installed, and stayed in the foreground on Samsung
-  SM-X510 (`R52X200FM7F`), Android 16 / API 36, after commit `f976658`.
-- Automated suite: 104 tests passed on the same application baseline.
-- P2-004 commit `2b593a0` changes documentation only, so it does not invalidate
-  the application baseline above.
+- Web: `flutter build web --debug --no-wasm-dry-run` passed on commit
+  `0b63b65`.
+- Android: the current debug APK was rebuilt, installed, cold-launched, and
+  stayed in the foreground on Samsung SM-X510 (`R52X200FM7F`), Android 16 /
+  API 36, PID 26228.
+- Automated suite: all 132 tests passed on the same application baseline,
+  including one integrated current-schema restart and portable export/import
+  workflow across every local record family and all four note templates.
+- Device interaction: current Notes, four template editors, Calendar, Home,
+  Upcoming/Todos, Finance, Subscriptions, Settings, backup controls, reminder
+  status, image editing, and attachment presentation were exercised without a
+  crash or red screen.
 
 `Integrated PASS` means the feature is included in that Web build and X510 APK
 and the application launched without an immediate crash or red screen. The
@@ -45,7 +51,13 @@ baseline.
 | P2-001 | PASS | PASS | Web and Android release/debug builds with selected notification package stack |
 | P2-002 | Integrated PASS | PASS | Native X510 integration created, found, and cancelled a pending notification; post-push app PID 11690 |
 | P2-003 | PASS | PASS | Due derivation, persistent occurrence deduplication, source-selection tests; post-push app PID 12580 |
-| P2-004 | PASS | PASS | Complete 104-test suite covers migration and critical data-safety paths |
+| P2-004 | PASS | PASS | Complete 132-test suite covers migration and critical data-safety paths |
+| P1-019 | PASS | PASS | Direct image selection/drag, eight handles, independent resize, no text overlap, border subtoolbar, and crop cancel |
+| P1-020 | PASS | PASS | Attachment document-flow block, Traditional Chinese internal preview, complete toolbar, and Android external-app chooser |
+| P1-021 | PASS | PASS | Current theme/cover persistence and list rendering tests included in the integrated suite and APK |
+| P1-022 | PASS | PASS | Paragraph/list newline placement and reload tests included in the integrated suite and APK |
+| P2-007 | PASS | PASS | Home separator widget acceptance and current Home device surface |
+| P2-008 | PASS | PASS | 132-test cross-module persistence workflow plus current cross-module X510 interaction and cold reinstall/launch |
 
 ## Remaining release observations
 
@@ -63,11 +75,16 @@ baseline.
 - P0-008, P0-009, P1-018, P1-021, P1-022, and P2-007 have direct automated
   acceptance evidence recorded in the backlog and are included in this Web
   build.
-- P1-019 and P1-020 remain `NEEDS VERIFICATION`: their implementation and Web
-  evidence pass, but current native image editing and external attachment
-  presentation still require an online, authorized X510.
-- P2-008 remains `IN PROGRESS` until that current X510 pass exercises the full
-  application and closes those two device-only observations.
+- P1-019 device acceptance verified direct image selection and movement, all
+  eight visible resize handles, independent horizontal resizing, text-flow
+  separation, border activation at `0.2 px`, and safe crop cancellation.
+- P1-020 device acceptance verified the attachment block, complete toolbar,
+  readable Traditional Chinese internal preview, and Android external-app
+  chooser.
+- P2-008 is complete: the current APK's principal modules and all four template
+  editors were exercised on X510, then the app passed a clean rebuild,
+  reinstall, cold launch, and foreground-process check. Restart/export/import
+  and relationship persistence use the integrated 132-test workflow.
 
 - The Android build still emits the non-blocking upstream Built-in Kotlin/KGP
   warning tracked by P2-006.

@@ -651,7 +651,7 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P1-019 — Image crop, movement, border, and handle correctness
 
-- Status: `NEEDS VERIFICATION`
+- Status: `DONE`
 - User-visible behavior: selected unlocked images drag directly, crop only
   original pixels, and expose an unclipped eight-handle editor.
 - Acceptance: no crop padding or generated background; scaling may exceed source
@@ -670,12 +670,18 @@ the current behavior has not been independently accepted for this v1 baseline.
   exposes width plus nine colors in secondary toolbars without autofocus.
   Widget tests cover direct dragging, all eight handles, border activation, and
   subtoolbar back behavior. `flutter analyze`, all 120 tests, and the Web debug
-  build passed on 2026-10-10. X510 visual interaction remains pending while the
-  device is offline.
+  build passed on 2026-10-10. On an authorized SM-X510, a known test image was
+  inserted and selected directly; all eight handles remained visible, a
+  horizontal side-handle drag changed width without changing height, and a
+  direct image drag moved the rendered and hit-test rect together. UI bounds
+  showed the following paragraph starting 20 px below the image bottom. Border
+  activation changed `0.0` to `0.2` and exposed the width/color secondary
+  toolbar without opening input; the native crop screen opened and cancelled
+  back to My Note without a red screen.
 
 ### P1-020 — Functional attachments and inserted-note blocks
 
-- Status: `NEEDS VERIFICATION`
+- Status: `DONE`
 - User-visible behavior: attachment and inserted-note blocks perform their real
   target actions instead of acting as placeholders.
 - Acceptance: attachments support preview, external open, save-as, rename,
@@ -694,8 +700,12 @@ the current behavior has not been independently accepted for this v1 baseline.
   index, so neither source overwrites the other. Widget tests cover attachment
   actions and inserted-note preview/retarget/remove plus relationship discovery.
   Static analysis passes; full tests and Web build are recorded with the task
-  commit. Native external open and device presentation still require X510
-  verification while the device is offline.
+  commit. On an authorized SM-X510, a known Markdown attachment rendered as a
+  document-flow block with an input paragraph beneath it. Its toolbar exposed
+  internal preview, external open, download, rename, replace, remove, and close;
+  internal preview displayed the Traditional Chinese README text correctly,
+  while external open presented Android's compatible-app chooser. The temporary
+  note and test files were removed after acceptance.
 
 ### P1-021 — Theme-derived note appearance and cover previews
 
@@ -761,7 +771,7 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### P2-008 — Full v1 functionality truth audit
 
-- Status: `IN PROGRESS`
+- Status: `DONE`
 - User-visible behavior: every claimed v1 function performs and persists its
   advertised result instead of exposing placeholders or cosmetic-only actions.
 - Acceptance: Home, Notes, four templates, Calendar, Todos, Finance,
@@ -780,8 +790,16 @@ the current behavior has not been independently accepted for this v1 baseline.
   Todos, Finance, Subscriptions, reminders, typed links, local restart, and
   export/import. Focused tests verify plain and Markdown conversion plus a
   Chinese PDF; the complete 132-test suite, static analysis, and Web debug
-  build pass. The audit remains open for current X510 execution of P1-019,
-  P1-020, and the complete device acceptance pass.
+  build pass. X510 execution of P1-019 and P1-020 passed on 2026-10-10. The
+  same current APK was then exercised across Notes, all four distinct template
+  editors, Calendar, Home/Upcoming/Todos, Finance, Subscriptions, Settings,
+  local backup controls, and reminder permission status without a crash or red
+  screen. Empty template editors returned without creating placeholder notes.
+  Relationship/memory-network persistence, restart, and portable export/import
+  are covered by the integrated current-schema workflow, while native reminder
+  scheduling retains its direct X510 integration evidence. A final clean debug
+  APK rebuild, reinstall, and cold foreground launch passed on SM-X510
+  `R52X200FM7F` (Android 16/API 36), PID 26228.
 
 ## Deferred after v1
 
