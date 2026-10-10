@@ -417,6 +417,10 @@ questions and must not be implemented from assumptions.
 
 ### Mind Map responsive workspace
 
+- The approved `mind_map.v3` migration adds one map-wide `nodeShape` field.
+  Existing v1/v2 maps migrate to `roundedRectangle` without changing node IDs,
+  hierarchy, coordinates, colors, state, related links, or free connections.
+
 - Wide Web and tablet layouts use a resizable, collapsible outline on the left
   and canvas on the right. Narrow layouts use `大綱` and `畫布` tabs.
 - Outline and canvas share selection and viewport targeting. Selecting in one

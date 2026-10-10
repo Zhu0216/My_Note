@@ -306,6 +306,8 @@ class MindMapNode {
 
 enum MindMapLineStyle { solid, dashed }
 
+enum MindMapNodeShape { roundedRectangle, rectangle, ellipse }
+
 class MindMapConnection {
   MindMapConnection({
     required this.id,
@@ -352,19 +354,22 @@ class MindMapConnection {
 class MindMapDocument {
   MindMapDocument({
     required this.rootNodeId,
+    this.nodeShape = MindMapNodeShape.roundedRectangle,
     List<MindMapNode>? nodes,
     List<MindMapConnection>? connections,
   }) : nodes = nodes ?? <MindMapNode>[],
        connections = connections ?? <MindMapConnection>[];
 
-  static const schema = 'mind_map.v2';
+  static const schema = 'mind_map.v3';
   String rootNodeId;
+  MindMapNodeShape nodeShape;
   final List<MindMapNode> nodes;
   final List<MindMapConnection> connections;
 
   Map<String, dynamic> toJson() => {
     'schema': schema,
     'rootNodeId': rootNodeId,
+    'nodeShape': nodeShape.name,
     'nodes': nodes.map((node) => node.toJson()).toList(),
     'connections': connections.map((line) => line.toJson()).toList(),
   };
@@ -395,6 +400,11 @@ class MindMapDocument {
     if (rootNode.title.isEmpty && topic.isNotEmpty) rootNode.title = topic;
     return MindMapDocument(
       rootNodeId: rootNode.id,
+      nodeShape: readEnum(
+        MindMapNodeShape.values,
+        data['nodeShape'],
+        MindMapNodeShape.roundedRectangle,
+      ),
       nodes: nodes,
       connections: readMapList(data['connections']).indexed
           .map(

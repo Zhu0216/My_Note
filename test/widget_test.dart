@@ -278,7 +278,7 @@ void main() {
     expect(selected?.sourceId, 'dialog-todo');
   });
 
-  test('template documents migrate legacy data into structured v2 records', () {
+  test('template documents migrate legacy data safely', () {
     final plan = PlanDocument.fromJson({
       'schema': 'plan.v1',
       'goal': '完成產品第一版',
@@ -331,7 +331,38 @@ void main() {
     expect(mindMap.nodes.first.y, 10);
     expect(mindMap.nodes.first.color, '#235A93');
     expect(mindMap.nodes.first.expanded, isFalse);
+    expect(mindMap.nodeShape, MindMapNodeShape.roundedRectangle);
     expect(mindMap.toJson()['schema'], MindMapDocument.schema);
+
+    final v2MindMap = MindMapDocument.fromJson({
+      'schema': 'mind_map.v2',
+      'rootNodeId': 'root',
+      'nodes': [
+        {'id': 'root', 'title': '舊中心', 'x': 12, 'y': 18},
+        {
+          'id': 'branch',
+          'title': '舊分支',
+          'parentId': 'root',
+          'x': 240,
+          'y': 120,
+          'locked': true,
+        },
+      ],
+      'connections': [
+        {
+          'id': 'legacy-line',
+          'fromNodeId': 'root',
+          'toNodeId': 'branch',
+          'style': 'dashed',
+        },
+      ],
+    });
+    expect(v2MindMap.nodeShape, MindMapNodeShape.roundedRectangle);
+    expect(v2MindMap.nodes, hasLength(2));
+    expect(v2MindMap.nodes.last.locked, isTrue);
+    expect(v2MindMap.connections.single.id, 'legacy-line');
+    expect(v2MindMap.toJson()['schema'], 'mind_map.v3');
+    expect(v2MindMap.toJson()['nodeShape'], 'roundedRectangle');
 
     final lifeProject = LifeProjectDocument.fromJson({
       'items': [
@@ -804,33 +835,35 @@ void main() {
     });
 
     test('rejects mind-map canvas links to missing nodes', () {
-      expect(
-        () => LocalDataBundle.decode(
-          bundle({
-            'notes': [
-              {
-                'id': 'mind-note',
-                'templateType': 'mindMap',
-                'templateData': {
-                  'schema': MindMapDocument.schema,
-                  'rootNodeId': 'root',
-                  'nodes': [
-                    {'id': 'root', 'x': 0, 'y': 0},
-                  ],
-                  'connections': [
-                    {
-                      'id': 'line-1',
-                      'fromNodeId': 'root',
-                      'toNodeId': 'missing',
-                    },
-                  ],
+      for (final schema in ['mind_map.v2', MindMapDocument.schema]) {
+        expect(
+          () => LocalDataBundle.decode(
+            bundle({
+              'notes': [
+                {
+                  'id': 'mind-note',
+                  'templateType': 'mindMap',
+                  'templateData': {
+                    'schema': schema,
+                    'rootNodeId': 'root',
+                    'nodes': [
+                      {'id': 'root', 'x': 0, 'y': 0},
+                    ],
+                    'connections': [
+                      {
+                        'id': 'line-1',
+                        'fromNodeId': 'root',
+                        'toNodeId': 'missing',
+                      },
+                    ],
+                  },
                 },
-              },
-            ],
-          }),
-        ),
-        throwsA(isA<FormatException>()),
-      );
+              ],
+            }),
+          ),
+          throwsA(isA<FormatException>()),
+        );
+      }
     });
 
     test(
@@ -2432,7 +2465,7 @@ void main() {
     }
   });
 
-  testWidgets('editing a legacy mind map saves v2 without losing nodes', (
+  testWidgets('editing a legacy mind map saves v3 without losing nodes', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -2932,12 +2965,16 @@ void main() {
     );
 
     expect(find.byKey(const ValueKey('mind-map-outline')), findsNothing);
-    expect(find.byTooltip('顯示全部節點'), findsOneWidget);
+    expect(find.byTooltip('向右查看更多工具'), findsOneWidget);
     await tester.tap(find.widgetWithText(TextButton, '大綱'));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('mind-map-outline')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('outline-branch')));
     await tester.pumpAndSettle();
+    for (var index = 0; index < 4; index++) {
+      await tester.tap(find.byTooltip('向右查看更多工具'));
+      await tester.pumpAndSettle();
+    }
     expect(find.byTooltip('顯示全部節點'), findsOneWidget);
     expect(find.text('同步分支'), findsOneWidget);
   });
@@ -2965,6 +3002,194 @@ void main() {
     expect(find.byTooltip('放大畫布'), findsOneWidget);
     expect(find.byTooltip('顯示全部節點'), findsOneWidget);
     expect(find.byTooltip('置中選取節點'), findsOneWidget);
+  });
+
+  testWidgets('mind map shared shape color and sibling tools persist', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 820));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    var document = MindMapDocument(
+      rootNodeId: 'root',
+      nodes: [
+        MindMapNode(id: 'root', title: '中心', x: 20, y: 20),
+        MindMapNode(
+          id: 'branch',
+          title: '分支',
+          parentId: 'root',
+          x: 280,
+          y: 120,
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => MindMapCanvasEditor(
+              document: document,
+              onChanged: (value) => setState(() => document = value),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('分支').last);
+    await tester.pump();
+    await tester.tap(find.byTooltip('共同節點形狀'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('橢圓'));
+    await tester.pumpAndSettle();
+    expect(document.nodeShape, MindMapNodeShape.ellipse);
+
+    await tester.tap(find.byTooltip('節點顏色'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('藍色'));
+    await tester.pumpAndSettle();
+    expect(
+      document.nodes.singleWhere((node) => node.id == 'branch').color,
+      '#2563EB',
+    );
+
+    await tester.tap(find.byTooltip('新增同層節點'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '同層節點');
+    await tester.tap(find.text('確認'));
+    await tester.pumpAndSettle();
+    expect(
+      document.nodes.singleWhere((node) => node.title == '同層節點').parentId,
+      'root',
+    );
+    expect(document.toJson()['nodeShape'], 'ellipse');
+  });
+
+  testWidgets('mind map keyboard creates child sibling and deletes selection', (
+    tester,
+  ) async {
+    var document = MindMapDocument(
+      rootNodeId: 'root',
+      nodes: [MindMapNode(id: 'root', title: '鍵盤中心', x: 20, y: 20)],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => MindMapCanvasEditor(
+              document: document,
+              onChanged: (value) => setState(() => document = value),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('鍵盤中心'));
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '鍵盤子節點');
+    await tester.tap(find.text('確認'));
+    await tester.pumpAndSettle();
+    expect(
+      document.nodes.singleWhere((node) => node.title == '鍵盤子節點').parentId,
+      'root',
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '鍵盤同層');
+    await tester.tap(find.text('確認'));
+    await tester.pumpAndSettle();
+    expect(
+      document.nodes.singleWhere((node) => node.title == '鍵盤同層').parentId,
+      'root',
+    );
+
+    await tester.tap(find.text('鍵盤同層'));
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('刪除'));
+    await tester.pumpAndSettle();
+    expect(document.nodes.where((node) => node.title == '鍵盤同層'), isEmpty);
+  });
+
+  testWidgets(
+    'mind map node related items use the shared relationship picker',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final store = AppStore.seeded(persistenceLocked: true);
+      final todo = TodoItem(id: 'mind-related-todo', title: '心智圖關聯待辦');
+      store.upsertTodo(todo);
+      var document = MindMapDocument(
+        rootNodeId: 'root',
+        nodes: [
+          MindMapNode(id: 'root', title: '關聯中心', x: 20, y: 20),
+          MindMapNode(
+            id: 'branch',
+            title: '關聯分支',
+            parentId: 'root',
+            x: 280,
+            y: 120,
+          ),
+        ],
+      );
+      try {
+        await tester.pumpWidget(
+          AppStoreScope(
+            store: store,
+            child: MaterialApp(
+              home: Scaffold(
+                body: StatefulBuilder(
+                  builder: (context, setState) => MindMapCanvasEditor(
+                    document: document,
+                    onChanged: (value) => setState(() => document = value),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('關聯分支'));
+        await tester.pump();
+        await tester.tap(find.byTooltip('關聯項目'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(todo.title));
+        await tester.pump();
+        await tester.tap(find.byTooltip('完成'));
+        await tester.pumpAndSettle();
+
+        final branch = document.nodes.singleWhere(
+          (node) => node.id == 'branch',
+        );
+        expect(branch.links.single.type, RelatedItemType.todo);
+        expect(branch.links.single.targetId, todo.id);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        store.dispose();
+      }
+    },
+  );
+
+  test('mind map node metrics emphasize root and first level', () {
+    final root = MindMapNode(id: 'root', title: '中心主題');
+    final first = MindMapNode(id: 'first', title: '第一層', parentId: 'root');
+    final deep = MindMapNode(id: 'deep', title: '更深節點', parentId: 'first');
+    final document = MindMapDocument(
+      rootNodeId: 'root',
+      nodes: [root, first, deep],
+    );
+
+    expect(
+      mindMapNodeSize(document, root).height,
+      greaterThan(mindMapNodeSize(document, first).height),
+    );
+    expect(
+      mindMapNodeSize(document, first).height,
+      greaterThan(mindMapNodeSize(document, deep).height),
+    );
+    expect(mindMapNodeDepth(document, deep), 2);
   });
 
   test('mind map outline reorder keeps the existing hierarchy', () {
@@ -3113,6 +3338,7 @@ void main() {
     final store = await AppStore.load();
     final document = MindMapDocument(
       rootNodeId: 'root',
+      nodeShape: MindMapNodeShape.ellipse,
       nodes: [
         MindMapNode(id: 'root', title: '中心', x: 15, y: 25, expanded: false),
         MindMapNode(
@@ -3167,6 +3393,7 @@ void main() {
       expect(restored.connections.single.color, '#2563EB');
       expect(restored.connections.single.style, MindMapLineStyle.dashed);
       expect(restored.connections.single.directed, isTrue);
+      expect(restored.nodeShape, MindMapNodeShape.ellipse);
     } finally {
       reloaded.dispose();
     }

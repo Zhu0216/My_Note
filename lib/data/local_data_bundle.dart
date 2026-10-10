@@ -368,10 +368,14 @@ class LocalDataValidator {
     Map<String, dynamic> template,
     Map<RelatedItemType, Set<String>> references,
   ) {
-    if (template['schema'] != MindMapDocument.schema) return;
-    final nodes = _maps(template['nodes']);
+    final schema = template['schema'];
+    final normalized =
+        schema == 'mind_map.v2' || schema == MindMapDocument.schema
+        ? template
+        : MindMapDocument.fromJson(template).toJson();
+    final nodes = _maps(normalized['nodes']);
     final nodeById = _uniqueMaps(nodes, '心智圖節點');
-    final rootId = _requiredId(template['rootNodeId'], '心智圖中心主題');
+    final rootId = _requiredId(normalized['rootNodeId'], '心智圖中心主題');
     if (!nodeById.containsKey(rootId)) {
       throw const FormatException('心智圖中心主題不存在。');
     }
@@ -384,7 +388,7 @@ class LocalDataValidator {
       }
       _validateLinks(node['links'], references, '心智圖節點');
     }
-    final connections = _maps(template['connections']);
+    final connections = _maps(normalized['connections']);
     _uniqueMaps(connections, '心智圖連線');
     for (final connection in connections) {
       final from = _requiredId(connection['fromNodeId'], '心智圖連線起點');

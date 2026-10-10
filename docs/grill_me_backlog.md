@@ -964,14 +964,28 @@ reserved for the v2 second-half Grill Me.
 ### V2-P1-009 — Mind Map node tools and shared shape
 
 - Priority: `P1`
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: nodes have complete contextual actions, responsive
   keyboard/touch editing, finite theme colors, and one map-wide selected shape.
 - Acceptance: root/level sizing, wrapping, state icons, shape selection,
   lock/collapse, relationships, child/sibling creation, rename, and delete all
   persist and remain usable on Web and X510.
-- Dependencies: V2-P1-008; shape field migration approval if required.
-- Completion evidence: none; specified in the v2 first-half Grill Me.
+- Dependencies: V2-P1-008; the user approved the `mind_map.v2` to
+  `mind_map.v3` shape-field migration on 2026-10-11 after reviewing its exact
+  before/after representation.
+- Completion evidence: `mind_map.v3` stores one map-wide `nodeShape` with
+  rounded-rectangle fallback for every older or unknown value; v1/v2 nodes,
+  coordinates, hierarchy, colors, locks, collapse state, related links, and
+  free connections survive migration. The responsive toolbar now provides
+  stable left/right scrolling, child/sibling creation, rename, lock, collapse,
+  shared relationship picker, finite node colors, three shared shapes, delete,
+  connection tools, layout, zoom, fit, and center. Double tap renames; focused
+  canvas shortcuts use Tab for child, Enter for sibling, and Delete for delete.
+  Root, first-level, and deeper nodes use progressively restrained sizing with
+  content-aware widths and compact lock/collapse/link indicators. Migration,
+  persistence, relationships, keyboard actions, appearance, and existing
+  canvas behavior are covered by focused tests. The complete 164-test suite,
+  analyzer, and Web debug build pass on the task branch.
 
 ### V2-P1-010 — Mind Map multi-selection and batch operations
 
