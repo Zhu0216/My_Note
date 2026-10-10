@@ -5127,7 +5127,7 @@ void main() {
 
       await tester.tap(find.byType(InlineRichImageBlock));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('框線線徑 0.0'));
+      await tester.tap(find.byTooltip('框線 0.0'));
       await tester.pumpAndSettle();
       expect(find.text('0.2 px'), findsOneWidget);
       await tester.tap(find.byTooltip('框線顏色'));
@@ -5148,6 +5148,216 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       store.dispose();
     }
+  });
+
+  testWidgets('image border controls retain width and close explicitly', (
+    tester,
+  ) async {
+    var image = <String, dynamic>{
+      'id': 'border-toolbar-image',
+      'borderWidth': 0.0,
+      'borderColor': '#202522',
+      'alignment': NoteImageAlignment.left.name,
+    };
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => ModernRichImageEditToolbar(
+              image: image,
+              onImageChanged: (value) => setState(() => image = value),
+              onCrop: () {},
+              onDelete: () {},
+              onDone: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('框線 0.0'));
+    await tester.pumpAndSettle();
+    expect(image['borderWidth'], 0.2);
+    expect(find.byType(RichBorderWidthPicker), findsOneWidget);
+    expect(find.byTooltip('關閉框線'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('框線 0.2'));
+    await tester.pumpAndSettle();
+    expect(image['borderWidth'], 0.2);
+    expect(find.byType(RichBorderWidthPicker), findsNothing);
+
+    await tester.tap(find.byTooltip('框線 0.2'));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(RichBorderWidthPicker), const Offset(0, -24));
+    await tester.pump();
+    final draggedWidth = image['borderWidth'] as double;
+    expect(draggedWidth, greaterThan(0.2));
+    expect(find.text((draggedWidth - 0.1).toStringAsFixed(1)), findsOneWidget);
+    expect(find.text((draggedWidth + 0.1).toStringAsFixed(1)), findsOneWidget);
+
+    await tester.tap(find.byType(RichBorderWidthPicker));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('border-width-input-cancel')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(image['borderWidth'], draggedWidth);
+
+    await tester.tap(find.byType(RichBorderWidthPicker));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('border-width-input-field')),
+      '1.7',
+    );
+    await tester.tap(find.byKey(const ValueKey('border-width-input-confirm')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(image['borderWidth'], 1.7);
+
+    await tester.tap(find.byTooltip('關閉框線'));
+    await tester.pumpAndSettle();
+    expect(image['borderWidth'], 0.0);
+    expect(find.byType(RichBorderWidthPicker), findsNothing);
+  });
+
+  testWidgets('image border is painted inside an unclipped overlay', (
+    tester,
+  ) async {
+    const imageId = 'thick-border-image';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 360,
+            child: InlineRichImageBlock(
+              image: {
+                'id': imageId,
+                'width': 320.0,
+                'height': 180.0,
+                'borderWidth': 5.0,
+                'borderColor': '#202522',
+                'alignment': NoteImageAlignment.left.name,
+              },
+              selected: true,
+              readOnly: false,
+              contentWidth: 360,
+              onSelect: () {},
+              onBlockTap: () {},
+              onLayoutChanged: (_) {},
+              onChanged: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final border = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey('rich-image-border-$imageId')),
+    );
+    final decoration = border.decoration as BoxDecoration;
+    expect(decoration.border!.top.width, 5.0);
+    expect(decoration.border!.top.strokeAlign, BorderSide.strokeAlignInside);
+    final imageStack = tester.widget<Stack>(
+      find
+          .ancestor(
+            of: find.byKey(const ValueKey('rich-image-border-$imageId')),
+            matching: find.byType(Stack),
+          )
+          .first,
+    );
+    expect(imageStack.clipBehavior, Clip.none);
+  });
+
+  testWidgets('scrolling toolbars keep both arrow slots stable', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 280,
+            child: RichAttachmentEditToolbar(
+              attachment: const {'id': 'a', 'name': 'a.txt'},
+              onOpen: () {},
+              onExternalOpen: () {},
+              onDownload: () {},
+              onRename: () {},
+              onReplace: () {},
+              onDelete: () {},
+              onDone: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    var arrows = tester
+        .widgetList<RichToolbarScrollButton>(
+          find.byType(RichToolbarScrollButton),
+        )
+        .toList();
+    expect(arrows, hasLength(2));
+    expect(arrows.first.enabled, isFalse);
+    expect(arrows.last.enabled, isTrue);
+
+    await tester.tap(find.byTooltip('向右捲動'));
+    await tester.pumpAndSettle();
+    arrows = tester
+        .widgetList<RichToolbarScrollButton>(
+          find.byType(RichToolbarScrollButton),
+        )
+        .toList();
+    expect(arrows, hasLength(2));
+    expect(arrows.first.enabled, isTrue);
+  });
+
+  testWidgets('rich text toolbar keeps both arrow slots stable', (
+    tester,
+  ) async {
+    final controller = RichNoteTextController(text: 'toolbar', marks: const []);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 360,
+            child: RichTextTemplateToolbar(
+              controller: controller,
+              style: defaultNoteStyle(),
+              runEditorAction: (action) => action(),
+              onStyleChanged: (_) {},
+              onAddImage: () {},
+              onAddAttachment: () {},
+              onInsertTodo: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    var arrows = tester
+        .widgetList<RichToolbarScrollButton>(
+          find.byType(RichToolbarScrollButton),
+        )
+        .toList();
+    expect(arrows, hasLength(2));
+    expect(arrows.first.enabled, isFalse);
+    expect(arrows.last.enabled, isTrue);
+
+    await tester.tap(find.byTooltip('向右'));
+    await tester.pumpAndSettle();
+    arrows = tester
+        .widgetList<RichToolbarScrollButton>(
+          find.byType(RichToolbarScrollButton),
+        )
+        .toList();
+    expect(arrows, hasLength(2));
+    expect(arrows.first.enabled, isTrue);
   });
 
   testWidgets('trailing empty image input block remains editable', (

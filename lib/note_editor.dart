@@ -5441,30 +5441,58 @@ class InlineRichImageBlock extends StatelessWidget {
             cursor: selected && !readOnly && !locked
                 ? SystemMouseCursors.move
                 : SystemMouseCursors.click,
-            child: Container(
+            child: SizedBox(
               width: size.width,
               height: size.height,
-              decoration: BoxDecoration(
-                color: colorScheme.surface,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: selected ? colorScheme.primary : borderColor,
-                  width: selected ? math.max(2, borderWidth) : borderWidth,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: selected
+                      ? [
+                          BoxShadow(
+                            color: colorScheme.primary.withValues(alpha: 0.18),
+                            blurRadius: 14,
+                            offset: const Offset(0, 6),
+                          ),
+                        ]
+                      : null,
                 ),
-                boxShadow: selected
-                    ? [
-                        BoxShadow(
-                          color: colorScheme.primary.withValues(alpha: 0.18),
-                          blurRadius: 14,
-                          offset: const Offset(0, 6),
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  fit: StackFit.expand,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: ColoredBox(
+                        color: colorScheme.surface,
+                        child: bytes == null
+                            ? const Center(
+                                child: Icon(Icons.broken_image_outlined),
+                              )
+                            : Image.memory(bytes, fit: BoxFit.fill),
+                      ),
+                    ),
+                    if (borderWidth > 0)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            key: ValueKey(
+                              'rich-image-border-${readString(image['id'])}',
+                            ),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: borderColor,
+                                width: borderWidth,
+                                strokeAlign: BorderSide.strokeAlignInside,
+                              ),
+                            ),
+                          ),
                         ),
-                      ]
-                    : null,
+                      ),
+                  ],
+                ),
               ),
-              clipBehavior: Clip.antiAlias,
-              child: bytes == null
-                  ? const Center(child: Icon(Icons.broken_image_outlined))
-                  : Image.memory(bytes, fit: BoxFit.fill),
             ),
           );
         }
@@ -5650,45 +5678,14 @@ class _RichImageEditToolbarState extends State<RichImageEditToolbar> {
 
   Future<void> editBorderWidth() async {
     final current = readDouble(widget.image['borderWidth']);
-    final controller = TextEditingController(
-      text: current == current.roundToDouble()
-          ? current.toStringAsFixed(0)
-          : current.toStringAsFixed(1),
-    );
     final value = await showDialog<double>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('框線線徑'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
-          ],
-          decoration: const InputDecoration(
-            suffixText: 'px',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final parsed = double.tryParse(controller.text.trim());
-              Navigator.pop(context, parsed);
-            },
-            child: const Text('套用'),
-          ),
-        ],
+      builder: (context) => _BorderWidthInputDialog(
+        initialWidth: current.clamp(0.1, 5.0).toDouble(),
       ),
     );
-    controller.dispose();
-    if (value != null) {
-      setValue('borderWidth', value.clamp(0.0, 24.0).toDouble());
+    if (mounted && value != null) {
+      setValue('borderWidth', value.clamp(0.1, 5.0).toDouble());
     }
   }
 
@@ -5847,11 +5844,9 @@ class _ModernRichImageEditToolbarState
     setValue('locked', true);
   }
 
-  void toggleBorderWidthEditor() {
+  void toggleBorderToolbar() {
     final current = readDouble(widget.image['borderWidth']);
     if (showBorderToolbar) {
-      if (current > 0) lastEnabledBorderWidth = current;
-      setValue('borderWidth', 0.0);
       setState(() {
         showBorderToolbar = false;
         showColorToolbar = false;
@@ -5864,6 +5859,16 @@ class _ModernRichImageEditToolbarState
     if (current <= 0) setValue('borderWidth', enabledWidth);
     setState(() {
       showBorderToolbar = true;
+      showColorToolbar = false;
+    });
+  }
+
+  void disableBorder() {
+    final current = readDouble(widget.image['borderWidth']);
+    if (current > 0) lastEnabledBorderWidth = current;
+    setValue('borderWidth', 0.0);
+    setState(() {
+      showBorderToolbar = false;
       showColorToolbar = false;
     });
   }
@@ -5911,10 +5916,10 @@ class _ModernRichImageEditToolbarState
               onPressed: widget.onCrop,
             ),
             RichToolbarIconButton(
-              tooltip: '框線線徑 ${borderWidth.toStringAsFixed(1)}',
+              tooltip: '框線 ${borderWidth.toStringAsFixed(1)}',
               icon: Icons.border_outer,
               active: showBorderToolbar || borderWidth > 0,
-              onPressed: toggleBorderWidthEditor,
+              onPressed: toggleBorderToolbar,
             ),
             RichToolbarIconButton(
               tooltip: '靠左',
@@ -5970,6 +5975,11 @@ class _ModernRichImageEditToolbarState
                   showColorToolbar = !showColorToolbar;
                 }),
               ),
+              RichToolbarIconButton(
+                tooltip: '關閉框線',
+                icon: Icons.close,
+                onPressed: disableBorder,
+              ),
             ],
           ),
         ],
@@ -6009,66 +6019,106 @@ class RichBorderWidthPicker extends StatefulWidget {
 }
 
 class _RichBorderWidthPickerState extends State<RichBorderWidthPicker> {
+  static const _dragStepDistance = 4.0;
   double dragRemainder = 0;
+  OverlayEntry? borderWidthOverlay;
+  Timer? hideOverlayTimer;
+
+  @override
+  void dispose() {
+    hideOverlayTimer?.cancel();
+    removeBorderWidthOverlay();
+    super.dispose();
+  }
 
   void step(int direction) {
     final next = ((widget.value * 10).round() + direction) / 10;
-    widget.onChanged(next.clamp(0.1, 5.0).toDouble());
+    final value = next.clamp(0.1, 5.0).toDouble();
+    if (value != widget.value) {
+      widget.onChanged(value);
+      showBorderWidthOverlay(value);
+    }
   }
 
   void handleDrag(double delta) {
     dragRemainder += delta;
-    while (dragRemainder.abs() >= 12) {
+    while (dragRemainder.abs() >= _dragStepDistance) {
       if (dragRemainder < 0) {
         step(1);
-        dragRemainder += 12;
+        dragRemainder += _dragStepDistance;
       } else {
         step(-1);
-        dragRemainder -= 12;
+        dragRemainder -= _dragStepDistance;
       }
     }
   }
 
   Future<void> openInput() async {
-    final controller = TextEditingController(
-      text: widget.value.toStringAsFixed(1),
-    );
+    hideOverlayTimer?.cancel();
+    removeBorderWidthOverlay();
     final selected = await showDialog<double>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('框線線徑'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d?')),
-          ],
-          decoration: const InputDecoration(
-            suffixText: 'px',
-            helperText: '0.1 - 5.0',
-            border: OutlineInputBorder(),
+      builder: (_) => _BorderWidthInputDialog(initialWidth: widget.value),
+    );
+    if (!mounted || selected == null) return;
+    widget.onChanged(selected.clamp(0.1, 5.0).toDouble());
+  }
+
+  List<double?> surroundingValues(double centerWidth) {
+    final center = (centerWidth * 10).round();
+    double? valueAt(int offset) {
+      final value = center + offset;
+      return value >= 1 && value <= 50 ? value / 10 : null;
+    }
+
+    return [valueAt(-2), valueAt(-1), valueAt(1), valueAt(2)];
+  }
+
+  void showBorderWidthOverlay(double centerWidth) {
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    final renderObject = context.findRenderObject();
+    final overlayObject = overlay?.context.findRenderObject();
+    if (overlay == null ||
+        renderObject is! RenderBox ||
+        overlayObject is! RenderBox ||
+        !renderObject.attached) {
+      return;
+    }
+    hideOverlayTimer?.cancel();
+    removeBorderWidthOverlay();
+    final offset = renderObject.localToGlobal(
+      Offset.zero,
+      ancestor: overlayObject,
+    );
+    final size = renderObject.size;
+    final values = surroundingValues(centerWidth);
+    borderWidthOverlay = OverlayEntry(
+      builder: (context) => Positioned(
+        left: offset.dx,
+        top: math.max(8, offset.dy - _RichToolbarNumberOverlay.topOffset),
+        width: size.width,
+        child: IgnorePointer(
+          child: _RichToolbarNumberOverlay(
+            upperFar: values[0],
+            upperNear: values[1],
+            lowerNear: values[2],
+            lowerFar: values[3],
+            centerHeight: size.height,
+            color: Theme.of(context).colorScheme.onSurface,
+            labelBuilder: (value) => value.toStringAsFixed(1),
           ),
-          onSubmitted: (value) =>
-              Navigator.pop(dialogContext, double.tryParse(value)),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(
-              dialogContext,
-              double.tryParse(controller.text.trim()),
-            ),
-            child: const Text('套用'),
-          ),
-        ],
       ),
     );
-    controller.dispose();
-    if (selected != null) widget.onChanged(selected);
+    overlay.insert(borderWidthOverlay!);
+    hideOverlayTimer = Timer(const Duration(milliseconds: 700), () {
+      removeBorderWidthOverlay();
+    });
+  }
+
+  void removeBorderWidthOverlay() {
+    borderWidthOverlay?.remove();
+    borderWidthOverlay = null;
   }
 
   @override
@@ -6102,6 +6152,177 @@ class _RichBorderWidthPickerState extends State<RichBorderWidthPicker> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _BorderWidthInputDialog extends StatefulWidget {
+  const _BorderWidthInputDialog({required this.initialWidth});
+
+  final double initialWidth;
+
+  @override
+  State<_BorderWidthInputDialog> createState() =>
+      _BorderWidthInputDialogState();
+}
+
+class _RichToolbarNumberOverlay extends StatelessWidget {
+  const _RichToolbarNumberOverlay({
+    required this.upperFar,
+    required this.upperNear,
+    required this.lowerNear,
+    required this.lowerFar,
+    required this.centerHeight,
+    required this.color,
+    required this.labelBuilder,
+  });
+
+  static const valueHeight = 20.0;
+  static const valueGap = 2.0;
+  static const centerGap = 4.0;
+  static const topOffset = valueHeight * 2 + valueGap + centerGap;
+
+  final double? upperFar;
+  final double? upperNear;
+  final double? lowerNear;
+  final double? lowerFar;
+  final double centerHeight;
+  final Color color;
+  final String Function(double value) labelBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _RichToolbarNumberOverlayValue(
+          value: upperFar,
+          color: color,
+          opacity: 0.22,
+          labelBuilder: labelBuilder,
+        ),
+        const SizedBox(height: valueGap),
+        _RichToolbarNumberOverlayValue(
+          value: upperNear,
+          color: color,
+          opacity: 0.42,
+          labelBuilder: labelBuilder,
+        ),
+        const SizedBox(height: centerGap),
+        SizedBox(height: centerHeight),
+        const SizedBox(height: centerGap),
+        _RichToolbarNumberOverlayValue(
+          value: lowerNear,
+          color: color,
+          opacity: 0.42,
+          labelBuilder: labelBuilder,
+        ),
+        const SizedBox(height: valueGap),
+        _RichToolbarNumberOverlayValue(
+          value: lowerFar,
+          color: color,
+          opacity: 0.22,
+          labelBuilder: labelBuilder,
+        ),
+      ],
+    );
+  }
+}
+
+class _RichToolbarNumberOverlayValue extends StatelessWidget {
+  const _RichToolbarNumberOverlayValue({
+    required this.value,
+    required this.color,
+    required this.opacity,
+    required this.labelBuilder,
+  });
+
+  final double? value;
+  final Color color;
+  final double opacity;
+  final String Function(double value) labelBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: value == null ? 0 : opacity,
+      child: SizedBox(
+        height: _RichToolbarNumberOverlay.valueHeight,
+        child: Center(
+          child: Text(
+            value == null ? '' : labelBuilder(value!),
+            maxLines: 1,
+            style: TextStyle(
+              color: color,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              height: 1,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BorderWidthInputDialogState extends State<_BorderWidthInputDialog> {
+  late final TextEditingController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = TextEditingController(
+      text: widget.initialWidth.toStringAsFixed(1),
+    );
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  void close([double? value]) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    Navigator.of(context).pop(value);
+  }
+
+  void submit(String value) {
+    final parsed = double.tryParse(value);
+    if (parsed != null) close(parsed);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('框線線徑'),
+      content: TextField(
+        key: const ValueKey('border-width-input-field'),
+        controller: controller,
+        autofocus: true,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [
+          FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d?')),
+        ],
+        decoration: const InputDecoration(
+          suffixText: 'px',
+          helperText: '0.1 - 5.0',
+          border: OutlineInputBorder(),
+        ),
+        onSubmitted: submit,
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('border-width-input-cancel'),
+          onPressed: () => close(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const ValueKey('border-width-input-confirm'),
+          onPressed: () => submit(controller.text.trim()),
+          child: const Text('套用'),
+        ),
+      ],
     );
   }
 }
@@ -6183,6 +6404,7 @@ class _RichAssetToolbarShell extends StatefulWidget {
 
 class _RichAssetToolbarShellState extends State<_RichAssetToolbarShell> {
   final ScrollController scrollController = ScrollController();
+  bool hasOverflow = false;
   bool canScrollLeft = false;
   bool canScrollRight = false;
 
@@ -6210,10 +6432,14 @@ class _RichAssetToolbarShellState extends State<_RichAssetToolbarShell> {
       return;
     }
     final position = scrollController.position;
+    final nextOverflow = position.maxScrollExtent > 1;
     final nextLeft = position.pixels > 1;
     final nextRight = position.pixels < position.maxScrollExtent - 1;
-    if (nextLeft != canScrollLeft || nextRight != canScrollRight) {
+    if (nextOverflow != hasOverflow ||
+        nextLeft != canScrollLeft ||
+        nextRight != canScrollRight) {
       setState(() {
+        hasOverflow = nextOverflow;
         canScrollLeft = nextLeft;
         canScrollRight = nextRight;
       });
@@ -6258,10 +6484,11 @@ class _RichAssetToolbarShellState extends State<_RichAssetToolbarShell> {
         height: 56,
         child: Row(
           children: [
-            if (canScrollLeft)
+            if (hasOverflow)
               RichToolbarScrollButton(
                 tooltip: '向左捲動',
                 icon: Icons.chevron_left,
+                enabled: canScrollLeft,
                 onPressed: () => scrollBy(-260),
               ),
             Expanded(
@@ -6276,10 +6503,11 @@ class _RichAssetToolbarShellState extends State<_RichAssetToolbarShell> {
                 ),
               ),
             ),
-            if (canScrollRight)
+            if (hasOverflow)
               RichToolbarScrollButton(
                 tooltip: '向右捲動',
                 icon: Icons.chevron_right,
+                enabled: canScrollRight,
                 onPressed: () => scrollBy(260),
               ),
           ],
@@ -6316,6 +6544,7 @@ class RichTextTemplateToolbar extends StatefulWidget {
 
 class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
   final ScrollController toolbarScrollController = ScrollController();
+  bool hasToolbarOverflow = false;
   bool canScrollLeft = false;
   bool canScrollRight = false;
 
@@ -6370,10 +6599,14 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
       return;
     }
     final position = toolbarScrollController.position;
+    final nextOverflow = position.maxScrollExtent > 1;
     final nextLeft = position.pixels > 1;
     final nextRight = position.pixels < position.maxScrollExtent - 1;
-    if (nextLeft != canScrollLeft || nextRight != canScrollRight) {
+    if (nextOverflow != hasToolbarOverflow ||
+        nextLeft != canScrollLeft ||
+        nextRight != canScrollRight) {
       setState(() {
+        hasToolbarOverflow = nextOverflow;
         canScrollLeft = nextLeft;
         canScrollRight = nextRight;
       });
@@ -6427,10 +6660,11 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
         height: 48,
         child: Row(
           children: [
-            if (canScrollLeft)
+            if (hasToolbarOverflow)
               RichToolbarScrollButton(
                 tooltip: '向左',
                 icon: Icons.chevron_left,
+                enabled: canScrollLeft,
                 onPressed: () => scrollToolbar(-260),
               ),
             Expanded(
@@ -6624,10 +6858,11 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
                 ),
               ),
             ),
-            if (canScrollRight)
+            if (hasToolbarOverflow)
               RichToolbarScrollButton(
                 tooltip: '向右',
                 icon: Icons.chevron_right,
+                enabled: canScrollRight,
                 onPressed: () => scrollToolbar(260),
               ),
           ],
@@ -6730,19 +6965,22 @@ class RichToolbarScrollButton extends StatelessWidget {
     required this.tooltip,
     required this.icon,
     required this.onPressed,
+    this.enabled = true,
   });
 
   final String tooltip;
   final IconData icon;
   final VoidCallback onPressed;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return IconButton(
       tooltip: tooltip,
-      onPressed: onPressed,
+      onPressed: enabled ? onPressed : null,
       color: colorScheme.primary,
+      disabledColor: colorScheme.onSurfaceVariant.withValues(alpha: 0.34),
       iconSize: 24,
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints.tightFor(width: 34, height: 48),
