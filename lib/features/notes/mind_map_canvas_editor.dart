@@ -23,10 +23,15 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
   static const canvasSize = Size(1200, 800);
   static const nodeSize = Size(164, 76);
   final transform = TransformationController();
+  final outlineScrollController = ScrollController();
+  final outlineKeys = <String, GlobalKey>{};
   String? selectedId;
   String? movingNodeId;
   String? connectionSourceId;
   String? selectedConnectionId;
+  double outlineWidth = 260;
+  Size canvasViewportSize = Size.zero;
+  int narrowViewIndex = 1;
 
   MindMapNode? get selected =>
       widget.document.nodes.where((node) => node.id == selectedId).firstOrNull;
@@ -48,7 +53,102 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
   @override
   void dispose() {
     transform.dispose();
+    outlineScrollController.dispose();
     super.dispose();
+  }
+
+  List<(MindMapNode, int)> get outlineNodes {
+    final result = <(MindMapNode, int)>[];
+    final visited = <String>{};
+
+    void append(String? parentId, int depth) {
+      for (final node in widget.document.nodes.where(
+        (item) => item.parentId == parentId,
+      )) {
+        if (!visited.add(node.id)) continue;
+        result.add((node, depth));
+        if (node.expanded) append(node.id, depth + 1);
+      }
+    }
+
+    final rootNode = root;
+    visited.add(rootNode.id);
+    result.add((rootNode, 0));
+    if (rootNode.expanded) append(rootNode.id, 1);
+    for (final node in widget.document.nodes) {
+      if (visited.add(node.id)) result.add((node, 0));
+    }
+    return result;
+  }
+
+  void revealOutlineSelection() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final itemContext = outlineKeys[selectedId]?.currentContext;
+      if (itemContext != null) {
+        Scrollable.ensureVisible(
+          itemContext,
+          duration: const Duration(milliseconds: 180),
+          alignment: 0.45,
+        );
+      }
+    });
+  }
+
+  void centerNode(MindMapNode node) {
+    if (canvasViewportSize.isEmpty) return;
+    final scale = transform.value.getMaxScaleOnAxis().clamp(0.45, 2.4);
+    final center = Offset(
+      node.x + nodeSize.width / 2,
+      node.y + nodeSize.height / 2,
+    );
+    transform.value = Matrix4.identity()
+      ..setEntry(0, 0, scale)
+      ..setEntry(1, 1, scale)
+      ..setEntry(2, 2, 1)
+      ..setTranslationRaw(
+        canvasViewportSize.width / 2 - center.dx * scale,
+        canvasViewportSize.height / 2 - center.dy * scale,
+        0,
+      );
+  }
+
+  void fitCanvas() {
+    if (canvasViewportSize.isEmpty) return;
+    final scale = math
+        .min(
+          canvasViewportSize.width / canvasSize.width,
+          canvasViewportSize.height / canvasSize.height,
+        )
+        .clamp(0.45, 1.0);
+    transform.value = Matrix4.identity()
+      ..setEntry(0, 0, scale)
+      ..setEntry(1, 1, scale)
+      ..setEntry(2, 2, 1)
+      ..setTranslationRaw(
+        (canvasViewportSize.width - canvasSize.width * scale) / 2,
+        (canvasViewportSize.height - canvasSize.height * scale) / 2,
+        0,
+      );
+  }
+
+  void zoomBy(double factor) {
+    final current = transform.value.getMaxScaleOnAxis();
+    final next = (current * factor).clamp(0.45, 2.4);
+    final node = selected ?? root;
+    final center = Offset(
+      node.x + nodeSize.width / 2,
+      node.y + nodeSize.height / 2,
+    );
+    transform.value = Matrix4.identity()
+      ..setEntry(0, 0, next)
+      ..setEntry(1, 1, next)
+      ..setEntry(2, 2, 1)
+      ..setTranslationRaw(
+        canvasViewportSize.width / 2 - center.dx * next,
+        canvasViewportSize.height / 2 - center.dy * next,
+        0,
+      );
   }
 
   bool isVisible(MindMapNode node) {
@@ -207,12 +307,39 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
         selectedConnectionId = connection.id;
         connectionSourceId = null;
       });
+      revealOutlineSelection();
       return;
     }
     setState(() {
       selectedId = node.id;
       selectedConnectionId = null;
     });
+    revealOutlineSelection();
+  }
+
+  void selectFromOutline(MindMapNode node) {
+    selectNode(node);
+    setState(() => narrowViewIndex = 1);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) centerNode(node);
+    });
+  }
+
+  void reorderOutline(int oldIndex, int newIndex) {
+    final visible = outlineNodes;
+    if (!reorderMindMapOutlineNodes(
+      widget.document,
+      visible,
+      oldIndex,
+      newIndex,
+    )) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('同一階層的節點才可調整順序')));
+      return;
+    }
+    setState(() {});
+    widget.onChanged(widget.document);
   }
 
   void selectConnection(String id) {
@@ -367,85 +494,198 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
     setState(() {});
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget buildNodeToolbar() {
     final node = selected;
+    return SizedBox(
+      height: 52,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          IconButton.filledTonal(
+            tooltip: '新增子節點',
+            onPressed: addChild,
+            icon: const Icon(Icons.add),
+          ),
+          IconButton(
+            tooltip: '重新命名',
+            onPressed: node == null ? null : renameSelected,
+            icon: const Icon(Icons.edit_outlined),
+          ),
+          IconButton(
+            tooltip: node?.locked == true ? '解除鎖定' : '鎖定節點',
+            onPressed: node == null ? null : toggleLock,
+            icon: Icon(node?.locked == true ? Icons.lock : Icons.lock_open),
+          ),
+          IconButton(
+            tooltip: node?.expanded == false ? '展開子節點' : '收合子節點',
+            onPressed: node == null ? null : toggleExpanded,
+            icon: Icon(
+              node?.expanded == false ? Icons.unfold_more : Icons.unfold_less,
+            ),
+          ),
+          IconButton(
+            tooltip: '刪除節點',
+            onPressed: node == null || node.id == widget.document.rootNodeId
+                ? null
+                : deleteSelected,
+            icon: const Icon(Icons.delete_outline),
+          ),
+          IconButton(
+            tooltip: connectionSourceId == null ? '建立自由連線' : '取消連線',
+            onPressed: connectionSourceId == null
+                ? startConnection
+                : () => setState(() => connectionSourceId = null),
+            icon: Icon(
+              connectionSourceId == null ? Icons.timeline : Icons.close,
+            ),
+          ),
+          PopupMenuButton<String>(
+            tooltip: '管理自由連線',
+            enabled: widget.document.connections.isNotEmpty,
+            onSelected: selectConnection,
+            itemBuilder: (context) => widget.document.connections
+                .map(
+                  (line) => PopupMenuItem(
+                    value: line.id,
+                    child: Text(connectionLabel(line)),
+                  ),
+                )
+                .toList(),
+            icon: const Icon(Icons.account_tree_outlined),
+          ),
+          IconButton(
+            tooltip: '一鍵排版',
+            onPressed: autoLayout,
+            icon: const Icon(Icons.auto_fix_high),
+          ),
+          const VerticalDivider(indent: 8, endIndent: 8),
+          IconButton(
+            tooltip: '縮小畫布',
+            onPressed: () => zoomBy(0.8),
+            icon: const Icon(Icons.zoom_out),
+          ),
+          IconButton(
+            tooltip: '放大畫布',
+            onPressed: () => zoomBy(1.25),
+            icon: const Icon(Icons.zoom_in),
+          ),
+          IconButton(
+            tooltip: '顯示全部節點',
+            onPressed: fitCanvas,
+            icon: const Icon(Icons.fit_screen),
+          ),
+          IconButton(
+            tooltip: '置中選取節點',
+            onPressed: node == null ? null : () => centerNode(node),
+            icon: const Icon(Icons.center_focus_strong),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget buildOutline() {
     final colorScheme = Theme.of(context).colorScheme;
-    final auxiliaryHeight = selectedConnection != null
-        ? 52.0
-        : connectionSourceId != null
-        ? 24.0
-        : 0.0;
+    final nodes = outlineNodes;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerLowest,
+        border: Border.all(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 8, 6),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '大綱',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                IconButton(
+                  tooltip: '從大綱新增子節點',
+                  onPressed: addChild,
+                  icon: const Icon(Icons.add),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: ReorderableListView.builder(
+              key: const ValueKey('mind-map-outline'),
+              scrollController: outlineScrollController,
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              itemCount: nodes.length,
+              onReorderItem: reorderOutline,
+              itemBuilder: (context, index) {
+                final entry = nodes[index];
+                final item = entry.$1;
+                final depth = entry.$2;
+                final itemKey = outlineKeys.putIfAbsent(item.id, GlobalKey.new);
+                final hasChildren = widget.document.nodes.any(
+                  (candidate) => candidate.parentId == item.id,
+                );
+                return Material(
+                  key: ValueKey('outline-${item.id}'),
+                  color: selectedId == item.id
+                      ? colorScheme.primaryContainer
+                      : Colors.transparent,
+                  child: ListTile(
+                    key: itemKey,
+                    dense: true,
+                    contentPadding: EdgeInsets.only(
+                      left: 6 + depth * 18,
+                      right: 4,
+                    ),
+                    leading: hasChildren
+                        ? IconButton(
+                            tooltip: item.expanded ? '收合子節點' : '展開子節點',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () {
+                              item.expanded = !item.expanded;
+                              setState(() {});
+                              widget.onChanged(widget.document);
+                            },
+                            icon: Icon(
+                              item.expanded
+                                  ? Icons.expand_more
+                                  : Icons.chevron_right,
+                            ),
+                          )
+                        : const SizedBox(width: 40),
+                    title: Text(
+                      item.title.isEmpty ? '未命名節點' : item.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (item.locked) const Icon(Icons.lock, size: 16),
+                        const Icon(Icons.drag_handle, size: 20),
+                      ],
+                    ),
+                    onTap: () => selectFromOutline(item),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget buildCanvas() {
+    final colorScheme = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          height: 52,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            children: [
-              IconButton.filledTonal(
-                tooltip: '新增子節點',
-                onPressed: addChild,
-                icon: const Icon(Icons.add),
-              ),
-              IconButton(
-                tooltip: '重新命名',
-                onPressed: node == null ? null : renameSelected,
-                icon: const Icon(Icons.edit_outlined),
-              ),
-              IconButton(
-                tooltip: node?.locked == true ? '解除鎖定' : '鎖定節點',
-                onPressed: node == null ? null : toggleLock,
-                icon: Icon(node?.locked == true ? Icons.lock : Icons.lock_open),
-              ),
-              IconButton(
-                tooltip: node?.expanded == false ? '展開子節點' : '收合子節點',
-                onPressed: node == null ? null : toggleExpanded,
-                icon: Icon(
-                  node?.expanded == false
-                      ? Icons.unfold_more
-                      : Icons.unfold_less,
-                ),
-              ),
-              IconButton(
-                tooltip: '刪除節點',
-                onPressed: node == null || node.id == widget.document.rootNodeId
-                    ? null
-                    : deleteSelected,
-                icon: const Icon(Icons.delete_outline),
-              ),
-              IconButton(
-                tooltip: connectionSourceId == null ? '建立自由連線' : '取消連線',
-                onPressed: connectionSourceId == null
-                    ? startConnection
-                    : () => setState(() => connectionSourceId = null),
-                icon: Icon(
-                  connectionSourceId == null ? Icons.timeline : Icons.close,
-                ),
-              ),
-              PopupMenuButton<String>(
-                tooltip: '管理自由連線',
-                enabled: widget.document.connections.isNotEmpty,
-                onSelected: selectConnection,
-                itemBuilder: (context) => widget.document.connections
-                    .map(
-                      (line) => PopupMenuItem(
-                        value: line.id,
-                        child: Text(connectionLabel(line)),
-                      ),
-                    )
-                    .toList(),
-                icon: const Icon(Icons.account_tree_outlined),
-              ),
-              IconButton(
-                tooltip: '一鍵排版',
-                onPressed: autoLayout,
-                icon: const Icon(Icons.auto_fix_high),
-              ),
-            ],
-          ),
-        ),
+        buildNodeToolbar(),
         if (connectionSourceId != null) ...[
           const SizedBox(height: 4),
           Text(
@@ -461,91 +701,203 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
           connectionToolbar(line),
         ],
         const SizedBox(height: 8),
-        Container(
-          height: 520 - auxiliaryHeight,
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerLowest,
-            border: Border.all(color: colorScheme.outlineVariant),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: InteractiveViewer(
-            transformationController: transform,
-            panEnabled: movingNodeId == null,
-            constrained: false,
-            minScale: 0.45,
-            maxScale: 2.4,
-            boundaryMargin: const EdgeInsets.all(160),
-            child: SizedBox.fromSize(
-              size: canvasSize,
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: CustomPaint(
-                      painter: _MindMapConnectionPainter(
-                        document: widget.document,
-                        visibleNodeIds: widget.document.nodes
-                            .where(isVisible)
-                            .map((node) => node.id)
-                            .toSet(),
-                        nodeSize: nodeSize,
-                      ),
-                    ),
-                  ),
-                  for (final item in widget.document.nodes.where(isVisible))
-                    Positioned(
-                      key: ValueKey(item.id),
-                      left: item.x,
-                      top: item.y,
-                      width: nodeSize.width,
-                      height: nodeSize.height,
-                      child: MouseRegion(
-                        cursor: item.locked
-                            ? SystemMouseCursors.click
-                            : SystemMouseCursors.move,
-                        child: Listener(
-                          behavior: HitTestBehavior.opaque,
-                          onPointerDown: (_) {
-                            if (connectionSourceId != null) return;
-                            setState(() {
-                              selectedId = item.id;
-                              selectedConnectionId = null;
-                              movingNodeId = item.locked ? null : item.id;
-                            });
-                          },
-                          onPointerMove: (event) {
-                            if (movingNodeId == item.id) {
-                              moveNode(item, event.delta);
-                            }
-                          },
-                          onPointerUp: (_) {
-                            if (connectionSourceId != null) {
-                              selectNode(item);
-                              return;
-                            }
-                            if (movingNodeId == item.id) {
-                              widget.onChanged(widget.document);
-                            }
-                            setState(() => movingNodeId = null);
-                          },
-                          onPointerCancel: (_) =>
-                              setState(() => movingNodeId = null),
-                          child: _MindMapNodeCard(
-                            node: item,
-                            selected: selectedId == item.id,
-                            isRoot: item.id == widget.document.rootNodeId,
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              canvasViewportSize = constraints.biggest;
+              return Container(
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerLowest,
+                  border: Border.all(color: colorScheme.outlineVariant),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: InteractiveViewer(
+                  transformationController: transform,
+                  panEnabled: movingNodeId == null,
+                  constrained: false,
+                  minScale: 0.45,
+                  maxScale: 2.4,
+                  boundaryMargin: const EdgeInsets.all(160),
+                  child: SizedBox.fromSize(
+                    size: canvasSize,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: CustomPaint(
+                            painter: _MindMapConnectionPainter(
+                              document: widget.document,
+                              visibleNodeIds: widget.document.nodes
+                                  .where(isVisible)
+                                  .map((node) => node.id)
+                                  .toSet(),
+                              nodeSize: nodeSize,
+                            ),
                           ),
                         ),
-                      ),
+                        for (final item in widget.document.nodes.where(
+                          isVisible,
+                        ))
+                          Positioned(
+                            key: ValueKey(item.id),
+                            left: item.x,
+                            top: item.y,
+                            width: nodeSize.width,
+                            height: nodeSize.height,
+                            child: MouseRegion(
+                              cursor: item.locked
+                                  ? SystemMouseCursors.click
+                                  : SystemMouseCursors.move,
+                              child: Listener(
+                                behavior: HitTestBehavior.opaque,
+                                onPointerDown: (_) {
+                                  if (connectionSourceId != null) return;
+                                  setState(() {
+                                    selectedId = item.id;
+                                    selectedConnectionId = null;
+                                    movingNodeId = item.locked ? null : item.id;
+                                  });
+                                  revealOutlineSelection();
+                                },
+                                onPointerMove: (event) {
+                                  if (movingNodeId == item.id) {
+                                    moveNode(item, event.delta);
+                                  }
+                                },
+                                onPointerUp: (_) {
+                                  if (connectionSourceId != null) {
+                                    selectNode(item);
+                                    return;
+                                  }
+                                  if (movingNodeId == item.id) {
+                                    widget.onChanged(widget.document);
+                                  }
+                                  setState(() => movingNodeId = null);
+                                },
+                                onPointerCancel: (_) =>
+                                    setState(() => movingNodeId = null),
+                                child: _MindMapNodeCard(
+                                  node: item,
+                                  selected: selectedId == item.id,
+                                  isRoot: item.id == widget.document.rootNodeId,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
-                ],
-              ),
-            ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ],
     );
   }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 620,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth < 900) {
+            return Column(
+              children: [
+                SizedBox(
+                  height: 44,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextButton.icon(
+                          onPressed: () => setState(() => narrowViewIndex = 0),
+                          icon: const Icon(Icons.account_tree_outlined),
+                          label: const Text('大綱'),
+                          style: TextButton.styleFrom(
+                            backgroundColor: narrowViewIndex == 0
+                                ? Theme.of(context).colorScheme.primaryContainer
+                                : null,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: TextButton.icon(
+                          onPressed: () => setState(() => narrowViewIndex = 1),
+                          icon: const Icon(Icons.hub_outlined),
+                          label: const Text('畫布'),
+                          style: TextButton.styleFrom(
+                            backgroundColor: narrowViewIndex == 1
+                                ? Theme.of(context).colorScheme.primaryContainer
+                                : null,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: IndexedStack(
+                    index: narrowViewIndex,
+                    children: [buildOutline(), buildCanvas()],
+                  ),
+                ),
+              ],
+            );
+          }
+          final maxOutline = math.min(420.0, constraints.maxWidth - 360);
+          final resolvedOutline = outlineWidth.clamp(220.0, maxOutline);
+          return Row(
+            children: [
+              SizedBox(width: resolvedOutline, child: buildOutline()),
+              MouseRegion(
+                cursor: SystemMouseCursors.resizeColumn,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onHorizontalDragUpdate: (details) => setState(() {
+                    outlineWidth = (outlineWidth + details.delta.dx).clamp(
+                      220.0,
+                      maxOutline,
+                    );
+                  }),
+                  child: const SizedBox(width: 12),
+                ),
+              ),
+              Expanded(child: buildCanvas()),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+bool reorderMindMapOutlineNodes(
+  MindMapDocument document,
+  List<(MindMapNode, int)> visibleNodes,
+  int oldIndex,
+  int newIndex,
+) {
+  if (oldIndex == newIndex ||
+      oldIndex < 0 ||
+      oldIndex >= visibleNodes.length ||
+      newIndex < 0 ||
+      newIndex >= visibleNodes.length) {
+    return false;
+  }
+  final moving = visibleNodes[oldIndex].$1;
+  final target = visibleNodes[newIndex].$1;
+  if (moving.id == document.rootNodeId || moving.parentId != target.parentId) {
+    return false;
+  }
+  document.nodes.remove(moving);
+  final targetIndex = document.nodes.indexOf(target);
+  document.nodes.insert(
+    targetIndex < 0 ? document.nodes.length : targetIndex,
+    moving,
+  );
+  return true;
 }
 
 class _MindMapNodeCard extends StatelessWidget {

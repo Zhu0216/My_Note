@@ -943,7 +943,7 @@ reserved for the v2 second-half Grill Me.
 ### V2-P1-008 — Responsive Mind Map outline and canvas
 
 - Priority: `P1`
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: wide screens combine a resizable outline and canvas;
   narrow screens switch between synchronized Outline and Canvas tabs.
 - Acceptance: selection and location synchronize; outline reorder preserves
@@ -951,7 +951,15 @@ reserved for the v2 second-half Grill Me.
   without losing nodes or connections.
 - Dependencies: current MindMapDocument and editor; any schema migration must
   receive a before/after comparison and approval.
-- Completion evidence: none; specified in the v2 first-half Grill Me.
+- Completion evidence: implemented on 2026-10-11 without changing the
+  `mind_map.v2` schema. Wide layouts show a resizable outline beside the
+  canvas; narrow layouts switch between synchronized Outline and Canvas views.
+  Outline selection centers the matching canvas node, canvas selection reveals
+  the matching outline row, and sibling reordering preserves every parent ID.
+  Pan/pinch zoom remain available and the toolbar adds zoom, fit-all, and
+  center-selection controls without a minimap. Legacy migration, responsive
+  views, hierarchy-safe ordering, persistence, and canvas interactions are
+  covered by the complete 160-test suite; analyzer and Web debug build pass.
 
 ### V2-P1-009 — Mind Map node tools and shared shape
 

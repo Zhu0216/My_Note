@@ -2905,6 +2905,97 @@ void main() {
     );
   });
 
+  testWidgets('mind map switches between synchronized outline and canvas', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(620, 820));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final document = MindMapDocument(
+      rootNodeId: 'root',
+      nodes: [
+        MindMapNode(id: 'root', title: '中心', x: 20, y: 20),
+        MindMapNode(
+          id: 'branch',
+          title: '同步分支',
+          parentId: 'root',
+          x: 300,
+          y: 180,
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MindMapCanvasEditor(document: document, onChanged: (_) {}),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('mind-map-outline')), findsNothing);
+    expect(find.byTooltip('顯示全部節點'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '大綱'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('mind-map-outline')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('outline-branch')));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('顯示全部節點'), findsOneWidget);
+    expect(find.text('同步分支'), findsOneWidget);
+  });
+
+  testWidgets('mind map wide layout exposes resizable outline and canvas', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 820));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final document = MindMapDocument(
+      rootNodeId: 'root',
+      nodes: [MindMapNode(id: 'root', title: '寬版中心', x: 20, y: 20)],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MindMapCanvasEditor(document: document, onChanged: (_) {}),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('mind-map-outline')), findsOneWidget);
+    expect(find.widgetWithText(TextButton, '大綱'), findsNothing);
+    expect(find.byTooltip('縮小畫布'), findsOneWidget);
+    expect(find.byTooltip('放大畫布'), findsOneWidget);
+    expect(find.byTooltip('顯示全部節點'), findsOneWidget);
+    expect(find.byTooltip('置中選取節點'), findsOneWidget);
+  });
+
+  test('mind map outline reorder keeps the existing hierarchy', () {
+    final root = MindMapNode(id: 'root', title: '中心');
+    final first = MindMapNode(id: 'first', title: '第一', parentId: 'root');
+    final second = MindMapNode(id: 'second', title: '第二', parentId: 'root');
+    final nested = MindMapNode(id: 'nested', title: '子層', parentId: 'first');
+    final document = MindMapDocument(
+      rootNodeId: 'root',
+      nodes: [root, first, nested, second],
+    );
+    final visible = <(MindMapNode, int)>[
+      (root, 0),
+      (first, 1),
+      (nested, 2),
+      (second, 1),
+    ];
+
+    expect(reorderMindMapOutlineNodes(document, visible, 3, 1), isTrue);
+    expect(document.nodes.map((node) => node.id), [
+      'root',
+      'second',
+      'first',
+      'nested',
+    ]);
+    expect(second.parentId, 'root');
+    expect(nested.parentId, 'first');
+    expect(reorderMindMapOutlineNodes(document, visible, 2, 1), isFalse);
+    expect(nested.parentId, 'first');
+  });
+
   testWidgets('mind map free connections edit and clean up with nodes', (
     tester,
   ) async {
