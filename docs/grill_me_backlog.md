@@ -828,3 +828,158 @@ the current behavior has not been independently accepted for this v1 baseline.
   memory network consists of typed links, reverse references, search, and
   navigable related-item views. This is a product decision, not deferred
   backlog work.
+
+## v2 first-half backlog
+
+All items below are approved product requirements but remain unimplemented
+unless completion evidence says otherwise. Plan and Life Sheet UI redesign are
+reserved for the v2 second-half Grill Me.
+
+### V2-P1-001 — Global Home quick search
+
+- Priority: `P1`
+- Status: `PLANNED`
+- User-visible behavior: Home provides instant, highlighted, fuzzy-ranked
+  search across every record family and attachment filenames.
+- Acceptance: partial multi-term ranking follows the approved field order;
+  20-result pagination works; result rows show excerpt and type; open/back
+  restores query and scroll; closing clears it; no history is stored.
+- Dependencies: current related-item index and contextual navigation.
+- Completion evidence: none; specified in the v2 first-half Grill Me.
+
+### V2-P1-002 — Sticky and optionally auto-collapsing Home sections
+
+- Priority: `P1`
+- Status: `PLANNED`
+- User-visible behavior: the current Home category remains actionable while
+  scrolling and may collapse after its content leaves view.
+- Acceptance: heading replacement follows section boundaries; pinned collapse
+  works; session auto-collapse does not overwrite saved collapse preferences.
+- Dependencies: Home section ordering and collapse settings.
+- Completion evidence: none; specified in the v2 first-half Grill Me.
+
+### V2-P1-003 — Markdown input conversion and true headings
+
+- Priority: `P1`
+- Status: `PLANNED`
+- User-visible behavior: supported Markdown becomes immediate WYSIWYG rich
+  formatting, and Body/H1/H2/H3 are available in the toolbar.
+- Acceptance: every approved inline and block trigger converts at the correct
+  boundary; heading metrics are fixed; one Undo restores raw syntax; existing
+  rich formatting and embed blocks remain intact.
+- Dependencies: rich-note controller, document marks/blocks, undo history.
+- Completion evidence: none; specified in the v2 first-half Grill Me.
+
+### V2-P1-004 — Markdown paste choice and round-trip safety
+
+- Priority: `P1`
+- Status: `PLANNED`
+- User-visible behavior: pasted Markdown can remain plain text or convert into
+  supported editor structures without losing unsupported rich attributes.
+- Acceptance: paste choice works on Web and Android; export/import round trips
+  headings, links, lists, quotes, code, and dividers; no table UI is introduced.
+- Dependencies: V2-P1-003 and existing Markdown export.
+- Completion evidence: none; specified in the v2 first-half Grill Me.
+
+### V2-P1-005 — Optional sign-in entry and linked authentication
+
+- Priority: `P1`
+- Status: `BLOCKED`
+- User-visible behavior: unsigned users choose synchronized sign-in or a
+  remembered local-only path; Google and verified email/password accounts can
+  be linked safely.
+- Acceptance: local use never requires an account; verification, reset,
+  sign-out, deletion, and explicit credential linking work on supported
+  platforms without exposing secrets.
+- Dependencies: Firebase Apps/options, approved production Auth configuration,
+  privacy and account-deletion decisions.
+- Completion evidence: product behavior approved; implementation awaits the
+  Firebase approval/configuration boundary.
+
+### V2-P1-006 — One-space cloud onboarding and conflict resolution
+
+- Priority: `P1`
+- Status: `BLOCKED`
+- User-visible behavior: first sync compares one local database with the
+  account's single cloud space and asks before transfer or item-by-item merge.
+- Acceptance: no automatic first transfer; same-ID conflicts offer local,
+  cloud, or both; keeping both generates a new ID and remaps references; all
+  decisions are recoverable.
+- Dependencies: approved Firestore schema/security rules and a before/after
+  migration comparison; V2-P1-005.
+- Completion evidence: product behavior approved; schema implementation needs
+  explicit approval.
+
+### V2-P1-007 — Offline-first complete synchronization
+
+- Priority: `P1`
+- Status: `BLOCKED`
+- User-visible behavior: local commits remain immediate while a durable queue
+  synchronizes all text, images, and attachments under the selected network
+  policy.
+- Acceptance: restart and offline recovery preserve the queue; five sync states
+  are accurate; retries never discard local data; Wi-Fi, any-network warning,
+  and manual policies are honored; a completed sync contains full payloads.
+- Dependencies: V2-P1-006, Firebase Storage, connectivity policy, schema and
+  rules approval.
+- Completion evidence: product behavior approved; cloud implementation awaits
+  explicit approval and configuration.
+
+### V2-P1-008 — Responsive Mind Map outline and canvas
+
+- Priority: `P1`
+- Status: `PLANNED`
+- User-visible behavior: wide screens combine a resizable outline and canvas;
+  narrow screens switch between synchronized Outline and Canvas tabs.
+- Acceptance: selection and location synchronize; outline reorder preserves
+  hierarchy; pan/zoom/fit/center work; no minimap appears; existing maps migrate
+  without losing nodes or connections.
+- Dependencies: current MindMapDocument and editor; any schema migration must
+  receive a before/after comparison and approval.
+- Completion evidence: none; specified in the v2 first-half Grill Me.
+
+### V2-P1-009 — Mind Map node tools and shared shape
+
+- Priority: `P1`
+- Status: `PLANNED`
+- User-visible behavior: nodes have complete contextual actions, responsive
+  keyboard/touch editing, finite theme colors, and one map-wide selected shape.
+- Acceptance: root/level sizing, wrapping, state icons, shape selection,
+  lock/collapse, relationships, child/sibling creation, rename, and delete all
+  persist and remain usable on Web and X510.
+- Dependencies: V2-P1-008; shape field migration approval if required.
+- Completion evidence: none; specified in the v2 first-half Grill Me.
+
+### V2-P1-010 — Mind Map multi-selection and batch operations
+
+- Priority: `P1`
+- Status: `PLANNED`
+- User-visible behavior: desktop modifier click/marquee and mobile long
+  press/toolbar select multiple nodes for group operations.
+- Acceptance: group drag, six alignments, two distributions, color, locking,
+  related items, delete, and selected-only layout work; locked nodes do not
+  move; hierarchy and names are never accidentally batch-edited.
+- Dependencies: V2-P1-008 and node geometry engine.
+- Completion evidence: none; specified in the v2 first-half Grill Me.
+
+### V2-P1-011 — Transactional chained free connections
+
+- Priority: `P1`
+- Status: `PLANNED`
+- User-visible behavior: users preview a chain of free connections, revise its
+  final segment, then commit or cancel the whole path.
+- Acceptance: `A,B,C` commits two segments only on Done; `A,B,C,C` removes the
+  final segment; Cancel commits none; Back removes one node; cycles and parallel
+  differently styled edges work; the committed path is one undo transaction.
+- Dependencies: V2-P1-008 and free-connection persistence.
+- Completion evidence: none; specified in the v2 first-half Grill Me.
+
+### V2-D-001 — Plan and Life Sheet UI redesign
+
+- Priority: `Deferred`
+- Status: `BLOCKED`
+- User-visible behavior: Plan is redesigned after Mind Map, followed by Life
+  Sheet, without changing their approved v1 data semantics prematurely.
+- Acceptance: complete the v2 second-half Grill Me before implementation.
+- Dependencies: user product decisions.
+- Completion evidence: intentionally deferred by the v2 first-half cutoff.

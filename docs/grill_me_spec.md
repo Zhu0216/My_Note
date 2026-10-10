@@ -304,3 +304,161 @@ The implementation is split by responsibility:
 
 Refactoring must preserve existing UI behavior unless this specification calls
 for a change.
+
+## v2 first-half scope
+
+The v2 priority order is:
+
+1. Home discovery and daily-operation efficiency.
+2. General-note Markdown, tags, and reading experience.
+3. Firebase authentication and complete multi-device synchronization.
+4. Structured-template redesign, beginning with Mind Map.
+5. Other features only after the preceding work is accepted.
+
+Within structured templates, the redesign order is Mind Map, Plan, then Life
+Sheet. Plan and Life Sheet UI decisions belong to the v2 second-half Grill Me
+and are not specified by this first-half scope.
+
+This first-half interview specifies Markdown editing but does not yet finalize
+the tag-editor or additional reader UX. Those two subjects remain product
+questions and must not be implemented from assumptions.
+
+### Home quick search
+
+- A search icon appears immediately left of the Home overflow menu.
+- Search opens in the current page, receives keyboard focus, and updates about
+  `150 ms` after input without a submit button.
+- Search covers every local or synchronized record: general-note title, tags,
+  and plain-text body; structured-note titles and node/item names; todo,
+  schedule, subscription, finance, and account names and readable fields; and
+  attachment filenames. Attachment file contents are not indexed.
+- Results are one simple relevance-ranked list rather than type sections. Each
+  row shows title, a short matching excerpt or tags, and a type label at the
+  right. Matching text is visibly highlighted using the active theme.
+- Partial multi-keyword matches are allowed. More matched terms and stronger
+  fields rank higher: exact title, partial title, tag, body/field text, then
+  related-item text. Equal relevance uses most recently modified first.
+- The first 20 results render immediately and more load on scroll.
+- Opening a result navigates to the source record. Returning restores query,
+  result scroll position, and Home state. Closing search clears the query.
+- Empty search shows no history. No recent-search history is stored. When no
+  records match, the result area displays `無關聯查詢`.
+
+### Sticky Home sections
+
+- While Home scrolls, the active category heading remains pinned until its
+  section has completely passed; the next category then replaces it.
+- The pinned heading retains the category's collapse/expand action.
+- Settings offers `離開內容範圍後自動收合`.
+- Automatic collapse is session-only and never overwrites the user's saved
+  collapse preferences. Re-entering Home restores the saved preferences.
+
+### Markdown-aware rich editing
+
+- The general-note editor remains WYSIWYG and retains its existing structured
+  rich-document storage. Markdown is an input, paste, import, and export
+  representation; raw delimiters are not the canonical stored document.
+- Completing inline Markdown converts it immediately and hides delimiters.
+  Supported inline syntax includes bold, italic, strikethrough, inline code,
+  and Markdown links.
+- At line start, `# `, `## `, and `### ` create true heading levels;
+  blockquote, ordered list, bullet list, checklist, fenced code block, and
+  horizontal divider syntax also convert to their matching editor structure.
+- Toolbar adds one paragraph-style selector with Body, Heading 1, Heading 2,
+  and Heading 3. Heading levels use fixed size, weight, and line height; users
+  may apply other inline styles but may not override heading font size.
+- Pasting Markdown asks whether to keep plain text or convert formatting.
+- One Undo immediately after automatic conversion restores the original raw
+  Markdown input.
+- Images, attachments, todo references, and inserted-note references remain
+  native embed blocks. Underline, subscript, superscript, and font family remain
+  rich attributes because standard Markdown has no equivalent.
+- Markdown tables are not included in v2 first-half scope.
+
+### Firebase entry and identity
+
+- The app remains fully usable without an account.
+- Before Home, an unsigned user sees a lightweight choice between `登入並同步`
+  and `直接使用本機資料`. Choosing local mode is remembered, so later launches
+  go directly to Home. Home retains a compact sign-in/sync shortcut, and full
+  account controls also live in Settings.
+- Authentication supports Google and email/password. Email verification is
+  required before synchronization. Password reset, sign-out, and account
+  deletion are available.
+- Google and email credentials sharing the same verified address can be linked
+  into one account after explicit confirmation.
+
+### Cloud data space and synchronization
+
+- Each account owns exactly one cloud data space. A local-only database remains
+  independent until the user explicitly starts synchronization.
+- First sync shows local and cloud summaries and never uploads, downloads, or
+  merges automatically. Empty-cloud and empty-local cases ask before transfer.
+  When both contain data, the user can keep local data independent, merge item
+  by item, or cancel.
+- Same-ID divergent records are conflicts. Resolution offers keep local, keep
+  cloud, or keep both. `Keep both` assigns a new ID to one copy, remaps its
+  internal references, and uploads both records.
+- After activation, sync is offline-first and automatic. Every edit commits
+  locally before entering a durable synchronization queue. Connection recovery
+  resumes pending work without blocking the app.
+- Status is concise: synchronized, waiting for connection, synchronizing,
+  conflict, or failed. Failed work remains local, retries automatically, and
+  can be inspected and retried manually.
+- Network policy choices are Wi-Fi automatic (default), any-network automatic,
+  and manual only. Enabling mobile-network sync warns about data usage.
+- A sync run transfers complete data, including text, images, and attachments;
+  it does not leave a metadata-only or thumbnail-only cloud state.
+- Signing out does not delete cloud data. The synchronized local copy remains,
+  and the user chooses whether to continue with it as a local-only database.
+- Production Firebase resources, security rules, schema migration, and secrets
+  still require the explicit implementation approval and configuration defined
+  in `AGENTS.md`.
+
+### Mind Map responsive workspace
+
+- Wide Web and tablet layouts use a resizable, collapsible outline on the left
+  and canvas on the right. Narrow layouts use `大綱` and `畫布` tabs.
+- Outline and canvas share selection and viewport targeting. Selecting in one
+  locates the same node in the other. The outline supports hierarchical
+  indentation, expand/collapse, and drag reorder. Free connections never change
+  outline hierarchy.
+- The canvas supports pan, zoom, fit-to-view, return-to-center, and one-click
+  layout. Empty-canvas tap clears selection. No minimap is provided.
+- Selected-node tools include child, sibling, rename, free connection,
+  lock/unlock, collapse/expand, related items, and delete. Double-click/tap
+  renames. Desktop Enter creates a sibling, Tab creates a child, and Delete
+  deletes; mobile does not depend on hardware keys.
+- The map uses one chosen shared node shape, such as ellipse or rounded
+  rectangle. The root is largest and theme-accented, first-level nodes are
+  moderately emphasized, and deeper nodes are compact. Width follows content
+  up to a wrapping limit. A finite theme palette is used instead of color-code
+  input. Lock, relationship, and collapse states use compact icons.
+
+### Mind Map multi-selection
+
+- Desktop `Ctrl + click` on another node automatically starts multi-selection;
+  canvas marquee selection is also supported. Mobile uses the toolbar or a
+  long press on the first node.
+- Empty-canvas tap or `完成` exits multi-selection. Locked nodes can be selected
+  but do not move or participate in positional layout changes.
+- Batch tools provide group drag, six-edge/center alignment, horizontal and
+  vertical distribution, color, lock/unlock, add/remove related items, delete,
+  and one-click layout limited to the selection. Names and hierarchy are not
+  batch-edited.
+
+### Transactional free-connection paths
+
+- The unselected-state toolbar exposes `自由連線`. It begins with source
+  selection and then accepts a sequence of target nodes.
+- A sequence `A, B, C` previews `A→B` and `B→C`. Nothing is persisted until
+  `完成`; Cancel discards the entire current sequence.
+- Selecting the current final target again removes that final segment. Thus
+  `A, B, C, C` returns to the preview `A→B`.
+- Back removes the last selected node. A node cannot connect to itself, but a
+  path may revisit an earlier node to create a cycle such as `A→B→C→A`.
+- One path initially shares color, solid/dashed style, and arrow direction.
+  After commit, each segment can be selected and changed independently.
+- Completing a path creates one undoable transaction. Cancel creates no data or
+  undo entry. Multiple independently styled connections between the same two
+  nodes are allowed.
