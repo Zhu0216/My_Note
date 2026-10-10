@@ -37,6 +37,7 @@ class AppStore extends ChangeNotifier {
     required this.hiddenHomeSections,
     required this.hiddenUpcomingItems,
     required this.homeSectionStyles,
+    required this.homeAutoCollapseOnScroll,
     int persistenceRevision = 0,
     DateTime? lastChangedAt,
     String lastChangeAction = 'load',
@@ -68,6 +69,7 @@ class AppStore extends ChangeNotifier {
       hiddenHomeSections: <HomeSectionId>{},
       hiddenUpcomingItems: <String>{},
       homeSectionStyles: defaultHomeSectionStyles(),
+      homeAutoCollapseOnScroll: false,
       notes: [],
       schedules: [],
       subscriptions: [],
@@ -380,6 +382,7 @@ class AppStore extends ChangeNotifier {
           data['hiddenUpcomingItems'],
         ).toSet(),
         homeSectionStyles: readHomeSectionStyles(data['homeSectionStyles']),
+        homeAutoCollapseOnScroll: data['homeAutoCollapseOnScroll'] == true,
         persistenceRevision:
             (persistenceData['revision'] as num?)?.toInt() ?? 0,
         lastChangedAt: DateTime.tryParse(
@@ -437,6 +440,7 @@ class AppStore extends ChangeNotifier {
   final Set<HomeSectionId> hiddenHomeSections;
   final Set<String> hiddenUpcomingItems;
   final Map<HomeSectionId, HomeSectionStyle> homeSectionStyles;
+  bool homeAutoCollapseOnScroll;
   double monthlyBudget;
   int _nextId = 100;
   Future<void> _persistenceQueue = Future<void>.value();
@@ -529,6 +533,7 @@ class AppStore extends ChangeNotifier {
         for (final entry in homeSectionStyles.entries)
           entry.key.name: entry.value.name,
       },
+      'homeAutoCollapseOnScroll': homeAutoCollapseOnScroll,
       '_persistence': {
         'revision': _persistenceRevision,
         'changedAt': _lastChangedAt?.toIso8601String(),
@@ -756,6 +761,7 @@ class AppStore extends ChangeNotifier {
     homeSectionStyles
       ..clear()
       ..addAll(candidate.homeSectionStyles);
+    homeAutoCollapseOnScroll = candidate.homeAutoCollapseOnScroll;
     monthlyBudget = candidate.monthlyBudget;
     _nextId = _calculateNextId();
     _normalizeTodoOrder();
@@ -1703,6 +1709,12 @@ class AppStore extends ChangeNotifier {
   void setHomeSectionStyle(HomeSectionId section, HomeSectionStyle style) {
     homeSectionStyles[section] = style;
     _commit('home.section.style:${section.name}:${style.name}');
+  }
+
+  void setHomeAutoCollapseOnScroll(bool value) {
+    if (homeAutoCollapseOnScroll == value) return;
+    homeAutoCollapseOnScroll = value;
+    _commit('home.section.auto_collapse:$value');
   }
 }
 

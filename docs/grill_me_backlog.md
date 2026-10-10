@@ -853,13 +853,16 @@ reserved for the v2 second-half Grill Me.
 ### V2-P1-002 — Sticky and optionally auto-collapsing Home sections
 
 - Priority: `P1`
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: the current Home category remains actionable while
   scrolling and may collapse after its content leaves view.
 - Acceptance: heading replacement follows section boundaries; pinned collapse
   works; session auto-collapse does not overwrite saved collapse preferences.
 - Dependencies: Home section ordering and collapse settings.
-- Completion evidence: none; specified in the v2 first-half Grill Me.
+- Completion evidence: implemented on 2026-10-11 with pinned sliver section
+  headers, persisted opt-in setting, and session-only automatic collapse.
+  Widget coverage verifies pinned headers, session behavior, and setting data;
+  all 148 Flutter tests and the Web debug build pass.
 
 ### V2-P1-003 — Markdown input conversion and true headings
 

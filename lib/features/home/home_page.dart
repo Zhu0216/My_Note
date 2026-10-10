@@ -81,6 +81,8 @@ class HomePageState extends State<HomePage>
   bool searchOpen = false;
   String searchQuery = '';
   int visibleSearchCount = 20;
+  final Set<HomeSectionId> sessionCollapsedSections = <HomeSectionId>{};
+  final Set<HomeSectionId> autoCollapseTriggers = <HomeSectionId>{};
 
   @override
   void initState() {
@@ -169,6 +171,37 @@ class HomePageState extends State<HomePage>
       return;
     }
     setState(() => visibleSearchCount += 20);
+  }
+
+  void toggleSection(AppStore store, HomeSectionId section) {
+    if (sessionCollapsedSections.remove(section)) {
+      setState(() {});
+      return;
+    }
+    store.toggleHomeSection(section);
+  }
+
+  void updatePinnedSection(
+    AppStore store,
+    List<HomeSectionId> visibleSections,
+    int index,
+    bool pinned,
+  ) {
+    if (!store.homeAutoCollapseOnScroll || index == 0) return;
+    final previous = visibleSections[index - 1];
+    if (!pinned) {
+      autoCollapseTriggers.remove(previous);
+      return;
+    }
+    if (!autoCollapseTriggers.add(previous) ||
+        sessionCollapsedSections.contains(previous) ||
+        store.collapsedHomeSections.contains(previous)) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !store.homeAutoCollapseOnScroll) return;
+      setState(() => sessionCollapsedSections.add(previous));
+    });
   }
 
   Future<void> handleQuickAdd(String value) async {
@@ -270,9 +303,8 @@ class HomePageState extends State<HomePage>
                     onOpen: (link) =>
                         widget.actions.openRelatedItem(context, link),
                   )
-                : ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
-                    children: [
+                : CustomScrollView(
+                    slivers: [
                       for (
                         var index = 0;
                         index < visibleSections.length;
@@ -281,13 +313,36 @@ class HomePageState extends State<HomePage>
                         HomeSection(
                           section: visibleSections[index],
                           onNavigate: widget.onNavigate,
+                          collapsed:
+                              store.collapsedHomeSections.contains(
+                                visibleSections[index],
+                              ) ||
+                              sessionCollapsedSections.contains(
+                                visibleSections[index],
+                              ),
+                          onToggleCollapsed: () =>
+                              toggleSection(store, visibleSections[index]),
+                          onPinnedChanged: (pinned) => updatePinnedSection(
+                            store,
+                            visibleSections,
+                            index,
+                            pinned,
+                          ),
                         ),
                         if (index < visibleSections.length - 1)
-                          HomeSectionDivider(
-                            before: visibleSections[index],
-                            after: visibleSections[index + 1],
+                          SliverToBoxAdapter(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              child: HomeSectionDivider(
+                                before: visibleSections[index],
+                                after: visibleSections[index + 1],
+                              ),
+                            ),
                           ),
                       ],
+                      const SliverToBoxAdapter(child: SizedBox(height: 96)),
                     ],
                   ),
           ),
@@ -516,64 +571,147 @@ class HomeSectionDivider extends StatelessWidget {
   }
 }
 
-class HomeSection extends StatelessWidget {
+class HomeSection extends StatefulWidget {
   const HomeSection({
     super.key,
     required this.section,
     required this.onNavigate,
+    required this.collapsed,
+    required this.onToggleCollapsed,
+    required this.onPinnedChanged,
   });
 
   final HomeSectionId section;
   final ValueChanged<int> onNavigate;
+  final bool collapsed;
+  final VoidCallback onToggleCollapsed;
+  final ValueChanged<bool> onPinnedChanged;
+
+  @override
+  State<HomeSection> createState() => _HomeSectionState();
+}
+
+class _HomeSectionState extends State<HomeSection> {
+  bool showCompletedTodos = false;
 
   @override
   Widget build(BuildContext context) {
     final store = AppStoreScope.of(context);
-    final collapsed = store.collapsedHomeSections.contains(section);
+    final section = widget.section;
     final style = store.homeSectionStyles[section] ?? HomeSectionStyle.list;
+    final todoCount = showCompletedTodos
+        ? store.completedTodayTodos.length
+        : store.activeTodos.length + activePlanHomeTasks(store).length;
+    final title = section == HomeSectionId.todos && showCompletedTodos
+        ? '已完成事項'
+        : homeSectionTitle(section);
 
-    if (section == HomeSectionId.todos) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 16),
-        child: TodoHomeSection(
-          style: style,
-          collapsed: collapsed,
-          onToggleCollapsed: () => store.toggleHomeSection(section),
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Column(
-        children: [
-          SectionHeader(
-            title: homeSectionTitle(section),
-            count: homeSectionCount(store, section),
-            onTap: () => store.toggleHomeSection(section),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                homeSectionAction(context, section, onNavigate),
-                Icon(collapsed ? Icons.expand_more : Icons.expand_less),
-              ],
+    return SliverMainAxisGroup(
+      slivers: [
+        SliverPersistentHeader(
+          pinned: true,
+          delegate: HomeSectionHeaderDelegate(
+            onPinnedChanged: widget.onPinnedChanged,
+            child: ColoredBox(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: SectionHeader(
+                  title: title,
+                  count: section == HomeSectionId.todos
+                      ? todoCount
+                      : homeSectionCount(store, section),
+                  onTap: widget.onToggleCollapsed,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (section == HomeSectionId.todos)
+                        TextButton.icon(
+                          onPressed: () => setState(
+                            () => showCompletedTodos = !showCompletedTodos,
+                          ),
+                          icon: Icon(
+                            showCompletedTodos
+                                ? Icons.checklist
+                                : Icons.task_alt_outlined,
+                          ),
+                          label: Text(showCompletedTodos ? '待辦事項' : '已完成'),
+                        ),
+                      homeSectionAction(context, section, widget.onNavigate),
+                      Icon(
+                        widget.collapsed
+                            ? Icons.expand_more
+                            : Icons.expand_less,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 180),
-            switchInCurve: Curves.easeOut,
-            switchOutCurve: Curves.easeIn,
-            child: collapsed
-                ? const SizedBox.shrink(key: ValueKey('collapsed'))
-                : KeyedSubtree(
-                    key: ValueKey('${section.name}-${style.name}'),
-                    child: buildHomeSectionContent(context, section, style),
-                  ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          sliver: SliverToBoxAdapter(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              child: widget.collapsed
+                  ? const SizedBox.shrink(key: ValueKey('collapsed'))
+                  : KeyedSubtree(
+                      key: ValueKey('${section.name}-${style.name}'),
+                      child: section == HomeSectionId.todos
+                          ? TodoBlock(
+                              compact: style == HomeSectionStyle.grid,
+                              showCompleted: showCompletedTodos,
+                            )
+                          : buildHomeSectionContent(context, section, style),
+                    ),
+            ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
+}
+
+class HomeSectionHeaderDelegate extends SliverPersistentHeaderDelegate {
+  HomeSectionHeaderDelegate({
+    required this.child,
+    required this.onPinnedChanged,
+  });
+
+  final Widget child;
+  final ValueChanged<bool> onPinnedChanged;
+  bool? _wasPinned;
+
+  @override
+  double get minExtent => 72;
+
+  @override
+  double get maxExtent => 72;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    final pinned = shrinkOffset > 0.5;
+    if (_wasPinned != pinned) {
+      _wasPinned = pinned;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        onPinnedChanged(pinned);
+      });
+    }
+    return SizedBox.expand(child: child);
+  }
+
+  @override
+  bool shouldRebuild(covariant HomeSectionHeaderDelegate oldDelegate) =>
+      child != oldDelegate.child ||
+      onPinnedChanged != oldDelegate.onPinnedChanged;
 }
 
 String homeSectionTitle(HomeSectionId section) {
@@ -1788,6 +1926,14 @@ class HomeLayoutSettingsPage extends StatelessWidget {
             builder: (context, _) => ListView(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
               children: [
+                SwitchListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                  title: const Text('下滑後自動收合'),
+                  subtitle: const Text('區塊內容完全離開畫面後，本次使用期間自動收合'),
+                  value: store.homeAutoCollapseOnScroll,
+                  onChanged: store.setHomeAutoCollapseOnScroll,
+                ),
+                const SizedBox(height: 8),
                 ReorderableListView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -1871,6 +2017,14 @@ Future<void> showHomeLayoutSettingsSheet(BuildContext context) async {
                   ],
                 ),
                 const SizedBox(height: 12),
+                SwitchListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                  title: const Text('下滑後自動收合'),
+                  subtitle: const Text('區塊內容完全離開畫面後，本次使用期間自動收合'),
+                  value: store.homeAutoCollapseOnScroll,
+                  onChanged: store.setHomeAutoCollapseOnScroll,
+                ),
+                const SizedBox(height: 8),
                 ReorderableListView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),

@@ -1995,6 +1995,56 @@ void main() {
     }
   });
 
+  testWidgets(
+    'home sections use pinned headers and auto collapse per session',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final store = AppStore.seeded(persistenceLocked: true)
+        ..homeAutoCollapseOnScroll = true;
+      await tester.binding.setSurfaceSize(const Size(412, 360));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      try {
+        await tester.pumpWidget(MyNoteApp(store: store));
+        await tester.pumpAndSettle();
+
+        final headers = tester.widgetList<SliverPersistentHeader>(
+          find.byType(SliverPersistentHeader),
+        );
+        expect(headers, isNotEmpty);
+        expect(headers.every((header) => header.pinned), isTrue);
+
+        await tester.drag(find.byType(CustomScrollView), const Offset(0, -700));
+        await tester.pumpAndSettle();
+        await tester.drag(find.byType(CustomScrollView), const Offset(0, 700));
+        await tester.pumpAndSettle();
+
+        final metricsSection = tester
+            .widgetList<HomeSection>(find.byType(HomeSection))
+            .firstWhere((section) => section.section == HomeSectionId.metrics);
+        expect(metricsSection.collapsed, isTrue);
+        expect(
+          store.collapsedHomeSections,
+          isNot(contains(HomeSectionId.metrics)),
+        );
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        store.dispose();
+      }
+    },
+  );
+
+  test('home auto collapse setting persists with a legacy-safe default', () {
+    final store = AppStore.seeded(persistenceLocked: true);
+    try {
+      expect(store.homeAutoCollapseOnScroll, isFalse);
+      store.setHomeAutoCollapseOnScroll(true);
+      expect(store.toJson()['homeAutoCollapseOnScroll'], isTrue);
+    } finally {
+      store.dispose();
+    }
+  });
+
   test('upcoming aggregation follows source edits and hidden state', () {
     final store = AppStore.seeded(persistenceLocked: true);
     final now = DateTime.now();
