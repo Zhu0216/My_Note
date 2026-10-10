@@ -3668,6 +3668,95 @@ void main() {
     );
   });
 
+  test(
+    'completed Markdown converts to rich text and one undo restores syntax',
+    () {
+      final controller = RichNoteTextController(text: '', marks: const []);
+      for (final character in '**旅行**'.characters) {
+        final next = '${controller.text}$character';
+        controller.value = TextEditingValue(
+          text: next,
+          selection: TextSelection.collapsed(offset: next.length),
+        );
+      }
+
+      expect(controller.text, '旅行');
+      expect(
+        controller.marks.single.attributes[RichNoteAttribute.bold],
+        isTrue,
+      );
+
+      controller.undoRichChange();
+      expect(controller.text, '**旅行**');
+    },
+  );
+
+  test('Markdown block prefixes create headings lists and dividers', () {
+    final heading = markdownBlockConversion('## ');
+    expect(heading, isNotNull);
+    expect(heading!.replacement, isEmpty);
+    expect(heading.typingAttributes[RichNoteAttribute.heading], 2);
+
+    expect(markdownBlockConversion('- ')?.replacement, '• ');
+    expect(markdownBlockConversion('[ ] ')?.replacement, '☐ ');
+    expect(markdownBlockConversion('[x] ')?.replacement, '☑ ');
+    expect(markdownBlockConversion('---')?.replacement, '────────\n');
+  });
+
+  test('typed Markdown heading becomes H2 and undo restores its prefix', () {
+    final controller = RichNoteTextController(text: '', marks: const []);
+    for (final character in '## '.characters) {
+      final next = '${controller.text}$character';
+      controller.value = TextEditingValue(
+        text: next,
+        selection: TextSelection.collapsed(offset: next.length),
+      );
+    }
+    expect(controller.text, isEmpty);
+    expect(controller.selectionAttributeValue(RichNoteAttribute.heading), 2);
+
+    controller.undoRichChange();
+    expect(controller.text, '## ');
+  });
+
+  test('heading size is fixed and body restores normal size control', () {
+    final controller = RichNoteTextController(text: '標題', marks: const []);
+    controller.updateSelectionFromFlow(
+      const TextSelection(baseOffset: 0, extentOffset: 2),
+    );
+    controller.setParagraphHeading(1);
+    controller.setInlineAttribute(RichNoteAttribute.fontSize, 48.0);
+
+    expect(controller.selectionAttributeValue(RichNoteAttribute.heading), 1);
+    expect(
+      controller.selectionAttributeValue(RichNoteAttribute.fontSize),
+      isNull,
+    );
+
+    controller.setParagraphHeading(0);
+    controller.setInlineAttribute(RichNoteAttribute.fontSize, 20.0);
+    expect(
+      controller.selectionAttributeValue(RichNoteAttribute.fontSize),
+      20.0,
+    );
+  });
+
+  test('Markdown links convert and export without losing their target', () {
+    final conversion = markdownInlineConversion('[OpenAI](https://openai.com)');
+    expect(conversion, isNotNull);
+    expect(conversion!.replacement, 'OpenAI');
+    expect(
+      conversion.attributes[RichNoteAttribute.linkUrl],
+      'https://openai.com',
+    );
+    expect(
+      richNoteMarkdownExportText('OpenAI', [
+        RichNoteMark(start: 0, end: 6, attributes: conversion.attributes),
+      ]),
+      '[OpenAI](https://openai.com)',
+    );
+  });
+
   test('rich toolbar typing mode toggles off inherited inline styles', () {
     const attributes = [
       RichNoteAttribute.bold,

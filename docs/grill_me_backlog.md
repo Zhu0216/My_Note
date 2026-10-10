@@ -867,14 +867,18 @@ reserved for the v2 second-half Grill Me.
 ### V2-P1-003 — Markdown input conversion and true headings
 
 - Priority: `P1`
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: supported Markdown becomes immediate WYSIWYG rich
   formatting, and Body/H1/H2/H3 are available in the toolbar.
 - Acceptance: every approved inline and block trigger converts at the correct
   boundary; heading metrics are fixed; one Undo restores raw syntax; existing
   rich formatting and embed blocks remain intact.
 - Dependencies: rich-note controller, document marks/blocks, undo history.
-- Completion evidence: none; specified in the v2 first-half Grill Me.
+- Completion evidence: implemented on 2026-10-11 in the rich-note controller
+  and toolbar. Inline syntax, links, headings, quotes, lists, checklists, fenced
+  code, and dividers convert without becoming canonical raw text; immediate
+  Undo restores the syntax. H1/H2/H3 use fixed metrics and reject font-size
+  overrides. All 153 Flutter tests and the Web debug build pass.
 
 ### V2-P1-004 — Markdown paste choice and round-trip safety
 

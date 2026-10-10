@@ -1105,6 +1105,8 @@ class RichNoteAttribute {
   static const subscript = 'subscript';
   static const superscript = 'superscript';
   static const heading = 'heading';
+  static const linkUrl = 'linkUrl';
+  static const horizontalRule = 'horizontalRule';
   static const quote = 'quote';
   static const embedType = 'embedType';
   static const embedId = 'embedId';
@@ -1188,6 +1190,7 @@ bool _sameMarkdownAttributes(
 ) => jsonEncode(left) == jsonEncode(right);
 
 String _markdownWrapped(String value, Map<String, dynamic> attributes) {
+  if (attributes[RichNoteAttribute.horizontalRule] == true) return '---\n';
   var result = value;
   if (attributes[RichNoteAttribute.inlineCode] == true) {
     result = '`${result.replaceAll('`', r'\`')}`';
@@ -1206,6 +1209,8 @@ String _markdownWrapped(String value, Map<String, dynamic> attributes) {
   if (attributes[RichNoteAttribute.superscript] == true) {
     result = '<sup>$result</sup>';
   }
+  final linkUrl = readString(attributes[RichNoteAttribute.linkUrl]);
+  if (linkUrl.isNotEmpty) result = '[$result]($linkUrl)';
   if (attributes[RichNoteAttribute.codeBlock] == true) {
     result = '```\n$result\n```';
   } else if (attributes[RichNoteAttribute.quote] == true) {
@@ -1306,6 +1311,105 @@ class RichNoteAutoEdit {
   final int end;
   final String replacement;
   final int cursorOffset;
+}
+
+class RichMarkdownConversion {
+  const RichMarkdownConversion({
+    required this.start,
+    required this.end,
+    required this.replacement,
+    this.attributes = const {},
+    this.typingAttributes = const {},
+  });
+
+  final int start;
+  final int end;
+  final String replacement;
+  final Map<String, dynamic> attributes;
+  final Map<String, Object?> typingAttributes;
+}
+
+RichMarkdownConversion? markdownBlockConversion(String line) {
+  final heading = RegExp(r'^(#{1,3}) $').firstMatch(line);
+  if (heading != null) {
+    return RichMarkdownConversion(
+      start: 0,
+      end: line.length,
+      replacement: '',
+      typingAttributes: {
+        RichNoteAttribute.heading: heading.group(1)!.length,
+        RichNoteAttribute.fontSize: false,
+      },
+    );
+  }
+  if (line == '> ') {
+    return const RichMarkdownConversion(
+      start: 0,
+      end: 2,
+      replacement: '',
+      typingAttributes: {RichNoteAttribute.quote: true},
+    );
+  }
+  if (line == '- ' || line == '* ' || line == '+ ') {
+    return const RichMarkdownConversion(start: 0, end: 2, replacement: '• ');
+  }
+  if (line == '[ ] ') {
+    return const RichMarkdownConversion(start: 0, end: 4, replacement: '☐ ');
+  }
+  if (line.toLowerCase() == '[x] ') {
+    return const RichMarkdownConversion(start: 0, end: 4, replacement: '☑ ');
+  }
+  if (line == '```') {
+    return const RichMarkdownConversion(
+      start: 0,
+      end: 3,
+      replacement: '',
+      typingAttributes: {RichNoteAttribute.codeBlock: true},
+    );
+  }
+  if (line == '---' || line == '***' || line == '___') {
+    return const RichMarkdownConversion(
+      start: 0,
+      end: 3,
+      replacement: '────────\n',
+      attributes: {RichNoteAttribute.horizontalRule: true},
+    );
+  }
+  return null;
+}
+
+RichMarkdownConversion? markdownInlineConversion(String line) {
+  final patterns = <(RegExp, Map<String, dynamic>, int)>[
+    (RegExp(r'\[([^\]\n]+)\]\(([^)\n]+)\)$'), const {}, 2),
+    (RegExp(r'\*\*([^*\n]+)\*\*$'), const {RichNoteAttribute.bold: true}, 1),
+    (
+      RegExp(r'~~([^~\n]+)~~$'),
+      const {RichNoteAttribute.strikethrough: true},
+      1,
+    ),
+    (RegExp(r'`([^`\n]+)`$'), const {RichNoteAttribute.inlineCode: true}, 1),
+    (
+      RegExp(r'(?<!\*)\*([^*\n]+)\*$'),
+      const {RichNoteAttribute.italic: true},
+      1,
+    ),
+  ];
+  for (final candidate in patterns) {
+    final match = candidate.$1.firstMatch(line);
+    if (match == null) continue;
+    final replacement = match.group(1)!;
+    final attributes = Map<String, dynamic>.from(candidate.$2);
+    if (candidate.$3 == 2) {
+      attributes[RichNoteAttribute.linkUrl] = match.group(2)!;
+    }
+    return RichMarkdownConversion(
+      start: match.start,
+      end: match.end,
+      replacement: replacement,
+      attributes: attributes,
+    );
+  }
+  return null;
 }
 
 class RichNoteSeed {
@@ -1650,19 +1754,30 @@ class RichNoteTextController extends TextEditingController {
         textLength: text.length,
       );
     }
+    final insertedText = text.substring(
+      change.oldStart,
+      change.replacementEnd.clamp(change.oldStart, text.length).toInt(),
+    );
+    final markdownConverted = _convertCompletedMarkdown(change);
+    if (!markdownConverted && insertedText.contains('\n')) {
+      _typingAttributeOverrides[RichNoteAttribute.heading] = false;
+      _typingAttributeOverrides.remove(RichNoteAttribute.fontSize);
+    }
     if (text.isEmpty && change.replacementLength == 0) {
       _marks = [];
       _typingAttributeOverrides.clear();
     }
-    final prefixDeleteEdit = richListPrefixSpaceDeletionEdit(
-      previousText: _lastText,
-      currentText: text,
-      change: change,
-    );
+    final prefixDeleteEdit = markdownConverted
+        ? null
+        : richListPrefixSpaceDeletionEdit(
+            previousText: _lastText,
+            currentText: text,
+            change: change,
+          );
     if (prefixDeleteEdit != null) {
       _applyInternalReplacement(prefixDeleteEdit);
     }
-    final autoEdit = prefixDeleteEdit == null
+    final autoEdit = !markdownConverted && prefixDeleteEdit == null
         ? richListContinuationEdit(text, change)
         : null;
     if (autoEdit != null) {
@@ -1671,6 +1786,76 @@ class RichNoteTextController extends TextEditingController {
     _isolateEmbedBlocks();
     _notifyDeletedEmbeds(previousEmbeds);
     _syncLastSnapshot();
+  }
+
+  bool _convertCompletedMarkdown(RichNoteTextChange change) {
+    if (change.replacementLength <= 0 || !selection.isCollapsed) return false;
+    final cursor = selection.extentOffset.clamp(0, text.length).toInt();
+    final lineStart = cursor <= 0 ? 0 : text.lastIndexOf('\n', cursor - 1) + 1;
+    final beforeCursor = text.substring(lineStart, cursor);
+
+    final block = markdownBlockConversion(beforeCursor);
+    if (block != null) {
+      _pushUndo(value, marks);
+      _replaceMarkdownRange(
+        lineStart,
+        cursor,
+        block.replacement,
+        attributes: block.attributes,
+      );
+      for (final entry in block.typingAttributes.entries) {
+        if (entry.key == RichNoteAttribute.codeBlock &&
+            _typingAttributeOverrides[entry.key] == true) {
+          _typingAttributeOverrides[entry.key] = false;
+        } else {
+          _typingAttributeOverrides[entry.key] = entry.value;
+        }
+      }
+      return true;
+    }
+
+    final inline = markdownInlineConversion(beforeCursor);
+    if (inline == null) return false;
+    _pushUndo(value, marks);
+    _replaceMarkdownRange(
+      lineStart + inline.start,
+      lineStart + inline.end,
+      inline.replacement,
+      attributes: inline.attributes,
+    );
+    return true;
+  }
+
+  void _replaceMarkdownRange(
+    int start,
+    int end,
+    String replacement, {
+    Map<String, dynamic> attributes = const {},
+  }) {
+    _applyingChange = true;
+    final nextText = text.replaceRange(start, end, replacement);
+    _marks = adjustRichNoteMarksForReplacement(
+      _marks,
+      oldStart: start,
+      oldEnd: end,
+      replacementLength: replacement.length,
+      textLength: nextText.length,
+    );
+    if (replacement.isNotEmpty && attributes.isNotEmpty) {
+      _marks.add(
+        RichNoteMark(
+          start: start,
+          end: start + replacement.length,
+          attributes: Map<String, dynamic>.from(attributes),
+        ),
+      );
+    }
+    _marks = normalizeRichNoteMarks(_marks, nextText.length);
+    value = TextEditingValue(
+      text: nextText,
+      selection: TextSelection.collapsed(offset: start + replacement.length),
+    );
+    _applyingChange = false;
   }
 
   void _notifyDeletedEmbeds(Set<String> previousEmbeds) {
@@ -1927,6 +2112,10 @@ class RichNoteTextController extends TextEditingController {
 
   void setInlineAttribute(String attribute, Object value) {
     final range = normalizedSelectionRange();
+    if (attribute == RichNoteAttribute.fontSize &&
+        selectionAttributeValue(RichNoteAttribute.heading) != null) {
+      return;
+    }
     if (range.isCollapsed) {
       _typingAttributeOverrides[attribute] = value;
       notifyListeners();
@@ -1942,6 +2131,44 @@ class RichNoteTextController extends TextEditingController {
         attributes: {attribute: value},
       ),
     );
+    _marks = normalizeRichNoteMarks(_marks, text.length);
+    _syncLastSnapshot();
+    _applyingChange = false;
+    notifyListeners();
+  }
+
+  void setParagraphHeading(int level) {
+    final normalizedLevel = level.clamp(0, 3);
+    final range = currentLineRange();
+    _pushCurrentUndo();
+    _applyingChange = true;
+    _marks = removeRichNoteAttribute(
+      _marks,
+      range,
+      RichNoteAttribute.heading,
+      text.length,
+    );
+    if (normalizedLevel > 0) {
+      _marks = removeRichNoteAttribute(
+        _marks,
+        range,
+        RichNoteAttribute.fontSize,
+        text.length,
+      );
+      if (!range.isCollapsed) {
+        _marks.add(
+          RichNoteMark(
+            start: range.start,
+            end: range.end,
+            attributes: {RichNoteAttribute.heading: normalizedLevel},
+          ),
+        );
+      }
+      _typingAttributeOverrides[RichNoteAttribute.heading] = normalizedLevel;
+      _typingAttributeOverrides[RichNoteAttribute.fontSize] = false;
+    } else {
+      _typingAttributeOverrides[RichNoteAttribute.heading] = false;
+    }
     _marks = normalizeRichNoteMarks(_marks, text.length);
     _syncLastSnapshot();
     _applyingChange = false;
@@ -3058,15 +3285,28 @@ TextStyle richNoteTextStyleForAttributes(
       fontFeatures: const [FontFeature.superscripts()],
     );
   }
+  if (readString(attributes[RichNoteAttribute.linkUrl]).isNotEmpty) {
+    style = style.copyWith(
+      color: colorScheme.primary,
+      decoration: TextDecoration.underline,
+    );
+  }
+  if (attributes[RichNoteAttribute.horizontalRule] == true) {
+    style = style.copyWith(
+      color: colorScheme.outline,
+      fontWeight: FontWeight.w400,
+      letterSpacing: 0,
+    );
+  }
   final heading = readInt(attributes[RichNoteAttribute.heading]);
   if (heading > 0) {
-    final multiplier = switch (heading) {
-      1 => 1.55,
-      2 => 1.32,
-      _ => 1.16,
+    final size = switch (heading) {
+      1 => 32.0,
+      2 => 26.0,
+      _ => 22.0,
     };
     style = style.copyWith(
-      fontSize: (style.fontSize ?? 16) * multiplier,
+      fontSize: size,
       fontWeight: FontWeight.w900,
       height: 1.2,
     );
@@ -6721,6 +6961,9 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
       widget.controller.selectionAttributeValue(RichNoteAttribute.fontSize),
       fallback: readDouble(widget.style['fontSize'], fallback: 16),
     ).round();
+    final heading = readInt(
+      widget.controller.selectionAttributeValue(RichNoteAttribute.heading),
+    ).clamp(0, 3);
     final lineHeight = readDouble(widget.style['lineHeight'], fallback: 1.5);
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -6759,6 +7002,25 @@ class _RichTextTemplateToolbarState extends State<RichTextTemplateToolbar> {
                       enabled: widget.controller.canRedoRichChange,
                       onPressed: () =>
                           runAction(widget.controller.redoRichChange),
+                    ),
+                    RichToolbarMenuButton<int>(
+                      label: switch (heading) {
+                        1 => 'H1',
+                        2 => 'H2',
+                        3 => 'H3',
+                        _ => '本文',
+                      },
+                      tooltip: '段落樣式',
+                      values: const [0, 1, 2, 3],
+                      labelBuilder: (value) => switch (value) {
+                        1 => 'Heading 1',
+                        2 => 'Heading 2',
+                        3 => 'Heading 3',
+                        _ => 'Body',
+                      },
+                      onSelected: (value) => runAction(
+                        () => widget.controller.setParagraphHeading(value),
+                      ),
                     ),
                     RichToolbarFontSizeButton(
                       currentSize: fontSize.toDouble(),
