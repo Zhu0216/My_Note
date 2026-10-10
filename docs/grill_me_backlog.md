@@ -838,14 +838,17 @@ reserved for the v2 second-half Grill Me.
 ### V2-P1-001 — Global Home quick search
 
 - Priority: `P1`
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: Home provides instant, highlighted, fuzzy-ranked
   search across every record family and attachment filenames.
 - Acceptance: partial multi-term ranking follows the approved field order;
   20-result pagination works; result rows show excerpt and type; open/back
   restores query and scroll; closing clears it; no history is stored.
 - Dependencies: current related-item index and contextual navigation.
-- Completion evidence: none; specified in the v2 first-half Grill Me.
+- Completion evidence: implemented on 2026-10-11 in
+  `lib/features/home/home_page.dart`, `lib/data/related_item_index.dart`, and
+  `lib/main.dart`; ranking and navigation/state restoration are covered by
+  `test/widget_test.dart`. Full Flutter tests (146) and Web debug build pass.
 
 ### V2-P1-002 — Sticky and optionally auto-collapsing Home sections
 

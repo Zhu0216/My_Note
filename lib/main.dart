@@ -380,6 +380,58 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _openHomeSearchResult(
+    BuildContext context,
+    RelatedItemLink link,
+  ) async {
+    final store = AppStoreScope.read(context);
+    switch (link.type) {
+      case RelatedItemType.note:
+      case RelatedItemType.plan:
+      case RelatedItemType.mindMap:
+      case RelatedItemType.lifeProject:
+        final note = store.visibleNotes
+            .where((item) => item.id == link.targetId)
+            .firstOrNull;
+        if (note != null) await showNoteEditor(context, note: note);
+        return;
+      case RelatedItemType.todo:
+        final todo = store.todos
+            .where((item) => item.id == link.targetId)
+            .firstOrNull;
+        if (todo != null) await openTodoEditorPage(context, todo: todo);
+        return;
+      case RelatedItemType.schedule:
+        final event = store.schedules
+            .where((item) => item.id == link.targetId)
+            .firstOrNull;
+        if (event != null) await showScheduleEditor(context, event: event);
+        return;
+      case RelatedItemType.finance:
+        final entry = store.financeEntries
+            .where((item) => item.id == link.targetId)
+            .firstOrNull;
+        if (entry != null) await showFinanceEditor(context, entry: entry);
+        return;
+      case RelatedItemType.subscription:
+        final subscription = store.subscriptions
+            .where((item) => item.id == link.targetId)
+            .firstOrNull;
+        if (subscription != null) {
+          await showSubscriptionEditor(context, subscription: subscription);
+        }
+        return;
+      case RelatedItemType.account:
+        final account = store.savingsAccounts
+            .where((item) => item.id == link.targetId)
+            .firstOrNull;
+        if (account != null) {
+          await showSavingsAccountEditor(context, account: account);
+        }
+        return;
+    }
+  }
+
   void selectPage(int index) {
     if (index == selectedIndex) {
       return;
@@ -451,6 +503,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           editFinance: showFinanceEditor,
           editSubscription: showSubscriptionEditor,
           editSchedule: showScheduleEditor,
+          openRelatedItem: _openHomeSearchResult,
         ),
       ),
       FinancePage(

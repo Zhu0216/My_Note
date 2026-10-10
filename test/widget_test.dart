@@ -1263,6 +1263,128 @@ void main() {
     }
   });
 
+  test('home quick search ranks title tags and body with partial terms', () {
+    final store = AppStore.seeded(persistenceLocked: true);
+    store
+      ..notes.clear()
+      ..todos.clear()
+      ..schedules.clear()
+      ..subscriptions.clear()
+      ..financeEntries.clear()
+      ..savingsAccounts.clear();
+    final now = DateTime(2026, 10, 11);
+    store
+      ..upsertNote(
+        NoteItem(
+          id: 'title-match',
+          title: '旅行規劃',
+          body: '包含日本住宿與交通安排',
+          category: '',
+          tags: const ['日本', '旅遊'],
+          createdAt: now,
+          updatedAt: now,
+        ),
+      )
+      ..upsertNote(
+        NoteItem(
+          id: 'tag-match',
+          title: '年度清單',
+          body: '整理行李',
+          category: '',
+          tags: const ['旅行'],
+          createdAt: now,
+          updatedAt: now.subtract(const Duration(days: 1)),
+        ),
+      )
+      ..upsertNote(
+        NoteItem(
+          id: 'body-match',
+          title: '聯絡資料',
+          body: 'XX旅行社提供套裝行程',
+          category: '',
+          tags: const [],
+          createdAt: now,
+          updatedAt: now.subtract(const Duration(days: 2)),
+        ),
+      );
+
+    try {
+      final results = store.homeSearchResults('旅行');
+      expect(results.map((result) => result.item.id), [
+        'title-match',
+        'tag-match',
+        'body-match',
+      ]);
+      expect(results.first.tags, contains('日本'));
+      expect(results[1].supportingText, '#旅行');
+      expect(results[2].supportingText, contains('旅行社'));
+
+      final partial = store.homeSearchResults('日本 不存在');
+      expect(partial.single.item.id, 'title-match');
+    } finally {
+      store.dispose();
+    }
+  });
+
+  testWidgets('home quick search opens source and preserves query on return', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = AppStore.seeded(persistenceLocked: true);
+    store.notes.clear();
+    store.upsertNote(
+      NoteItem(
+        id: 'search-note',
+        title: '旅行規劃',
+        body: '日本住宿與交通安排',
+        category: '',
+        tags: const ['日本'],
+        createdAt: DateTime(2026, 10, 11),
+        updatedAt: DateTime(2026, 10, 11),
+      ),
+    );
+
+    try {
+      await tester.pumpWidget(MyNoteApp(store: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('快速查找'));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('home-quick-search-field')), findsOne);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('home-quick-search-field')),
+        '旅行',
+      );
+      await tester.pump(const Duration(milliseconds: 160));
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey('home-search-note:search-note')),
+        findsOne,
+      );
+      expect(find.text('筆記'), findsWidgets);
+
+      await tester.tap(
+        find.byKey(const ValueKey('home-search-note:search-note')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('旅行規劃'), findsWidgets);
+      await tester.tap(find.byIcon(Icons.arrow_back).first);
+      await tester.pumpAndSettle();
+
+      final field = tester.widget<TextField>(
+        find.byKey(const ValueKey('home-quick-search-field')),
+      );
+      expect(field.controller?.text, '旅行');
+      expect(
+        find.byKey(const ValueKey('home-search-note:search-note')),
+        findsOne,
+      );
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      store.dispose();
+    }
+  });
+
   test('recovery history lists a valid snapshot and restores it', () async {
     SharedPreferences.setMockInitialValues({});
     final store = await AppStore.load();

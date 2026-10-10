@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../data/my_note_data.dart';
+import '../../data/related_item_index.dart';
 import '../../ui/app_navigation.dart';
 import '../../ui/app_store_scope.dart';
 import '../../ui/basic_display.dart';
@@ -24,6 +25,7 @@ class HomeFeatureActions {
     required this.editFinance,
     required this.editSubscription,
     required this.editSchedule,
+    required this.openRelatedItem,
   });
 
   final HomeNoteEditor editNote;
@@ -33,6 +35,8 @@ class HomeFeatureActions {
   final Future<void> Function(BuildContext context) editFinance;
   final Future<void> Function(BuildContext context) editSubscription;
   final Future<void> Function(BuildContext context) editSchedule;
+  final Future<void> Function(BuildContext context, RelatedItemLink link)
+  openRelatedItem;
 }
 
 class HomeFeatureActionsScope extends InheritedWidget {
@@ -69,7 +73,14 @@ class HomePage extends StatefulWidget {
 class HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin {
   late final AnimationController quickAddFabController;
+  late final TextEditingController searchController;
+  late final FocusNode searchFocusNode;
+  late final ScrollController searchScrollController;
+  Timer? searchDebounce;
   bool quickAddOpen = false;
+  bool searchOpen = false;
+  String searchQuery = '';
+  int visibleSearchCount = 20;
 
   @override
   void initState() {
@@ -78,11 +89,18 @@ class HomePageState extends State<HomePage>
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
+    searchController = TextEditingController();
+    searchFocusNode = FocusNode();
+    searchScrollController = ScrollController()..addListener(loadMoreSearch);
   }
 
   @override
   void dispose() {
     quickAddFabController.dispose();
+    searchDebounce?.cancel();
+    searchController.dispose();
+    searchFocusNode.dispose();
+    searchScrollController.dispose();
     super.dispose();
   }
 
@@ -104,11 +122,53 @@ class HomePageState extends State<HomePage>
   }
 
   bool handleAppBack() {
+    if (searchOpen) {
+      closeSearch();
+      return true;
+    }
     if (!quickAddOpen) {
       return false;
     }
     closeQuickAdd();
     return true;
+  }
+
+  void openSearch() {
+    closeQuickAdd();
+    setState(() => searchOpen = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) searchFocusNode.requestFocus();
+    });
+  }
+
+  void closeSearch() {
+    searchDebounce?.cancel();
+    searchController.clear();
+    searchFocusNode.unfocus();
+    setState(() {
+      searchOpen = false;
+      searchQuery = '';
+      visibleSearchCount = 20;
+    });
+  }
+
+  void updateSearch(String value) {
+    searchDebounce?.cancel();
+    searchDebounce = Timer(const Duration(milliseconds: 150), () {
+      if (!mounted) return;
+      setState(() {
+        searchQuery = value.trim();
+        visibleSearchCount = 20;
+      });
+    });
+  }
+
+  void loadMoreSearch() {
+    if (!searchScrollController.hasClients ||
+        searchScrollController.position.extentAfter > 160) {
+      return;
+    }
+    setState(() => visibleSearchCount += 20);
   }
 
   Future<void> handleQuickAdd(String value) async {
@@ -189,37 +249,249 @@ class HomePageState extends State<HomePage>
             subtitle: 'All-in-one 個人管理筆記本',
             actions: [
               IconButton(
+                tooltip: searchOpen ? '關閉快速查找' : '快速查找',
+                onPressed: searchOpen ? closeSearch : openSearch,
+                icon: Icon(searchOpen ? Icons.close : Icons.search),
+              ),
+              IconButton(
                 tooltip: '調整首頁',
                 onPressed: () => showHomeLayoutSettings(context),
                 icon: const Icon(Icons.more_horiz),
               ),
             ],
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
-              children: [
-                for (
-                  var index = 0;
-                  index < visibleSections.length;
-                  index++
-                ) ...[
-                  HomeSection(
-                    section: visibleSections[index],
-                    onNavigate: widget.onNavigate,
+            child: searchOpen
+                ? HomeQuickSearch(
+                    controller: searchController,
+                    focusNode: searchFocusNode,
+                    scrollController: searchScrollController,
+                    query: searchQuery,
+                    visibleCount: visibleSearchCount,
+                    onChanged: updateSearch,
+                    onOpen: (link) =>
+                        widget.actions.openRelatedItem(context, link),
+                  )
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+                    children: [
+                      for (
+                        var index = 0;
+                        index < visibleSections.length;
+                        index++
+                      ) ...[
+                        HomeSection(
+                          section: visibleSections[index],
+                          onNavigate: widget.onNavigate,
+                        ),
+                        if (index < visibleSections.length - 1)
+                          HomeSectionDivider(
+                            before: visibleSections[index],
+                            after: visibleSections[index + 1],
+                          ),
+                      ],
+                    ],
                   ),
-                  if (index < visibleSections.length - 1)
-                    HomeSectionDivider(
-                      before: visibleSections[index],
-                      after: visibleSections[index + 1],
-                    ),
-                ],
-              ],
-            ),
           ),
         ),
       ),
     );
   }
 }
+
+class HomeQuickSearch extends StatelessWidget {
+  const HomeQuickSearch({
+    super.key,
+    required this.controller,
+    required this.focusNode,
+    required this.scrollController,
+    required this.query,
+    required this.visibleCount,
+    required this.onChanged,
+    required this.onOpen,
+  });
+
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final ScrollController scrollController;
+  final String query;
+  final int visibleCount;
+  final ValueChanged<String> onChanged;
+  final ValueChanged<RelatedItemLink> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = AppStoreScope.of(context);
+    final results = store.homeSearchResults(query);
+    final visibleResults = results.take(visibleCount).toList(growable: false);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: TextField(
+            key: const ValueKey('home-quick-search-field'),
+            controller: controller,
+            focusNode: focusNode,
+            onChanged: onChanged,
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: '快速查找筆記、待辦、行程與其他資料',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: controller.text.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: '清除搜尋',
+                      onPressed: () {
+                        controller.clear();
+                        onChanged('');
+                        focusNode.requestFocus();
+                      },
+                      icon: const Icon(Icons.close),
+                    ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: query.isEmpty
+              ? const SizedBox.shrink()
+              : results.isEmpty
+              ? const Center(child: Text('無關聯查詢'))
+              : ListView.separated(
+                  key: const PageStorageKey('home-quick-search-results'),
+                  controller: scrollController,
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+                  itemCount: visibleResults.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final result = visibleResults[index];
+                    return ListTile(
+                      key: ValueKey('home-search-${result.item.key}'),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 6,
+                      ),
+                      title: HomeSearchHighlightedText(
+                        text: result.item.title,
+                        query: query,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (result.supportingText.isNotEmpty)
+                            HomeSearchHighlightedText(
+                              text: result.supportingText,
+                              query: query,
+                              maxLines: 2,
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          if (result.tags.isNotEmpty &&
+                              !result.supportingText.startsWith('#'))
+                            HomeSearchHighlightedText(
+                              text: result.tags.map((tag) => '#$tag').join(' '),
+                              query: query,
+                              maxLines: 1,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                        ],
+                      ),
+                      trailing: Text(
+                        homeSearchTypeLabel(result.item.type),
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      onTap: () => onOpen(result.item.link),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class HomeSearchHighlightedText extends StatelessWidget {
+  const HomeSearchHighlightedText({
+    super.key,
+    required this.text,
+    required this.query,
+    this.style,
+    this.maxLines,
+  });
+
+  final String text;
+  final String query;
+  final TextStyle? style;
+  final int? maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final terms = query
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((term) => term.isNotEmpty)
+        .toList(growable: false);
+    final matches = <TextRange>[];
+    final lower = text.toLowerCase();
+    for (final term in terms) {
+      final normalized = term.toLowerCase();
+      var start = 0;
+      while (normalized.isNotEmpty) {
+        final index = lower.indexOf(normalized, start);
+        if (index < 0) break;
+        matches.add(TextRange(start: index, end: index + normalized.length));
+        start = index + normalized.length;
+      }
+    }
+    matches.sort((left, right) => left.start.compareTo(right.start));
+    final merged = <TextRange>[];
+    for (final match in matches) {
+      if (merged.isEmpty || match.start > merged.last.end) {
+        merged.add(match);
+      } else if (match.end > merged.last.end) {
+        merged[merged.length - 1] = TextRange(
+          start: merged.last.start,
+          end: match.end,
+        );
+      }
+    }
+    final spans = <InlineSpan>[];
+    var offset = 0;
+    for (final match in merged) {
+      if (match.start > offset) {
+        spans.add(TextSpan(text: text.substring(offset, match.start)));
+      }
+      spans.add(
+        TextSpan(
+          text: text.substring(match.start, match.end),
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onPrimaryContainer,
+            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      );
+      offset = match.end;
+    }
+    if (offset < text.length) spans.add(TextSpan(text: text.substring(offset)));
+    return Text.rich(
+      TextSpan(style: style, children: spans),
+      maxLines: maxLines,
+      overflow: maxLines == null ? TextOverflow.clip : TextOverflow.ellipsis,
+    );
+  }
+}
+
+String homeSearchTypeLabel(RelatedItemType type) => switch (type) {
+  RelatedItemType.note => '筆記',
+  RelatedItemType.plan => '計畫',
+  RelatedItemType.mindMap => '心智圖',
+  RelatedItemType.lifeProject => '人生試算表',
+  RelatedItemType.todo => '待辦',
+  RelatedItemType.schedule => '行程',
+  RelatedItemType.finance => '記帳',
+  RelatedItemType.subscription => '訂閱',
+  RelatedItemType.account => '帳戶',
+};
 
 class HomeSectionDivider extends StatelessWidget {
   const HomeSectionDivider({
