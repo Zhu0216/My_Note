@@ -243,7 +243,7 @@ class LocalDataValidator {
     }
     for (final todo in _maps(data['todos'])) {
       _date(todo, 'dueDate', '待辦', optional: true);
-      _date(todo, 'reminderTime', '待辦', optional: true);
+      _timeOfDay(todo, 'reminderTime', '待辦', optional: true);
       _date(todo, 'completedAt', '待辦', optional: true);
       _number(todo, 'sortOrder', '待辦順序', integer: true);
     }
@@ -482,6 +482,22 @@ class LocalDataValidator {
     }
     if (value is! String) throw FormatException('$label 的 $key 格式無效。');
     final parsed = DateTime.tryParse(value);
+    if (parsed == null) throw FormatException('$label 的 $key 格式無效。');
+    return parsed;
+  }
+
+  static TimeOfDay? _timeOfDay(
+    Map<dynamic, dynamic> data,
+    String key,
+    String label, {
+    bool optional = false,
+  }) {
+    final value = data[key];
+    if (value == null || (value is String && value.trim().isEmpty)) {
+      if (optional || !data.containsKey(key)) return null;
+      throw FormatException('$label 缺少 $key。');
+    }
+    final parsed = readTimeOfDay(value);
     if (parsed == null) throw FormatException('$label 的 $key 格式無效。');
     return parsed;
   }

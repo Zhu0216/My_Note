@@ -64,6 +64,13 @@ the current behavior has not been independently accepted for this v1 baseline.
   result to the requested filename so the UI reports success instead of
   cancellation. A focused regression test covers Web and non-Web results;
   analyzer, all 67 tests, and Flutter Web build passed.
+  The 2026-10-10 v1 truth audit then found that a valid todo reminder serialized
+  as `hour:minute` was incorrectly validated as an ISO date during portable
+  import. Validation now uses the same bounded `0..23:0..59` time-of-day format
+  as serialization. An integrated acceptance test creates Home settings,
+  general/plan/mind-map/life-project notes, Calendar, Todo, Finance,
+  Subscription, reminders, and typed links, then proves they survive local
+  restart and portable export/import together.
 
 ### P0-004 — Backup history and recovery UI
 
@@ -767,11 +774,14 @@ the current behavior has not been independently accepted for this v1 baseline.
   `另存為` sheet was visual-only. PDF, TXT, and Markdown rows now execute real
   file exports, report cancellation/failure, replace embedded objects with
   readable text, preserve supported rich marks in Markdown, and embed the
-  bundled Traditional Chinese font in PDF output. Focused tests verify plain
-  and Markdown conversion plus a Chinese PDF, and the complete 131-test suite,
-  static analysis, and Web debug build pass. The audit remains open for
-  current X510 execution of P1-019/P1-020 and the complete device acceptance
-  pass.
+  bundled Traditional Chinese font in PDF output. The next pass found and
+  corrected portable-import validation of todo reminder times, then added one
+  integrated workflow covering all four templates, Home settings, Calendar,
+  Todos, Finance, Subscriptions, reminders, typed links, local restart, and
+  export/import. Focused tests verify plain and Markdown conversion plus a
+  Chinese PDF; the complete 132-test suite, static analysis, and Web debug
+  build pass. The audit remains open for current X510 execution of P1-019,
+  P1-020, and the complete device acceptance pass.
 
 ## Deferred after v1
 

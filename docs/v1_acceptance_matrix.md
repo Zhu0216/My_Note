@@ -52,9 +52,14 @@ baseline.
 ### Current truth-audit increment
 
 - Web: debug build passed after the P2-008 note-export remediation.
-- Automated suite: all 131 tests passed, including PDF/TXT/Markdown conversion,
+- Automated suite: all 132 tests passed, including PDF/TXT/Markdown conversion,
   Traditional Chinese PDF generation, current persistence, templates,
   Calendar, Home, deletion/undo, attachments, and relationship behavior.
+- One integrated workflow now creates every local v1 record family and all four
+  note templates, then verifies Home settings, reminders, account-derived
+  balances, typed links, local restart, and portable export/import together.
+  This exposed and fixed todo `reminderTime` being incorrectly validated as an
+  ISO date instead of its serialized `hour:minute` value.
 - P0-008, P0-009, P1-018, P1-021, P1-022, and P2-007 have direct automated
   acceptance evidence recorded in the backlog and are included in this Web
   build.
