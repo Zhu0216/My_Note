@@ -33,6 +33,10 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
   String? movingNodeId;
   String? connectionSourceId;
   String? selectedConnectionId;
+  final selectedIds = <String>{};
+  bool multiSelectMode = false;
+  Offset? marqueeStart;
+  Rect? marqueeRect;
   double outlineWidth = 260;
   Size canvasViewportSize = Size.zero;
   int narrowViewIndex = 1;
@@ -45,6 +49,10 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
   MindMapConnection? get selectedConnection => widget.document.connections
       .where((line) => line.id == selectedConnectionId)
       .firstOrNull;
+
+  List<MindMapNode> get multiSelectedNodes => widget.document.nodes
+      .where((node) => selectedIds.contains(node.id))
+      .toList();
 
   MindMapNode get root => widget.document.nodes.firstWhere(
     (node) => node.id == widget.document.rootNodeId,
@@ -404,11 +412,212 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
   }
 
   void selectFromOutline(MindMapNode node) {
+    if (multiSelectMode) {
+      toggleMultiSelection(node);
+      return;
+    }
     selectNode(node);
     setState(() => narrowViewIndex = 1);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) centerNode(node);
     });
+  }
+
+  void startMultiSelection([MindMapNode? node]) {
+    setState(() {
+      multiSelectMode = true;
+      selectedConnectionId = null;
+      connectionSourceId = null;
+      if (node != null) {
+        selectedIds.add(node.id);
+        selectedId = node.id;
+      } else if (selectedId != null) {
+        selectedIds.add(selectedId!);
+      }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && nodeToolbarController.hasClients) {
+        nodeToolbarController.jumpTo(
+          nodeToolbarController.position.minScrollExtent,
+        );
+      }
+    });
+  }
+
+  void toggleMultiSelection(MindMapNode node) {
+    setState(() {
+      multiSelectMode = true;
+      if (!selectedIds.add(node.id)) selectedIds.remove(node.id);
+      selectedId = selectedIds.isEmpty ? null : node.id;
+    });
+  }
+
+  void finishMultiSelection() {
+    setState(() {
+      multiSelectMode = false;
+      selectedIds.clear();
+      marqueeStart = null;
+      marqueeRect = null;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && nodeToolbarController.hasClients) {
+        nodeToolbarController.jumpTo(
+          nodeToolbarController.position.minScrollExtent,
+        );
+      }
+    });
+  }
+
+  void updateMarquee(Offset current) {
+    final start = marqueeStart;
+    if (start == null) return;
+    final rect = Rect.fromPoints(start, current);
+    final matches = widget.document.nodes
+        .where(isVisible)
+        .where((node) {
+          final size = mindMapNodeSize(widget.document, node);
+          return rect.overlaps(
+            Rect.fromLTWH(node.x, node.y, size.width, size.height),
+          );
+        })
+        .map((node) => node.id)
+        .toSet();
+    setState(() {
+      marqueeRect = rect;
+      selectedIds
+        ..clear()
+        ..addAll(matches);
+      selectedId = matches.isEmpty ? null : matches.last;
+    });
+  }
+
+  void applyToMultiSelected(void Function(MindMapNode node) action) {
+    for (final node in multiSelectedNodes) {
+      action(node);
+    }
+    setState(() {});
+    widget.onChanged(widget.document);
+  }
+
+  void alignMultiSelected(_MindMapBatchAlignment alignment) {
+    final nodes = multiSelectedNodes.where((node) => !node.locked).toList();
+    if (nodes.length < 2) return;
+    final left = nodes.map((node) => node.x).reduce(math.min);
+    final right = nodes
+        .map((node) => node.x + mindMapNodeSize(widget.document, node).width)
+        .reduce(math.max);
+    final top = nodes.map((node) => node.y).reduce(math.min);
+    final bottom = nodes
+        .map((node) => node.y + mindMapNodeSize(widget.document, node).height)
+        .reduce(math.max);
+    final centerX = (left + right) / 2;
+    final centerY = (top + bottom) / 2;
+    for (final node in nodes) {
+      final size = mindMapNodeSize(widget.document, node);
+      switch (alignment) {
+        case _MindMapBatchAlignment.left:
+          node.x = left;
+        case _MindMapBatchAlignment.horizontalCenter:
+          node.x = centerX - size.width / 2;
+        case _MindMapBatchAlignment.right:
+          node.x = right - size.width;
+        case _MindMapBatchAlignment.top:
+          node.y = top;
+        case _MindMapBatchAlignment.verticalCenter:
+          node.y = centerY - size.height / 2;
+        case _MindMapBatchAlignment.bottom:
+          node.y = bottom - size.height;
+      }
+    }
+    setState(() {});
+    widget.onChanged(widget.document);
+  }
+
+  void distributeMultiSelected({required bool horizontal}) {
+    final nodes = multiSelectedNodes.where((node) => !node.locked).toList();
+    if (nodes.length < 3) return;
+    nodes.sort(
+      (a, b) => (horizontal ? a.x : a.y).compareTo(horizontal ? b.x : b.y),
+    );
+    final first = horizontal ? nodes.first.x : nodes.first.y;
+    final last = horizontal ? nodes.last.x : nodes.last.y;
+    final step = (last - first) / (nodes.length - 1);
+    for (var index = 1; index < nodes.length - 1; index++) {
+      if (horizontal) {
+        nodes[index].x = first + step * index;
+      } else {
+        nodes[index].y = first + step * index;
+      }
+    }
+    setState(() {});
+    widget.onChanged(widget.document);
+  }
+
+  Future<void> editMultiLinks() async {
+    final nodes = multiSelectedNodes;
+    if (nodes.isEmpty) return;
+    final result = await showRelatedItemPicker(
+      context,
+      store: AppStoreScope.of(context),
+      initialLinks: nodes.first.links,
+    );
+    if (result == null || !mounted) return;
+    applyToMultiSelected((node) => node.links = List.of(result));
+  }
+
+  Future<void> deleteMultiSelected() async {
+    if (selectedIds.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('刪除選取節點？'),
+        content: Text('將刪除 ${selectedIds.length} 個選取節點及其子節點。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('刪除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final removed = <String>{};
+    for (final id in selectedIds) {
+      if (id != widget.document.rootNodeId) removed.addAll(subtreeIds(id));
+    }
+    widget.document.nodes.removeWhere((node) => removed.contains(node.id));
+    widget.document.connections.removeWhere(
+      (line) =>
+          removed.contains(line.fromNodeId) || removed.contains(line.toNodeId),
+    );
+    finishMultiSelection();
+    selectedId = widget.document.rootNodeId;
+    widget.onChanged(widget.document);
+  }
+
+  void layoutMultiSelected() {
+    final nodes = multiSelectedNodes.where((node) => !node.locked).toList();
+    if (nodes.isEmpty) return;
+    final startX = nodes.map((node) => node.x).reduce(math.min);
+    final startY = nodes.map((node) => node.y).reduce(math.min);
+    final columns = math.max(1, math.sqrt(nodes.length).ceil());
+    for (var index = 0; index < nodes.length; index++) {
+      nodes[index]
+        ..x = (startX + (index % columns) * 220).clamp(
+          0,
+          canvasSize.width - 220,
+        )
+        ..y = (startY + (index ~/ columns) * 110).clamp(
+          0,
+          canvasSize.height - 88,
+        );
+    }
+    setState(() {});
+    widget.onChanged(widget.document);
   }
 
   void reorderOutline(int oldIndex, int newIndex) {
@@ -569,22 +778,40 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
   void moveNode(MindMapNode node, Offset delta) {
     if (node.locked) return;
     final scale = transform.value.getMaxScaleOnAxis();
-    final size = mindMapNodeSize(widget.document, node);
-    node.x = (node.x + delta.dx / scale).clamp(
-      0,
-      canvasSize.width - size.width,
-    );
-    node.y = (node.y + delta.dy / scale).clamp(
-      0,
-      canvasSize.height - size.height,
-    );
+    final movingNodes = multiSelectMode && selectedIds.contains(node.id)
+        ? multiSelectedNodes.where((item) => !item.locked)
+        : [node];
+    for (final item in movingNodes) {
+      final size = mindMapNodeSize(widget.document, item);
+      item.x = (item.x + delta.dx / scale).clamp(
+        0,
+        canvasSize.width - size.width,
+      );
+      item.y = (item.y + delta.dy / scale).clamp(
+        0,
+        canvasSize.height - size.height,
+      );
+    }
     setState(() {});
   }
 
   KeyEventResult handleCanvasKey(FocusNode _, KeyEvent event) {
-    if (event is! KeyDownEvent || selected == null) {
+    if (event is! KeyDownEvent) {
       return KeyEventResult.ignored;
     }
+    if (multiSelectMode) {
+      if (event.logicalKey == LogicalKeyboardKey.escape) {
+        finishMultiSelection();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.delete &&
+          selectedIds.any((id) => id != widget.document.rootNodeId)) {
+        deleteMultiSelected();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+    if (selected == null) return KeyEventResult.ignored;
     if (event.logicalKey == LogicalKeyboardKey.tab) {
       addChild();
       return KeyEventResult.handled;
@@ -602,6 +829,7 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
   }
 
   Widget buildNodeToolbar() {
+    if (multiSelectMode) return buildMultiSelectToolbar();
     final node = selected;
     return SizedBox(
       height: 52,
@@ -739,6 +967,11 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
                   icon: const Icon(Icons.account_tree_outlined),
                 ),
                 IconButton(
+                  tooltip: '多選節點',
+                  onPressed: startMultiSelection,
+                  icon: const Icon(Icons.select_all),
+                ),
+                IconButton(
                   tooltip: '一鍵排版',
                   onPressed: autoLayout,
                   icon: const Icon(Icons.auto_fix_high),
@@ -763,6 +996,152 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
                   tooltip: '置中選取節點',
                   onPressed: node == null ? null : () => centerNode(node),
                   icon: const Icon(Icons.center_focus_strong),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: '向右查看更多工具',
+            onPressed: toolbarCanScrollRight
+                ? () => scrollNodeToolbar(1)
+                : null,
+            icon: const Icon(Icons.chevron_right),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget buildMultiSelectToolbar() {
+    final nodes = multiSelectedNodes;
+    final allLocked = nodes.isNotEmpty && nodes.every((node) => node.locked);
+    return SizedBox(
+      height: 52,
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: '向左查看更多工具',
+            onPressed: toolbarCanScrollLeft
+                ? () => scrollNodeToolbar(-1)
+                : null,
+            icon: const Icon(Icons.chevron_left),
+          ),
+          Expanded(
+            child: ListView(
+              controller: nodeToolbarController,
+              scrollDirection: Axis.horizontal,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Center(
+                    child: Text(
+                      '已選取 ${nodes.length}',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+                PopupMenuButton<_MindMapBatchAlignment>(
+                  tooltip: '對齊節點',
+                  enabled: nodes.length >= 2,
+                  onSelected: alignMultiSelected,
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: _MindMapBatchAlignment.left,
+                      child: Text('靠左對齊'),
+                    ),
+                    PopupMenuItem(
+                      value: _MindMapBatchAlignment.horizontalCenter,
+                      child: Text('水平置中'),
+                    ),
+                    PopupMenuItem(
+                      value: _MindMapBatchAlignment.right,
+                      child: Text('靠右對齊'),
+                    ),
+                    PopupMenuItem(
+                      value: _MindMapBatchAlignment.top,
+                      child: Text('靠上對齊'),
+                    ),
+                    PopupMenuItem(
+                      value: _MindMapBatchAlignment.verticalCenter,
+                      child: Text('垂直置中'),
+                    ),
+                    PopupMenuItem(
+                      value: _MindMapBatchAlignment.bottom,
+                      child: Text('靠下對齊'),
+                    ),
+                  ],
+                  icon: const Icon(Icons.align_horizontal_left),
+                ),
+                IconButton(
+                  tooltip: '水平等距分布',
+                  onPressed: nodes.length >= 3
+                      ? () => distributeMultiSelected(horizontal: true)
+                      : null,
+                  icon: const Icon(Icons.horizontal_distribute),
+                ),
+                IconButton(
+                  tooltip: '垂直等距分布',
+                  onPressed: nodes.length >= 3
+                      ? () => distributeMultiSelected(horizontal: false)
+                      : null,
+                  icon: const Icon(Icons.vertical_distribute),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: '套用節點顏色',
+                  enabled: nodes.isNotEmpty,
+                  onSelected: (color) =>
+                      applyToMultiSelected((node) => node.color = color),
+                  itemBuilder: (context) => _connectionColors
+                      .map(
+                        (choice) => PopupMenuItem(
+                          value: choice.$1,
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 20,
+                                height: 20,
+                                decoration: BoxDecoration(
+                                  color: _parseColor(choice.$1),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(choice.$2),
+                            ],
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  icon: const Icon(Icons.palette_outlined),
+                ),
+                IconButton(
+                  tooltip: allLocked ? '解除鎖定選取節點' : '鎖定選取節點',
+                  onPressed: nodes.isEmpty
+                      ? null
+                      : () => applyToMultiSelected(
+                          (node) => node.locked = !allLocked,
+                        ),
+                  icon: Icon(allLocked ? Icons.lock : Icons.lock_open),
+                ),
+                IconButton(
+                  tooltip: '設定選取節點關聯',
+                  onPressed: nodes.isEmpty ? null : editMultiLinks,
+                  icon: const Icon(Icons.link),
+                ),
+                IconButton(
+                  tooltip: '只排列選取節點',
+                  onPressed: nodes.isEmpty ? null : layoutMultiSelected,
+                  icon: const Icon(Icons.auto_fix_high),
+                ),
+                IconButton(
+                  tooltip: '刪除選取節點',
+                  onPressed: nodes.isEmpty ? null : deleteMultiSelected,
+                  icon: const Icon(Icons.delete_outline),
+                ),
+                IconButton(
+                  tooltip: '完成多選',
+                  onPressed: finishMultiSelection,
+                  icon: const Icon(Icons.check),
                 ),
               ],
             ),
@@ -826,7 +1205,7 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
                 );
                 return Material(
                   key: ValueKey('outline-${item.id}'),
-                  color: selectedId == item.id
+                  color: selectedId == item.id || selectedIds.contains(item.id)
                       ? colorScheme.primaryContainer
                       : Colors.transparent,
                   child: ListTile(
@@ -916,7 +1295,7 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
                   ),
                   child: InteractiveViewer(
                     transformationController: transform,
-                    panEnabled: movingNodeId == null,
+                    panEnabled: movingNodeId == null && !multiSelectMode,
                     constrained: false,
                     minScale: 0.45,
                     maxScale: 2.4,
@@ -926,28 +1305,73 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
                       child: Stack(
                         children: [
                           Positioned.fill(
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: () {
-                                canvasFocusNode.requestFocus();
-                                setState(() {
-                                  selectedId = null;
-                                  selectedConnectionId = null;
-                                });
-                              },
-                            ),
-                          ),
-                          Positioned.fill(
-                            child: CustomPaint(
-                              painter: _MindMapConnectionPainter(
-                                document: widget.document,
-                                visibleNodeIds: widget.document.nodes
-                                    .where(isVisible)
-                                    .map((node) => node.id)
-                                    .toSet(),
+                            child: Listener(
+                              key: const ValueKey('mind-map-selection-surface'),
+                              onPointerDown: multiSelectMode
+                                  ? (event) => setState(() {
+                                      marqueeStart = event.localPosition;
+                                      marqueeRect = Rect.fromPoints(
+                                        event.localPosition,
+                                        event.localPosition,
+                                      );
+                                    })
+                                  : null,
+                              onPointerMove: multiSelectMode
+                                  ? (event) =>
+                                        updateMarquee(event.localPosition)
+                                  : null,
+                              onPointerUp: multiSelectMode
+                                  ? (_) => setState(() {
+                                      marqueeStart = null;
+                                      marqueeRect = null;
+                                    })
+                                  : null,
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  canvasFocusNode.requestFocus();
+                                  if (multiSelectMode) {
+                                    finishMultiSelection();
+                                    return;
+                                  }
+                                  setState(() {
+                                    selectedId = null;
+                                    selectedConnectionId = null;
+                                  });
+                                },
                               ),
                             ),
                           ),
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: CustomPaint(
+                                painter: _MindMapConnectionPainter(
+                                  document: widget.document,
+                                  visibleNodeIds: widget.document.nodes
+                                      .where(isVisible)
+                                      .map((node) => node.id)
+                                      .toSet(),
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (marqueeRect case final rect?)
+                            Positioned.fromRect(
+                              key: const ValueKey('mind-map-selection-marquee'),
+                              rect: rect,
+                              child: IgnorePointer(
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: colorScheme.primary.withValues(
+                                      alpha: 0.12,
+                                    ),
+                                    border: Border.all(
+                                      color: colorScheme.primary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                           for (final item in widget.document.nodes.where(
                             isVisible,
                           ))
@@ -972,6 +1396,30 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
                                   onPointerDown: (_) {
                                     if (connectionSourceId != null) return;
                                     canvasFocusNode.requestFocus();
+                                    if (HardwareKeyboard
+                                        .instance
+                                        .isControlPressed) {
+                                      toggleMultiSelection(item);
+                                      setState(() {
+                                        movingNodeId =
+                                            selectedIds.contains(item.id) &&
+                                                !item.locked
+                                            ? item.id
+                                            : null;
+                                      });
+                                      return;
+                                    }
+                                    if (multiSelectMode) {
+                                      if (!selectedIds.contains(item.id)) {
+                                        toggleMultiSelection(item);
+                                      }
+                                      setState(() {
+                                        movingNodeId = item.locked
+                                            ? null
+                                            : item.id;
+                                      });
+                                      return;
+                                    }
                                     setState(() {
                                       selectedId = item.id;
                                       selectedConnectionId = null;
@@ -1002,9 +1450,15 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
                                     behavior: HitTestBehavior.opaque,
                                     onTap: () {},
                                     onDoubleTap: renameSelected,
+                                    onLongPress: () {
+                                      setState(() => movingNodeId = null);
+                                      startMultiSelection(item);
+                                    },
                                     child: _MindMapNodeCard(
                                       node: item,
-                                      selected: selectedId == item.id,
+                                      selected:
+                                          selectedId == item.id ||
+                                          selectedIds.contains(item.id),
                                       level: mindMapNodeDepth(
                                         widget.document,
                                         item,
@@ -1132,6 +1586,15 @@ bool reorderMindMapOutlineNodes(
     moving,
   );
   return true;
+}
+
+enum _MindMapBatchAlignment {
+  left,
+  horizontalCenter,
+  right,
+  top,
+  verticalCenter,
+  bottom,
 }
 
 int mindMapNodeDepth(MindMapDocument document, MindMapNode node) {

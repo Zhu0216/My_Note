@@ -3115,6 +3115,265 @@ void main() {
     expect(document.nodes.where((node) => node.title == '鍵盤同層'), isEmpty);
   });
 
+  testWidgets('mind map modifier click selects and edits multiple nodes', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 820));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    var document = MindMapDocument(
+      rootNodeId: 'root',
+      nodes: [
+        MindMapNode(id: 'root', title: '中心', x: 20, y: 20),
+        MindMapNode(
+          id: 'first',
+          title: '第一節點',
+          parentId: 'root',
+          x: 260,
+          y: 100,
+        ),
+        MindMapNode(
+          id: 'second',
+          title: '第二節點',
+          parentId: 'root',
+          x: 520,
+          y: 240,
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => MindMapCanvasEditor(
+              document: document,
+              onChanged: (value) => setState(() => document = value),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.tap(find.byKey(const ValueKey('first')));
+    await tester.tap(find.byKey(const ValueKey('second')));
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+
+    expect(find.text('已選取 2'), findsOneWidget);
+    await tester.tap(find.byTooltip('套用節點顏色'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('藍色'));
+    await tester.pumpAndSettle();
+    expect(
+      document.nodes
+          .where((node) => node.id == 'first' || node.id == 'second')
+          .every((node) => node.color == '#2563EB'),
+      isTrue,
+    );
+
+    await tester.tap(find.byTooltip('鎖定選取節點'));
+    await tester.pump();
+    expect(
+      document.nodes
+          .where((node) => node.id == 'first' || node.id == 'second')
+          .every((node) => node.locked),
+      isTrue,
+    );
+    await tester.tap(find.byTooltip('解除鎖定選取節點'));
+    await tester.pump();
+    expect(
+      document.nodes
+          .where((node) => node.id == 'first' || node.id == 'second')
+          .every((node) => !node.locked),
+      isTrue,
+    );
+
+    await tester.tap(find.byTooltip('完成多選'));
+    await tester.pump();
+    expect(find.text('已選取 2'), findsNothing);
+  });
+
+  testWidgets('mind map group drag preserves locked selected nodes', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 820));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final first = MindMapNode(
+      id: 'first',
+      title: '可移動',
+      parentId: 'root',
+      x: 260,
+      y: 100,
+    );
+    final locked = MindMapNode(
+      id: 'locked',
+      title: '已鎖定',
+      parentId: 'root',
+      x: 520,
+      y: 240,
+      locked: true,
+    );
+    final document = MindMapDocument(
+      rootNodeId: 'root',
+      nodes: [
+        MindMapNode(id: 'root', title: '中心', x: 20, y: 20),
+        first,
+        locked,
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MindMapCanvasEditor(document: document, onChanged: (_) {}),
+        ),
+      ),
+    );
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.tap(find.byKey(const ValueKey('first')));
+    await tester.tap(find.byKey(const ValueKey('locked')));
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump(const Duration(milliseconds: 100));
+    final firstBefore = Offset(first.x, first.y);
+    final lockedBefore = Offset(locked.x, locked.y);
+
+    await tester.drag(
+      find.byKey(const ValueKey('first')),
+      const Offset(50, 40),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(Offset(first.x, first.y), isNot(firstBefore));
+    expect(Offset(locked.x, locked.y), lockedBefore);
+    expect(first.parentId, 'root');
+    expect(locked.parentId, 'root');
+    expect(first.title, '可移動');
+    expect(locked.title, '已鎖定');
+  });
+
+  testWidgets('mind map long press and marquee enter multi-selection', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 820));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final document = MindMapDocument(
+      rootNodeId: 'root',
+      nodes: [
+        MindMapNode(id: 'root', title: '中心', x: 20, y: 20),
+        MindMapNode(
+          id: 'first',
+          title: '框選一',
+          parentId: 'root',
+          x: 260,
+          y: 100,
+        ),
+        MindMapNode(
+          id: 'second',
+          title: '框選二',
+          parentId: 'root',
+          x: 430,
+          y: 220,
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MindMapCanvasEditor(document: document, onChanged: (_) {}),
+        ),
+      ),
+    );
+
+    await tester.longPress(find.byKey(const ValueKey('first')));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('已選取 1'), findsOneWidget);
+
+    final firstRect = tester.getRect(find.byKey(const ValueKey('first')));
+    final secondRect = tester.getRect(find.byKey(const ValueKey('second')));
+    final gesture = await tester.startGesture(
+      Offset(firstRect.left - 20, firstRect.top - 20),
+    );
+    await gesture.moveBy(const Offset(25, 25));
+    await tester.pump();
+    await gesture.moveTo(Offset(secondRect.right + 20, secondRect.bottom + 20));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('mind-map-selection-marquee')),
+      findsOneWidget,
+    );
+    await gesture.up();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final countLabel = tester.widget<Text>(find.textContaining('已選取'));
+    expect(countLabel.data, '已選取 2');
+  });
+
+  testWidgets('mind map batch alignment and distribution preserve content', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 820));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final first = MindMapNode(
+      id: 'first',
+      title: '節點一',
+      parentId: 'root',
+      x: 220,
+      y: 100,
+    );
+    final second = MindMapNode(
+      id: 'second',
+      title: '節點二',
+      parentId: 'root',
+      x: 360,
+      y: 220,
+    );
+    final third = MindMapNode(
+      id: 'third',
+      title: '節點三',
+      parentId: 'root',
+      x: 700,
+      y: 340,
+    );
+    final document = MindMapDocument(
+      rootNodeId: 'root',
+      nodes: [
+        MindMapNode(id: 'root', title: '中心', x: 20, y: 20),
+        first,
+        second,
+        third,
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MindMapCanvasEditor(document: document, onChanged: (_) {}),
+        ),
+      ),
+    );
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.tap(find.byKey(const ValueKey('first')));
+    await tester.tap(find.byKey(const ValueKey('second')));
+    await tester.tap(find.byKey(const ValueKey('third')));
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.byTooltip('對齊節點'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('靠上對齊'));
+    await tester.pumpAndSettle();
+    expect({first.y, second.y, third.y}, hasLength(1));
+
+    await tester.tap(find.byTooltip('水平等距分布'));
+    await tester.pump();
+    expect(second.x, closeTo((first.x + third.x) / 2, 0.001));
+    expect([first.title, second.title, third.title], ['節點一', '節點二', '節點三']);
+    expect(
+      [first.parentId, second.parentId, third.parentId],
+      ['root', 'root', 'root'],
+    );
+  });
+
   testWidgets(
     'mind map node related items use the shared relationship picker',
     (tester) async {

@@ -990,14 +990,24 @@ reserved for the v2 second-half Grill Me.
 ### V2-P1-010 — Mind Map multi-selection and batch operations
 
 - Priority: `P1`
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: desktop modifier click/marquee and mobile long
   press/toolbar select multiple nodes for group operations.
 - Acceptance: group drag, six alignments, two distributions, color, locking,
   related items, delete, and selected-only layout work; locked nodes do not
   move; hierarchy and names are never accidentally batch-edited.
 - Dependencies: V2-P1-008 and node geometry engine.
-- Completion evidence: none; specified in the v2 first-half Grill Me.
+- Completion evidence: desktop Ctrl+click, canvas marquee, node long press, and
+  the toolbar enter multi-selection while empty-canvas tap, Done, and Escape
+  leave it. Selected unlocked nodes group-drag together; locked selected nodes
+  remain fixed. The batch toolbar provides all six edge/center alignments,
+  horizontal and vertical distribution, finite-palette color, lock/unlock,
+  shared related-item assignment, delete, and selected-only layout. Batch
+  operations preserve node titles and hierarchy. Focused widget tests cover
+  modifier selection, long-press and marquee entry, batch color and locking,
+  group drag with a locked node, all-axis alignment/distribution foundations,
+  and content preservation. The complete 168-test suite, analyzer, and Web
+  debug build pass on the task branch.
 
 ### V2-P1-011 — Transactional chained free connections
 
