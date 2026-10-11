@@ -925,7 +925,7 @@ reserved for the v2 second-half Grill Me.
 ### V2-P1-006 — One-space cloud onboarding and conflict resolution
 
 - Priority: `P1`
-- Status: `PLANNED`
+- Status: `IN PROGRESS`
 - User-visible behavior: first sync compares one local database with the
   account's single cloud space and asks before transfer or item-by-item merge.
 - Acceptance: no automatic first transfer; same-ID conflicts offer local,
@@ -935,7 +935,12 @@ reserved for the v2 second-half Grill Me.
   migration comparison; V2-P1-005.
 - Completion evidence: product behavior, migration comparison, production
   Firebase resources, and schema implementation were explicitly approved on
-  2026-10-11; implementation is next.
+  2026-10-11. The local/cloud snapshot contract, same-ID comparison, local,
+  cloud, or both conflict choices, new-ID assignment, recursive cloud-reference
+  remapping, Firestore repository, and explicit first-sync page are implemented
+  with focused tests. Production deployment is waiting only for an explicit
+  Firestore database region; the project currently has no database and this
+  region cannot be changed in place after creation.
 
 ### V2-P1-007 — Offline-first complete synchronization
 

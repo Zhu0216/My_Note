@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'account_controller.dart';
+import 'cloud_onboarding.dart';
 
 class AccountEntryGate extends StatelessWidget {
   const AccountEntryGate({super.key, required this.child});
@@ -358,6 +359,18 @@ class AccountSettingsCard extends StatelessWidget {
                     label: const Text('登入並同步'),
                   )
                 else ...[
+                  if (account.canSynchronize)
+                    FilledButton.icon(
+                      onPressed: account.busy
+                          ? null
+                          : () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => const CloudOnboardingPage(),
+                              ),
+                            ),
+                      icon: const Icon(Icons.cloud_sync_outlined),
+                      label: const Text('設定首次同步'),
+                    ),
                   if (!account.isEmailVerified)
                     Wrap(
                       spacing: 8,
