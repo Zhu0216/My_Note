@@ -10,6 +10,7 @@ import '../../ui/app_store_scope.dart';
 import '../../ui/local_reminder_scope.dart';
 import '../../ui/formatters.dart';
 import '../../ui/shared_components.dart';
+import '../account/account_pages.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -22,18 +23,13 @@ class SettingsPage extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
         children: [
+          const AccountSettingsCard(),
+          const SizedBox(height: 16),
           const LocalDataManagementCard(),
           const SizedBox(height: 16),
-          InfoCard(
+          const InfoCard(
             child: Column(
               children: [
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.person_outline),
-                  title: Text('Firebase Auth'),
-                  subtitle: Text('使用者登入與帳號管理'),
-                ),
-                Divider(),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.cloud_sync_outlined),

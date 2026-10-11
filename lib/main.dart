@@ -20,6 +20,8 @@ import 'ui/shared_components.dart';
 import 'services/device_font_registry.dart';
 import 'services/local_reminder_service.dart';
 import 'features/settings/settings_page.dart';
+import 'features/account/account_controller.dart';
+import 'features/account/account_pages.dart';
 import 'features/calendar/calendar_page.dart';
 import 'features/finance/finance_page.dart';
 import 'features/home/home_page.dart';
@@ -62,6 +64,20 @@ const appLocale = Locale('zh', 'TW');
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await loadDeviceSystemFontIfAvailable();
+  var firebaseAvailable = false;
+  if (DefaultFirebaseOptions.isConfigured) {
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      firebaseAvailable = true;
+    } catch (error) {
+      debugPrint('Firebase initialization failed: $error');
+    }
+  }
+  final accountController = await AccountController.load(
+    firebaseAvailable: firebaseAvailable,
+  );
   final store = await AppStore.load();
   final reminderCandidate = LocalReminderCoordinator(
     store,
@@ -75,22 +91,26 @@ Future<void> main() async {
     reminderCandidate.dispose();
     debugPrint('Local reminder initialization failed: $error');
   }
-  runApp(MyNoteApp(store: store, reminderCoordinator: reminders));
-  unawaited(_initializeFirebaseIfConfigured());
-}
-
-Future<void> _initializeFirebaseIfConfigured() async {
-  if (!DefaultFirebaseOptions.isConfigured) {
-    return;
-  }
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  runApp(
+    MyNoteApp(
+      store: store,
+      reminderCoordinator: reminders,
+      accountController: accountController,
+    ),
+  );
 }
 
 class MyNoteApp extends StatefulWidget {
-  const MyNoteApp({super.key, required this.store, this.reminderCoordinator});
+  const MyNoteApp({
+    super.key,
+    required this.store,
+    this.reminderCoordinator,
+    this.accountController,
+  });
 
   final AppStore store;
   final LocalReminderCoordinator? reminderCoordinator;
+  final AccountController? accountController;
 
   @override
   State<MyNoteApp> createState() => _MyNoteAppState();
@@ -121,6 +141,7 @@ class _MyNoteAppState extends State<MyNoteApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     widget.reminderCoordinator?.dispose();
+    widget.accountController?.dispose();
     unawaited(widget.store.flushPersistence());
     super.dispose();
   }
@@ -207,17 +228,23 @@ class _MyNoteAppState extends State<MyNoteApp> with WidgetsBindingObserver {
             ),
           ),
           builder: (context, child) => ShadAppBuilder(child: child!),
-          home: const AppShell(),
+          home: widget.accountController == null
+              ? const AppShell()
+              : AccountEntryGate(child: const AppShell()),
         );
       },
     );
     final coordinator = widget.reminderCoordinator;
-    return AppStoreScope(
+    final app = AppStoreScope(
       store: widget.store,
       child: coordinator == null
           ? shadApp
           : LocalReminderScope(coordinator: coordinator, child: shadApp),
     );
+    final accountController = widget.accountController;
+    return accountController == null
+        ? app
+        : AccountScope(controller: accountController, child: app);
   }
 }
 

@@ -38,37 +38,37 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: _placeholder,
-    appId: _placeholder,
-    messagingSenderId: _placeholder,
-    projectId: _placeholder,
-    authDomain: 'REPLACE_ME.firebaseapp.com',
-    storageBucket: 'REPLACE_ME.firebasestorage.app',
+    apiKey: 'AIzaSyC34YsRlpcleCM8h_Cm0L6gjjjuKNOeMMc',
+    appId: '1:77505458462:web:1562d79426d0965836d90f',
+    messagingSenderId: '77505458462',
+    projectId: 'first-firebase-project-1111',
+    authDomain: 'first-firebase-project-1111.firebaseapp.com',
+    storageBucket: 'first-firebase-project-1111.firebasestorage.app',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: _placeholder,
-    appId: _placeholder,
-    messagingSenderId: _placeholder,
-    projectId: _placeholder,
-    storageBucket: 'REPLACE_ME.firebasestorage.app',
+    apiKey: 'AIzaSyBbog94UonUrXe4AMGRD-7s0-1VrdV-8ak',
+    appId: '1:77505458462:android:b24344f61d653fe136d90f',
+    messagingSenderId: '77505458462',
+    projectId: 'first-firebase-project-1111',
+    storageBucket: 'first-firebase-project-1111.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: _placeholder,
-    appId: _placeholder,
-    messagingSenderId: _placeholder,
-    projectId: _placeholder,
-    storageBucket: 'REPLACE_ME.firebasestorage.app',
+    apiKey: 'AIzaSyCJV_KWgjkIOb9XDOtXvv4Wr5jF40TNeTs',
+    appId: '1:77505458462:ios:69f0274a9798949e36d90f',
+    messagingSenderId: '77505458462',
+    projectId: 'first-firebase-project-1111',
+    storageBucket: 'first-firebase-project-1111.firebasestorage.app',
     iosBundleId: 'com.allinone.mynote',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: _placeholder,
-    appId: _placeholder,
-    messagingSenderId: _placeholder,
-    projectId: _placeholder,
-    storageBucket: 'REPLACE_ME.firebasestorage.app',
+    apiKey: 'AIzaSyCJV_KWgjkIOb9XDOtXvv4Wr5jF40TNeTs',
+    appId: '1:77505458462:ios:69f0274a9798949e36d90f',
+    messagingSenderId: '77505458462',
+    projectId: 'first-firebase-project-1111',
+    storageBucket: 'first-firebase-project-1111.firebasestorage.app',
     iosBundleId: 'com.allinone.mynote',
   );
 

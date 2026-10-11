@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "77505458462",
+    "project_id": "first-firebase-project-1111",
+    "storage_bucket": "first-firebase-project-1111.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:77505458462:android:b24344f61d653fe136d90f",
+        "android_client_info": {
+          "package_name": "com.allinone.mynote"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "77505458462-lqul28a9htdu5moiqj2874lvsqmgkl34.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.allinone.mynote",
+            "certificate_hash": "c11b32713c11de91b719f97758d64e623bda823f"
+          }
+        },
+        {
+          "client_id": "77505458462-amngs71r62u8vbbfp9fpdor7g7f33tb9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBbog94UonUrXe4AMGRD-7s0-1VrdV-8ak"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "77505458462-amngs71r62u8vbbfp9fpdor7g7f33tb9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "77505458462-bambn98acsu8fhjq8blbpvmnsr69v4t9.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.allinone.mynote"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

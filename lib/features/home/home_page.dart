@@ -11,6 +11,7 @@ import '../../ui/display_components.dart';
 import '../../ui/formatters.dart';
 import '../../ui/shared_components.dart';
 import '../../ui/todo_display.dart';
+import '../account/account_pages.dart';
 
 typedef HomeNoteEditor =
     Future<void> Function(BuildContext context, {NoteItem? note});
@@ -281,6 +282,7 @@ class HomePageState extends State<HomePage>
             title: 'My Note',
             subtitle: 'All-in-one 個人管理筆記本',
             actions: [
+              const AccountStatusButton(),
               IconButton(
                 tooltip: searchOpen ? '關閉快速查找' : '快速查找',
                 onPressed: searchOpen ? closeSearch : openSearch,

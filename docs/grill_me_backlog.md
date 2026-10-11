@@ -805,13 +805,15 @@ the current behavior has not been independently accepted for this v1 baseline.
 
 ### D-001 — Firebase and cloud synchronization
 
-- Status: `BLOCKED`
+- Status: `IN PROGRESS`
 - User-visible behavior: sign-in, cloud sync, attachment storage, FCM, email,
   and Hosting are post-v1 capabilities.
 - Acceptance: start only after Firebase Apps/options exist and a cloud schema is
   explicitly approved.
 - Dependencies: project owner configuration and approval.
-- Evidence: primary Log states Firebase Apps/options are not created.
+- Evidence: Firebase Apps/options and Auth providers are active under
+  V2-P1-005; Firestore/Storage onboarding and offline sync continue under
+  V2-P1-006 and V2-P1-007.
 
 ### D-002 — Store release
 
@@ -899,7 +901,7 @@ reserved for the v2 second-half Grill Me.
 ### V2-P1-005 — Optional sign-in entry and linked authentication
 
 - Priority: `P1`
-- Status: `BLOCKED`
+- Status: `DONE`
 - User-visible behavior: unsigned users choose synchronized sign-in or a
   remembered local-only path; Google and verified email/password accounts can
   be linked safely.
@@ -908,13 +910,22 @@ reserved for the v2 second-half Grill Me.
   platforms without exposing secrets.
 - Dependencies: Firebase Apps/options, approved production Auth configuration,
   privacy and account-deletion decisions.
-- Completion evidence: product behavior approved; implementation awaits the
-  Firebase approval/configuration boundary.
+- Completion evidence: Firebase Web, Android, and Apple apps are registered for
+  `first-firebase-project-1111`; Email/Password and Google providers are
+  deployed from `firebase.json`, and Android SHA-1/SHA-256 plus OAuth clients
+  are registered. The app now remembers an explicit local-only choice, gates
+  first launch without blocking local use, and provides full-page sign-in,
+  registration, verification, password reset, sign-out, account deletion, and
+  explicit provider-linking controls through one account controller. Home and
+  Settings expose compact and full account entry points. A reversible live
+  Email/Password smoke test created a token and immediately deleted its
+  temporary account; `test/account_entry_test.dart`, all 170 tests, analyzer,
+  Web debug build, and Android debug build passed on 2026-10-11.
 
 ### V2-P1-006 — One-space cloud onboarding and conflict resolution
 
 - Priority: `P1`
-- Status: `BLOCKED`
+- Status: `PLANNED`
 - User-visible behavior: first sync compares one local database with the
   account's single cloud space and asks before transfer or item-by-item merge.
 - Acceptance: no automatic first transfer; same-ID conflicts offer local,
@@ -922,13 +933,14 @@ reserved for the v2 second-half Grill Me.
   decisions are recoverable.
 - Dependencies: approved Firestore schema/security rules and a before/after
   migration comparison; V2-P1-005.
-- Completion evidence: product behavior approved; schema implementation needs
-  explicit approval.
+- Completion evidence: product behavior, migration comparison, production
+  Firebase resources, and schema implementation were explicitly approved on
+  2026-10-11; implementation is next.
 
 ### V2-P1-007 — Offline-first complete synchronization
 
 - Priority: `P1`
-- Status: `BLOCKED`
+- Status: `PLANNED`
 - User-visible behavior: local commits remain immediate while a durable queue
   synchronizes all text, images, and attachments under the selected network
   policy.

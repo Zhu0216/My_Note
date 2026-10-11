@@ -1,4 +1,16 @@
 {
+  "auth": {
+    "providers": {
+      "emailPassword": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "My Note",
+        "supportEmail": "levin56458@gmail.com",
+        "authorizedRedirectUris": [
+          "http://localhost:8080/__/auth/handler"
+        ]
+      }
+    }
+  },
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
