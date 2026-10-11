@@ -31,8 +31,14 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
   final outlineKeys = <String, GlobalKey>{};
   String? selectedId;
   String? movingNodeId;
-  String? connectionSourceId;
   String? selectedConnectionId;
+  bool connectionChainMode = false;
+  final connectionPath = <String>[];
+  String connectionChainColor = '#7C8B5F';
+  MindMapLineStyle connectionChainStyle = MindMapLineStyle.solid;
+  bool connectionChainDirected = false;
+  final connectionUndoStack = <List<MindMapConnection>>[];
+  final connectionRedoStack = <List<MindMapConnection>>[];
   final selectedIds = <String>{};
   bool multiSelectMode = false;
   Offset? marqueeStart;
@@ -49,6 +55,18 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
   MindMapConnection? get selectedConnection => widget.document.connections
       .where((line) => line.id == selectedConnectionId)
       .firstOrNull;
+
+  List<MindMapConnection> get previewConnections => [
+    for (var index = 0; index + 1 < connectionPath.length; index++)
+      MindMapConnection(
+        id: 'preview-$index',
+        fromNodeId: connectionPath[index],
+        toNodeId: connectionPath[index + 1],
+        color: connectionChainColor,
+        style: connectionChainStyle,
+        directed: connectionChainDirected,
+      ),
+  ];
 
   List<MindMapNode> get multiSelectedNodes => widget.document.nodes
       .where((node) => selectedIds.contains(node.id))
@@ -340,6 +358,8 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
           removed.contains(line.fromNodeId) || removed.contains(line.toNodeId),
     );
     setState(() {
+      connectionUndoStack.clear();
+      connectionRedoStack.clear();
       selectedId = node.parentId ?? widget.document.rootNodeId;
       selectedConnectionId = null;
     });
@@ -369,41 +389,95 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
   }
 
   void startConnection() {
-    final node = selected;
-    if (node == null) return;
     setState(() {
-      connectionSourceId = node.id;
+      connectionChainMode = true;
+      connectionPath.clear();
+      selectedId = null;
       selectedConnectionId = null;
     });
   }
 
-  void selectNode(MindMapNode node) {
-    final sourceId = connectionSourceId;
-    if (sourceId != null && sourceId != node.id) {
-      final existing = widget.document.connections
-          .where(
-            (line) => line.fromNodeId == sourceId && line.toNodeId == node.id,
-          )
-          .firstOrNull;
-      final connection =
-          existing ??
-          MindMapConnection(
-            id: 'mind-line-${DateTime.now().microsecondsSinceEpoch}',
-            fromNodeId: sourceId,
-            toNodeId: node.id,
-          );
-      if (existing == null) {
-        widget.document.connections.add(connection);
-        widget.onChanged(widget.document);
-      }
+  void appendConnectionNode(MindMapNode node) {
+    if (!connectionChainMode) return;
+    if (connectionPath.isNotEmpty && connectionPath.last == node.id) {
       setState(() {
-        selectedId = node.id;
-        selectedConnectionId = connection.id;
-        connectionSourceId = null;
+        if (connectionPath.length > 1) connectionPath.removeLast();
       });
-      revealOutlineSelection();
       return;
     }
+    setState(() => connectionPath.add(node.id));
+  }
+
+  void backConnectionNode() {
+    if (connectionPath.isEmpty) return;
+    setState(() => connectionPath.removeLast());
+  }
+
+  void cancelConnectionChain() {
+    setState(() {
+      connectionChainMode = false;
+      connectionPath.clear();
+    });
+  }
+
+  void completeConnectionChain() {
+    if (connectionPath.length < 2) return;
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    final created = <MindMapConnection>[
+      for (var index = 0; index + 1 < connectionPath.length; index++)
+        MindMapConnection(
+          id: 'mind-line-$stamp-$index',
+          fromNodeId: connectionPath[index],
+          toNodeId: connectionPath[index + 1],
+          color: connectionChainColor,
+          style: connectionChainStyle,
+          directed: connectionChainDirected,
+        ),
+    ];
+    widget.document.connections.addAll(created);
+    setState(() {
+      connectionUndoStack.add(created);
+      connectionRedoStack.clear();
+      connectionChainMode = false;
+      connectionPath.clear();
+      selectedConnectionId = created.last.id;
+    });
+    widget.onChanged(widget.document);
+  }
+
+  void undoConnectionTransaction() {
+    if (connectionUndoStack.isEmpty) return;
+    final transaction = connectionUndoStack.removeLast();
+    final ids = transaction.map((line) => line.id).toSet();
+    widget.document.connections.removeWhere((line) => ids.contains(line.id));
+    setState(() {
+      connectionRedoStack.add(transaction);
+      if (ids.contains(selectedConnectionId)) selectedConnectionId = null;
+    });
+    widget.onChanged(widget.document);
+  }
+
+  void redoConnectionTransaction() {
+    if (connectionRedoStack.isEmpty) return;
+    final transaction = connectionRedoStack.removeLast();
+    final nodeIds = widget.document.nodes.map((node) => node.id).toSet();
+    if (transaction.any(
+      (line) =>
+          !nodeIds.contains(line.fromNodeId) ||
+          !nodeIds.contains(line.toNodeId),
+    )) {
+      connectionRedoStack.clear();
+      return;
+    }
+    widget.document.connections.addAll(transaction);
+    setState(() {
+      connectionUndoStack.add(transaction);
+      selectedConnectionId = transaction.last.id;
+    });
+    widget.onChanged(widget.document);
+  }
+
+  void selectNode(MindMapNode node) {
     setState(() {
       selectedId = node.id;
       selectedConnectionId = null;
@@ -412,6 +486,11 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
   }
 
   void selectFromOutline(MindMapNode node) {
+    if (connectionChainMode) {
+      appendConnectionNode(node);
+      setState(() => narrowViewIndex = 1);
+      return;
+    }
     if (multiSelectMode) {
       toggleMultiSelection(node);
       return;
@@ -427,7 +506,8 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
     setState(() {
       multiSelectMode = true;
       selectedConnectionId = null;
-      connectionSourceId = null;
+      connectionChainMode = false;
+      connectionPath.clear();
       if (node != null) {
         selectedIds.add(node.id);
         selectedId = node.id;
@@ -594,6 +674,8 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
       (line) =>
           removed.contains(line.fromNodeId) || removed.contains(line.toNodeId),
     );
+    connectionUndoStack.clear();
+    connectionRedoStack.clear();
     finishMultiSelection();
     selectedId = widget.document.rootNodeId;
     widget.onChanged(widget.document);
@@ -640,7 +722,8 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
   void selectConnection(String id) {
     setState(() {
       selectedConnectionId = id;
-      connectionSourceId = null;
+      connectionChainMode = false;
+      connectionPath.clear();
     });
   }
 
@@ -662,7 +745,11 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
     final line = selectedConnection;
     if (line == null) return;
     widget.document.connections.removeWhere((item) => item.id == line.id);
-    setState(() => selectedConnectionId = null);
+    setState(() {
+      connectionUndoStack.clear();
+      connectionRedoStack.clear();
+      selectedConnectionId = null;
+    });
     widget.onChanged(widget.document);
   }
 
@@ -775,6 +862,120 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
     );
   }
 
+  Widget connectionChainToolbar() {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      key: const ValueKey('mind-map-connection-chain-toolbar'),
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerLow,
+        border: Border.all(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Center(child: Text('節點 ${connectionPath.length}')),
+          ),
+          PopupMenuButton<String>(
+            tooltip: '預覽連線顏色',
+            initialValue: connectionChainColor,
+            onSelected: (value) => setState(() => connectionChainColor = value),
+            itemBuilder: (context) => _connectionColors
+                .map(
+                  (choice) => PopupMenuItem(
+                    value: choice.$1,
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 20,
+                          height: 20,
+                          decoration: BoxDecoration(
+                            color: _parseColor(choice.$1),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: colorScheme.outline),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(choice.$2),
+                      ],
+                    ),
+                  ),
+                )
+                .toList(),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Center(
+                child: Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: _parseColor(connectionChainColor),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: colorScheme.outline),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          SegmentedButton<MindMapLineStyle>(
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(
+                value: MindMapLineStyle.solid,
+                icon: Icon(Icons.horizontal_rule),
+                label: Text('實線'),
+              ),
+              ButtonSegment(
+                value: MindMapLineStyle.dashed,
+                icon: Icon(Icons.more_horiz),
+                label: Text('虛線'),
+              ),
+            ],
+            selected: {connectionChainStyle},
+            onSelectionChanged: (value) =>
+                setState(() => connectionChainStyle = value.single),
+            style: const ButtonStyle(
+              visualDensity: VisualDensity.compact,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+          IconButton(
+            tooltip: connectionChainDirected ? '移除方向箭頭' : '顯示方向箭頭',
+            onPressed: () => setState(
+              () => connectionChainDirected = !connectionChainDirected,
+            ),
+            icon: Icon(
+              connectionChainDirected
+                  ? Icons.trending_flat
+                  : Icons.compare_arrows,
+            ),
+          ),
+          IconButton(
+            tooltip: '返回上一個連線節點',
+            onPressed: connectionPath.isEmpty ? null : backConnectionNode,
+            icon: const Icon(Icons.arrow_back),
+          ),
+          IconButton(
+            tooltip: '取消連續連線',
+            onPressed: cancelConnectionChain,
+            icon: const Icon(Icons.close),
+          ),
+          IconButton.filledTonal(
+            tooltip: '完成連續連線',
+            onPressed: connectionPath.length < 2
+                ? null
+                : completeConnectionChain,
+            icon: const Icon(Icons.check),
+          ),
+        ],
+      ),
+    );
+  }
+
   void moveNode(MindMapNode node, Offset delta) {
     if (node.locked) return;
     final scale = transform.value.getMaxScaleOnAxis();
@@ -807,6 +1008,22 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
       if (event.logicalKey == LogicalKeyboardKey.delete &&
           selectedIds.any((id) => id != widget.document.rootNodeId)) {
         deleteMultiSelected();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+    if (connectionChainMode) {
+      if (event.logicalKey == LogicalKeyboardKey.escape) {
+        cancelConnectionChain();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.backspace) {
+        backConnectionNode();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.enter &&
+          connectionPath.length >= 2) {
+        completeConnectionChain();
         return KeyEventResult.handled;
       }
       return KeyEventResult.ignored;
@@ -944,13 +1161,23 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
                   icon: const Icon(Icons.delete_outline),
                 ),
                 IconButton(
-                  tooltip: connectionSourceId == null ? '建立自由連線' : '取消連線',
-                  onPressed: connectionSourceId == null
-                      ? startConnection
-                      : () => setState(() => connectionSourceId = null),
-                  icon: Icon(
-                    connectionSourceId == null ? Icons.timeline : Icons.close,
-                  ),
+                  tooltip: '建立自由連線',
+                  onPressed: connectionChainMode ? null : startConnection,
+                  icon: const Icon(Icons.timeline),
+                ),
+                IconButton(
+                  tooltip: '復原連線建立',
+                  onPressed: connectionUndoStack.isEmpty
+                      ? null
+                      : undoConnectionTransaction,
+                  icon: const Icon(Icons.undo),
+                ),
+                IconButton(
+                  tooltip: '重做連線建立',
+                  onPressed: connectionRedoStack.isEmpty
+                      ? null
+                      : redoConnectionTransaction,
+                  icon: const Icon(Icons.redo),
                 ),
                 PopupMenuButton<String>(
                   tooltip: '管理自由連線',
@@ -1205,7 +1432,10 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
                 );
                 return Material(
                   key: ValueKey('outline-${item.id}'),
-                  color: selectedId == item.id || selectedIds.contains(item.id)
+                  color:
+                      selectedId == item.id ||
+                          selectedIds.contains(item.id) ||
+                          connectionPath.contains(item.id)
                       ? colorScheme.primaryContainer
                       : Colors.transparent,
                   child: ListTile(
@@ -1267,15 +1497,17 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           buildNodeToolbar(),
-          if (connectionSourceId != null) ...[
+          if (connectionChainMode) ...[
             const SizedBox(height: 4),
             Text(
-              '請點選另一個節點以建立自由連線',
+              connectionPath.isEmpty ? '請點選來源節點' : '依序點選目標節點；再次點選最後節點可移除最後一段',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: colorScheme.primary,
                 fontWeight: FontWeight.w700,
               ),
             ),
+            const SizedBox(height: 4),
+            connectionChainToolbar(),
           ],
           if (selectedConnection case final line?) ...[
             const SizedBox(height: 4),
@@ -1347,6 +1579,7 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
                               child: CustomPaint(
                                 painter: _MindMapConnectionPainter(
                                   document: widget.document,
+                                  previewConnections: previewConnections,
                                   visibleNodeIds: widget.document.nodes
                                       .where(isVisible)
                                       .map((node) => node.id)
@@ -1394,7 +1627,7 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
                                 child: Listener(
                                   behavior: HitTestBehavior.opaque,
                                   onPointerDown: (_) {
-                                    if (connectionSourceId != null) return;
+                                    if (connectionChainMode) return;
                                     canvasFocusNode.requestFocus();
                                     if (HardwareKeyboard
                                         .instance
@@ -1435,8 +1668,8 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
                                     }
                                   },
                                   onPointerUp: (_) {
-                                    if (connectionSourceId != null) {
-                                      selectNode(item);
+                                    if (connectionChainMode) {
+                                      appendConnectionNode(item);
                                       return;
                                     }
                                     if (movingNodeId == item.id) {
@@ -1458,7 +1691,8 @@ class _MindMapCanvasEditorState extends State<MindMapCanvasEditor> {
                                       node: item,
                                       selected:
                                           selectedId == item.id ||
-                                          selectedIds.contains(item.id),
+                                          selectedIds.contains(item.id) ||
+                                          connectionPath.contains(item.id),
                                       level: mindMapNodeDepth(
                                         widget.document,
                                         item,
@@ -1797,10 +2031,12 @@ class _MindMapConnectionPainter extends CustomPainter {
   const _MindMapConnectionPainter({
     required this.document,
     required this.visibleNodeIds,
+    this.previewConnections = const [],
   });
 
   final MindMapDocument document;
   final Set<String> visibleNodeIds;
+  final List<MindMapConnection> previewConnections;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1812,7 +2048,7 @@ class _MindMapConnectionPainter extends CustomPainter {
         _drawLine(canvas, parent, node, const Color(0xff9aa4b2), false, false);
       }
     }
-    for (final line in document.connections) {
+    for (final line in [...document.connections, ...previewConnections]) {
       final from = byId[line.fromNodeId];
       final to = byId[line.toNodeId];
       if (from == null ||

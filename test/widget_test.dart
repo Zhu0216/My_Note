@@ -2998,6 +2998,10 @@ void main() {
 
     expect(find.byKey(const ValueKey('mind-map-outline')), findsOneWidget);
     expect(find.widgetWithText(TextButton, '大綱'), findsNothing);
+    for (var index = 0; index < 5; index++) {
+      await tester.tap(find.byTooltip('向右查看更多工具'));
+      await tester.pumpAndSettle();
+    }
     expect(find.byTooltip('縮小畫布'), findsOneWidget);
     expect(find.byTooltip('放大畫布'), findsOneWidget);
     expect(find.byTooltip('顯示全部節點'), findsOneWidget);
@@ -3511,8 +3515,14 @@ void main() {
 
     await tester.tap(find.byTooltip('建立自由連線'));
     await tester.pump();
-    expect(find.text('請點選另一個節點以建立自由連線'), findsOneWidget);
+    expect(find.text('請點選來源節點'), findsOneWidget);
+    await tester.tap(find.text('中心').last);
+    await tester.pump();
+    expect(document.connections, isEmpty);
     await tester.tap(find.text('分支'));
+    await tester.pump();
+    expect(document.connections, isEmpty);
+    await tester.tap(find.byTooltip('完成連續連線'));
     await tester.pump();
     expect(document.connections, hasLength(1));
     expect(
@@ -3550,6 +3560,12 @@ void main() {
     await tester.pump();
     await tester.tap(find.byTooltip('建立自由連線'));
     await tester.pump();
+    await tester.tap(find.text('中心').last);
+    await tester.pump();
+    await tester.tap(find.text('分支'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('完成連續連線'));
+    await tester.pump();
     await tester.tap(find.text('分支'));
     await tester.pump();
     await tester.tap(find.byTooltip('刪除節點'));
@@ -3559,6 +3575,108 @@ void main() {
     expect(document.nodes.where((node) => node.id == 'branch'), isEmpty);
     expect(document.connections, isEmpty);
   });
+
+  testWidgets(
+    'mind map connection chain commits cancels and undoes atomically',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 820));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final document = MindMapDocument(
+        rootNodeId: 'a',
+        nodes: [
+          MindMapNode(id: 'a', title: 'A', x: 20, y: 20),
+          MindMapNode(id: 'b', title: 'B', parentId: 'a', x: 260, y: 120),
+          MindMapNode(id: 'c', title: 'C', parentId: 'a', x: 500, y: 240),
+        ],
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MindMapCanvasEditor(document: document, onChanged: (_) {}),
+          ),
+        ),
+      );
+
+      await tester.tap(find.byTooltip('建立自由連線'));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('a')));
+      await tester.tap(find.byKey(const ValueKey('b')));
+      await tester.tap(find.byKey(const ValueKey('c')));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('節點 3'), findsOneWidget);
+      expect(document.connections, isEmpty);
+
+      await tester.tap(find.byKey(const ValueKey('c')));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('節點 2'), findsOneWidget);
+      await tester.tap(find.byTooltip('返回上一個連線節點'));
+      await tester.pump();
+      expect(find.text('節點 1'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('b')));
+      await tester.tap(find.byKey(const ValueKey('c')));
+      await tester.tap(find.byKey(const ValueKey('a')));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('節點 4'), findsOneWidget);
+
+      await tester.tap(find.text('虛線'));
+      await tester.tap(find.byTooltip('顯示方向箭頭'));
+      await tester.tap(find.byTooltip('預覽連線顏色'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('藍色'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('完成連續連線'));
+      await tester.pump();
+
+      expect(document.connections, hasLength(3));
+      expect(
+        document.connections.every(
+          (line) =>
+              line.style == MindMapLineStyle.dashed &&
+              line.directed &&
+              line.color == '#2563EB',
+        ),
+        isTrue,
+      );
+      expect(
+        document.connections.map(
+          (line) => '${line.fromNodeId}${line.toNodeId}',
+        ),
+        ['ab', 'bc', 'ca'],
+      );
+
+      await tester.ensureVisible(find.byTooltip('復原連線建立'));
+      await tester.tap(find.byTooltip('復原連線建立'));
+      await tester.pump();
+      expect(document.connections, isEmpty);
+      await tester.tap(find.byTooltip('重做連線建立'));
+      await tester.pump();
+      expect(document.connections, hasLength(3));
+
+      await tester.tap(find.byTooltip('建立自由連線'));
+      await tester.tap(find.byKey(const ValueKey('a')));
+      await tester.tap(find.byKey(const ValueKey('b')));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.text('實線'));
+      await tester.tap(find.byTooltip('完成連續連線'));
+      await tester.pump();
+      final parallel = document.connections
+          .where((line) => line.fromNodeId == 'a' && line.toNodeId == 'b')
+          .toList();
+      expect(parallel, hasLength(2));
+      expect(parallel.map((line) => line.style).toSet(), {
+        MindMapLineStyle.solid,
+        MindMapLineStyle.dashed,
+      });
+
+      await tester.tap(find.byTooltip('建立自由連線'));
+      await tester.tap(find.byKey(const ValueKey('a')));
+      await tester.tap(find.byKey(const ValueKey('b')));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.byTooltip('取消連續連線'));
+      await tester.pump();
+      expect(document.connections, hasLength(4));
+    },
+  );
 
   test('mind map auto layout preserves root and locked nodes', () {
     final document = MindMapDocument(

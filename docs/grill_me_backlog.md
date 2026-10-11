@@ -1012,14 +1012,25 @@ reserved for the v2 second-half Grill Me.
 ### V2-P1-011 — Transactional chained free connections
 
 - Priority: `P1`
-- Status: `PLANNED`
+- Status: `DONE`
 - User-visible behavior: users preview a chain of free connections, revise its
   final segment, then commit or cancel the whole path.
 - Acceptance: `A,B,C` commits two segments only on Done; `A,B,C,C` removes the
   final segment; Cancel commits none; Back removes one node; cycles and parallel
   differently styled edges work; the committed path is one undo transaction.
 - Dependencies: V2-P1-008 and free-connection persistence.
-- Completion evidence: none; specified in the v2 first-half Grill Me.
+- Completion evidence: `自由連線` now starts with explicit source selection
+  and previews every segment without mutating the document. Repeating the
+  current target removes the final segment, Back removes one selected node,
+  Cancel discards the whole path, and Done commits every segment in one
+  callback and one undo-stack transaction. Paths may revisit earlier nodes to
+  form cycles, and separate commits may create parallel connections with
+  different color, solid/dashed style, and arrow direction; committed segments
+  remain independently editable. Undo removes the complete committed path and
+  Redo restores it. Focused tests cover `A,B,C,C`, Back, cycles, cancellation,
+  atomic undo/redo, parallel differently styled edges, and existing per-line
+  editing and cleanup. The complete 169-test suite, analyzer, and Web debug
+  build pass on the task branch.
 
 ### V2-D-001 — Plan and Life Sheet UI redesign
 
