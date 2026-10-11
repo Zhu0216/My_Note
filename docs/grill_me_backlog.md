@@ -953,7 +953,7 @@ reserved for the v2 second-half Grill Me.
 ### V2-P1-007 — Offline-first complete synchronization
 
 - Priority: `P1`
-- Status: `PLANNED`
+- Status: `IN PROGRESS`
 - User-visible behavior: local commits remain immediate while a durable queue
   synchronizes all text, images, and attachments under the selected network
   policy.
