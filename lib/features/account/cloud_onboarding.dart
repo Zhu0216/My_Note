@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import '../../data/my_note_data.dart';
 import '../../ui/app_store_scope.dart';
 import 'account_controller.dart';
+import 'cloud_assets.dart';
+import 'cloud_sync.dart';
 
 const cloudRecordCollections = <String>[
   'notes',
@@ -108,6 +110,21 @@ class CloudRecoveryPoint {
   final String reason;
 }
 
+class CloudSpaceState {
+  const CloudSpaceState({required this.snapshot, required this.syncToken});
+
+  final CloudSpaceSnapshot snapshot;
+  final String? syncToken;
+}
+
+class CloudPushResult {
+  const CloudPushResult.success(this.syncToken) : conflict = false;
+  const CloudPushResult.conflict() : conflict = true, syncToken = null;
+
+  final bool conflict;
+  final String? syncToken;
+}
+
 class CloudMergePreview {
   const CloudMergePreview({
     required this.local,
@@ -195,6 +212,10 @@ class CloudSpaceRepository {
       _space(uid).collection('history');
 
   Future<CloudSpaceSnapshot> read(String uid) async {
+    return (await readState(uid)).snapshot;
+  }
+
+  Future<CloudSpaceState> readState(String uid) async {
     final space = _space(uid);
     final results = await Future.wait([
       space.get(),
@@ -217,13 +238,20 @@ class CloudSpaceRepository {
       records[record.key] = record;
     }
     final settings = metadata.data()?['settings'];
-    return CloudSpaceSnapshot(
-      records: records,
-      settings: settings is Map ? Map<String, dynamic>.from(settings) : {},
+    return CloudSpaceState(
+      snapshot: CloudSpaceSnapshot(
+        records: records,
+        settings: settings is Map ? Map<String, dynamic>.from(settings) : {},
+      ),
+      syncToken: readString(metadata.data()?['syncToken']).nullIfEmpty,
     );
   }
 
-  Future<void> replace(
+  Stream<String?> watchSyncToken(String uid) => _space(uid).snapshots().map(
+    (snapshot) => readString(snapshot.data()?['syncToken']).nullIfEmpty,
+  );
+
+  Future<String> replace(
     String uid,
     CloudSpaceSnapshot snapshot, {
     String recoveryReason = '首次同步前',
@@ -232,25 +260,39 @@ class CloudSpaceRepository {
     if (!previous.isEmpty && !previous.hasSameContent(snapshot)) {
       await _saveRecovery(uid, previous, reason: recoveryReason);
     }
-    await _writeSpace(uid, snapshot);
+    return _writeSpace(uid, snapshot);
+  }
+
+  Future<CloudPushResult> pushIfUnchanged(
+    String uid,
+    CloudSpaceSnapshot snapshot, {
+    required String? expectedSyncToken,
+  }) async {
+    final current = await readState(uid);
+    if (expectedSyncToken != null && current.syncToken != expectedSyncToken) {
+      return const CloudPushResult.conflict();
+    }
+    return CloudPushResult.success(await _writeSpace(uid, snapshot));
   }
 
   Future<List<CloudRecoveryPoint>> listRecoveryPoints(String uid) async {
     final result = await _history(
       uid,
     ).orderBy('createdAt', descending: true).get();
-    return result.docs.map((document) {
-      final data = document.data();
-      final createdAt = data['createdAt'];
-      return CloudRecoveryPoint(
-        id: document.id,
-        createdAt: createdAt is Timestamp
-            ? createdAt.toDate()
-            : DateTime.fromMillisecondsSinceEpoch(0),
-        recordCount: readInt(data['recordCount']),
-        reason: readString(data['reason'], fallback: '同步前'),
-      );
-    }).toList(growable: false);
+    return result.docs
+        .map((document) {
+          final data = document.data();
+          final createdAt = data['createdAt'];
+          return CloudRecoveryPoint(
+            id: document.id,
+            createdAt: createdAt is Timestamp
+                ? createdAt.toDate()
+                : DateTime.fromMillisecondsSinceEpoch(0),
+            recordCount: readInt(data['recordCount']),
+            reason: readString(data['reason'], fallback: '同步前'),
+          );
+        })
+        .toList(growable: false);
   }
 
   Future<void> restoreRecoveryPoint(String uid, String historyId) async {
@@ -297,14 +339,12 @@ class CloudSpaceRepository {
     final history = _history(uid).doc(historyId);
     final operations = <void Function(WriteBatch)>[
       for (final record in snapshot.records.values)
-        (batch) => batch.set(
-          history.collection('records').doc(_documentId(record)),
-          {
-            'collection': record.collection,
-            'recordId': record.id,
-            'payload': record.data,
-          },
-        ),
+        (batch) =>
+            batch.set(history.collection('records').doc(_documentId(record)), {
+              'collection': record.collection,
+              'recordId': record.id,
+              'payload': record.data,
+            }),
       (batch) => batch.set(history, {
         'schema': 'my_note.cloud.recovery.v1',
         'settings': snapshot.settings,
@@ -316,8 +356,10 @@ class CloudSpaceRepository {
     await _commitOperations(operations);
   }
 
-  Future<void> _writeSpace(String uid, CloudSpaceSnapshot snapshot) async {
+  Future<String> _writeSpace(String uid, CloudSpaceSnapshot snapshot) async {
     final space = _space(uid);
+    final syncToken =
+        '${DateTime.now().toUtc().microsecondsSinceEpoch}-${snapshot.records.length}';
     final existing = await space.collection('records').get();
     final desiredDocumentIds = snapshot.records.values.map(_documentId).toSet();
     final operations = <void Function(WriteBatch)>[
@@ -338,10 +380,12 @@ class CloudSpaceRepository {
         'settings': snapshot.settings,
         'onboardingCompleted': true,
         'onboardingCompletedAt': FieldValue.serverTimestamp(),
+        'syncToken': syncToken,
         'updatedAt': FieldValue.serverTimestamp(),
       }),
     ];
     await _commitOperations(operations);
+    return syncToken;
   }
 
   Future<void> _commitOperations(
@@ -401,9 +445,7 @@ class _CloudRecoveryPageState extends State<CloudRecoveryPage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('還原雲端版本？'),
-        content: Text(
-          '目前雲端資料會先建立新的復原點，再還原 ${point.recordCount} 個項目。',
-        ),
+        content: Text('目前雲端資料會先建立新的復原點，再還原 ${point.recordCount} 個項目。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -496,6 +538,7 @@ class CloudOnboardingPage extends StatefulWidget {
 
 class _CloudOnboardingPageState extends State<CloudOnboardingPage> {
   final repository = CloudSpaceRepository();
+  final assets = CloudAssetTransfer();
   CloudMergePreview? preview;
   final choices = <String, CloudConflictChoice>{};
   String? error;
@@ -514,7 +557,7 @@ class _CloudOnboardingPageState extends State<CloudOnboardingPage> {
       final local = CloudSpaceSnapshot.fromLocal(
         AppStoreScope.read(context).toJson(),
       );
-      final cloud = await repository.read(uid);
+      final cloud = await assets.downloadSnapshot(await repository.read(uid));
       if (!mounted) return;
       setState(() {
         preview = CloudMergePreview.compare(local, cloud);
@@ -544,13 +587,17 @@ class _CloudOnboardingPageState extends State<CloudOnboardingPage> {
     try {
       final store = AppStoreScope.read(context);
       final account = AccountScope.of(context);
+      final sync = CloudSyncScope.maybeOf(context);
+      final uid = account.user!.uid;
       final bundle = LocalDataBundle(
         createdAt: DateTime.now(),
         data: result.toLocalData(),
       ).encode();
       LocalDataBundle.decode(bundle);
-      await repository.replace(account.user!.uid, result);
+      final cloudResult = await assets.uploadSnapshot(uid, result, store);
+      final syncToken = await repository.replace(uid, cloudResult);
       if (importLocal) await store.importBundle(bundle);
+      await sync?.activateForAccount(uid, cloudSyncToken: syncToken);
       if (mounted) Navigator.pop(context, true);
     } catch (exception) {
       if (mounted) {
@@ -697,4 +744,8 @@ String _formatRecoveryTime(DateTime value) {
   String two(int number) => number.toString().padLeft(2, '0');
   return '${local.year}/${two(local.month)}/${two(local.day)} '
       '${two(local.hour)}:${two(local.minute)}';
+}
+
+extension on String {
+  String? get nullIfEmpty => isEmpty ? null : this;
 }

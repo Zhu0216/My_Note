@@ -101,6 +101,10 @@ class AppStore extends ChangeNotifier {
   static const int _maxChangeJournalEntries = 200;
   static const Duration deleteUndoDuration = Duration(seconds: 5);
 
+  int get persistenceRevision => _persistenceRevision;
+  String get lastChangeAction => _lastChangeAction;
+  DateTime? get lastChangedAt => _lastChangedAt;
+
   void _removeLegacySeedTodos() {
     const legacySeedTodoTitles = {'讀書計畫', '完成筆記模板整理', '設定 Firebase 專案'};
     todos.removeWhere(

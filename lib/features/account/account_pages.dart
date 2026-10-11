@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'account_controller.dart';
 import 'cloud_onboarding.dart';
+import 'cloud_sync.dart';
 
 class AccountEntryGate extends StatelessWidget {
   const AccountEntryGate({super.key, required this.child});
@@ -29,10 +30,15 @@ class AccountStatusButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final account = AccountScope.maybeOf(context);
     if (account == null) return const SizedBox.shrink();
+    final sync = CloudSyncScope.maybeOf(context);
     return ListenableBuilder(
-      listenable: account,
+      listenable: Listenable.merge([account, ?sync]),
       builder: (context, _) => IconButton(
-        tooltip: account.isSignedIn ? '帳號與同步' : '登入並同步',
+        tooltip: account.isSignedIn && sync != null
+            ? _syncStatusLabel(sync)
+            : account.isSignedIn
+            ? '帳號與同步'
+            : '登入並同步',
         onPressed: () => Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (_) =>
@@ -40,8 +46,8 @@ class AccountStatusButton extends StatelessWidget {
           ),
         ),
         icon: Icon(
-          account.canSynchronize
-              ? Icons.cloud_done_outlined
+          account.canSynchronize && sync != null
+              ? _syncStatusIcon(sync.status)
               : account.isSignedIn
               ? Icons.cloud_sync_outlined
               : Icons.account_circle_outlined,
@@ -383,6 +389,11 @@ class AccountSettingsCard extends StatelessWidget {
                       icon: const Icon(Icons.history_outlined),
                       label: const Text('雲端復原紀錄'),
                     ),
+                  if (account.canSynchronize)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 12),
+                      child: _CloudSyncSettings(),
+                    ),
                   if (!account.isEmailVerified)
                     Wrap(
                       spacing: 8,
@@ -422,7 +433,14 @@ class AccountSettingsCard extends StatelessWidget {
                         ? null
                         : () => account.signOut(keepLocalChoice: true),
                     icon: const Icon(Icons.logout),
-                    label: const Text('登出並保留本機資料'),
+                    label: const Text('登出並繼續本機使用'),
+                  ),
+                  TextButton.icon(
+                    onPressed: account.busy
+                        ? null
+                        : () => account.signOut(keepLocalChoice: false),
+                    icon: const Icon(Icons.exit_to_app_outlined),
+                    label: const Text('登出並回到入口'),
                   ),
                   TextButton.icon(
                     style: TextButton.styleFrom(
@@ -467,6 +485,140 @@ class AccountSettingsCard extends StatelessWidget {
     if (confirmed == true) await account.deleteAccount();
   }
 }
+
+class _CloudSyncSettings extends StatelessWidget {
+  const _CloudSyncSettings();
+
+  @override
+  Widget build(BuildContext context) {
+    final sync = CloudSyncScope.maybeOf(context);
+    if (sync == null) return const SizedBox.shrink();
+    return ListenableBuilder(
+      listenable: sync,
+      builder: (context, _) => DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerLowest,
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Icon(_syncStatusIcon(sync.status), size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(_syncStatusLabel(sync))),
+                  if (sync.pendingCount > 0) Text('${sync.pendingCount} 項待同步'),
+                ],
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<SyncNetworkPolicy>(
+                initialValue: sync.networkPolicy,
+                decoration: const InputDecoration(
+                  labelText: '同步網路',
+                  prefixIcon: Icon(Icons.network_check_outlined),
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: SyncNetworkPolicy.wifiOnly,
+                    child: Text('Wi-Fi 自動同步'),
+                  ),
+                  DropdownMenuItem(
+                    value: SyncNetworkPolicy.anyNetwork,
+                    child: Text('任何網路自動同步'),
+                  ),
+                  DropdownMenuItem(
+                    value: SyncNetworkPolicy.manualOnly,
+                    child: Text('僅手動同步'),
+                  ),
+                ],
+                onChanged: (value) async {
+                  if (value == null || value == sync.networkPolicy) return;
+                  if (value == SyncNetworkPolicy.anyNetwork) {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: const Text('允許行動網路同步？'),
+                        content: const Text('同步會傳輸完整文字、圖片與附件，可能消耗較多行動數據。'),
+                        actions: [
+                          TextButton(
+                            onPressed: () =>
+                                Navigator.pop(dialogContext, false),
+                            child: const Text('取消'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(dialogContext, true),
+                            child: const Text('允許'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed != true) return;
+                  }
+                  await sync.setNetworkPolicy(value);
+                },
+              ),
+              if (sync.errorMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  sync.errorMessage!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+              if (sync.status == CloudSyncStatus.conflict)
+                FilledButton.tonalIcon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const CloudOnboardingPage(),
+                    ),
+                  ),
+                  icon: const Icon(Icons.merge_type),
+                  label: const Text('處理同步衝突'),
+                )
+              else if (sync.status == CloudSyncStatus.failed)
+                FilledButton.tonalIcon(
+                  onPressed: sync.retry,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重試'),
+                )
+              else if (sync.networkPolicy == SyncNetworkPolicy.manualOnly ||
+                  sync.pendingCount > 0)
+                FilledButton.tonalIcon(
+                  onPressed: sync.status == CloudSyncStatus.synchronizing
+                      ? null
+                      : sync.synchronizeNow,
+                  icon: const Icon(Icons.sync),
+                  label: const Text('立即同步'),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+IconData _syncStatusIcon(CloudSyncStatus status) => switch (status) {
+  CloudSyncStatus.synchronized => Icons.cloud_done_outlined,
+  CloudSyncStatus.waitingForConnection => Icons.cloud_queue_outlined,
+  CloudSyncStatus.synchronizing => Icons.sync,
+  CloudSyncStatus.conflict => Icons.cloud_sync_outlined,
+  CloudSyncStatus.failed => Icons.cloud_off_outlined,
+};
+
+String _syncStatusLabel(CloudSyncController sync) => switch (sync.status) {
+  CloudSyncStatus.synchronized => sync.isActive ? '已同步' : '尚未設定首次同步',
+  CloudSyncStatus.waitingForConnection =>
+    sync.connection == SyncConnectionKind.offline ? '等待網路' : '等待同步',
+  CloudSyncStatus.synchronizing => '同步中',
+  CloudSyncStatus.conflict => '需要處理衝突',
+  CloudSyncStatus.failed => '同步失敗',
+};
 
 class LinkEmailPage extends StatefulWidget {
   const LinkEmailPage({super.key});

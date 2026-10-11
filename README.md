@@ -101,6 +101,8 @@ My Note 是一款 All-in-one 個人管理筆記本，目標是在手機、平板
 - 未驗證電子郵件的帳號不可開始同步；Firebase 暫時無法使用時，本機功能仍可正常開啟。
 - 首次同步會先比較本機與帳號唯一的雲端資料空間，不會在登入後自動上傳；同 ID 衝突可逐項保留本機、雲端或兩者。
 - 雲端內容被不同資料取代前會建立復原版本；設定頁可查看並還原雲端版本，還原前也會保存目前狀態。
+- 首次同步完成後採本機優先：每次修改先寫入本機，再由可跨重啟保留的同步佇列傳送；提供 Wi-Fi 自動、任何網路自動與僅手動三種政策，行動網路模式會先提示流量風險。
+- 同步狀態包含已同步、等待網路、同步中、衝突與失敗；失敗不會丟棄本機修改，可手動重試，遠端版本變更會下載且不反向製造重複上傳。
 - 提供本機通知、資料匯出、匯入與復原備份入口。
 
 ## 資料與 Firebase 使用情況
@@ -123,7 +125,7 @@ My Note 是一款 All-in-one 個人管理筆記本，目標是在手機、平板
 
 - Firebase Auth：已啟用 Email/Password 與 Google 登入，並支援驗證、重設、帳號連結、登出與刪除；登入不會自行上傳本機資料。
 - Cloud Firestore：正式資料庫位於 `asia-east1` 並啟用刪除保護；首次同步可儲存筆記、資料夾、行程、待辦、訂閱、記帳紀錄、帳戶、預算、首頁設定與可還原雲端版本，安全規則限制每位登入者只能存取自己的路徑。
-- Firebase Storage：預定同步筆記圖片、附件與封面圖片；目前 Firebase 專案尚未完成 Storage bucket 初始化，檔案仍以本機離線儲存為主。
+- Firebase Storage：圖片、封面與附件使用 SHA-256 內容位址去重，下載時驗證完整性；同步程式與測試已完成，目前 Firebase 專案尚未初始化 production Storage bucket，因此正式檔案同步尚未啟用。
 - Firebase Cloud Messaging：提供行程提醒、訂閱扣款提醒、待辦提醒與預算提醒推播。
 - Cloud Functions：處理背景任務、定期提醒、資料清理與未來 Google Calendar 同步。
 - Firebase Hosting：部署 Flutter Web 版本。
@@ -144,6 +146,7 @@ My Note 是一款 All-in-one 個人管理筆記本，目標是在手機、平板
 
 - `cupertino_icons`：pub.dev
 - `shared_preferences`：pub.dev
+- `connectivity_plus`：pub.dev
 - `crypto`：pub.dev
 - `path_provider`：pub.dev
 - `web`：pub.dev

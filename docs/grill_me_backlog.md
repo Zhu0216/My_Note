@@ -962,8 +962,20 @@ reserved for the v2 second-half Grill Me.
   and manual policies are honored; a completed sync contains full payloads.
 - Dependencies: V2-P1-006, Firebase Storage, connectivity policy, schema and
   rules approval.
-- Completion evidence: product behavior approved; cloud implementation awaits
-  explicit approval and configuration.
+- Completion evidence: production Firebase and the synchronization schema were
+  approved on 2026-10-11. The app now commits locally first and coalesces each
+  account's latest complete snapshot into a SharedPreferences-backed queue
+  that survives restart. It reports synchronized, waiting, synchronizing,
+  conflict, and failed states; failed jobs remain retryable. Wi-Fi automatic,
+  warned any-network automatic, and manual-only policies are persisted.
+  Firestore sync tokens detect remote conflicts, realtime token changes pull
+  remote snapshots without creating an echo job, and sign-out can continue in
+  local mode or return to the entry choice. Images, covers, and attachments are
+  content-addressed by SHA-256, uploaded under the owner's Storage path, and
+  integrity-checked when restored; unit tests prove the full binary round trip.
+  Analyzer, all 178 tests, and Web debug build pass. Status remains IN PROGRESS
+  until the production Firebase Storage bucket can be initialized, rules can
+  be deployed, and a live complete-payload round trip can be accepted.
 
 ### V2-P1-008 — Responsive Mind Map outline and canvas
 

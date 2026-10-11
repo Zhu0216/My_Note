@@ -22,6 +22,7 @@ import 'services/local_reminder_service.dart';
 import 'features/settings/settings_page.dart';
 import 'features/account/account_controller.dart';
 import 'features/account/account_pages.dart';
+import 'features/account/cloud_sync.dart';
 import 'features/calendar/calendar_page.dart';
 import 'features/finance/finance_page.dart';
 import 'features/home/home_page.dart';
@@ -79,6 +80,10 @@ Future<void> main() async {
     firebaseAvailable: firebaseAvailable,
   );
   final store = await AppStore.load();
+  final syncController = await CloudSyncController.load(
+    store: store,
+    account: accountController,
+  );
   final reminderCandidate = LocalReminderCoordinator(
     store,
     createLocalReminderGateway(),
@@ -96,6 +101,7 @@ Future<void> main() async {
       store: store,
       reminderCoordinator: reminders,
       accountController: accountController,
+      syncController: syncController,
     ),
   );
 }
@@ -106,11 +112,13 @@ class MyNoteApp extends StatefulWidget {
     required this.store,
     this.reminderCoordinator,
     this.accountController,
+    this.syncController,
   });
 
   final AppStore store;
   final LocalReminderCoordinator? reminderCoordinator;
   final AccountController? accountController;
+  final CloudSyncController? syncController;
 
   @override
   State<MyNoteApp> createState() => _MyNoteAppState();
@@ -141,6 +149,7 @@ class _MyNoteAppState extends State<MyNoteApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     widget.reminderCoordinator?.dispose();
+    widget.syncController?.dispose();
     widget.accountController?.dispose();
     unawaited(widget.store.flushPersistence());
     super.dispose();
@@ -241,10 +250,14 @@ class _MyNoteAppState extends State<MyNoteApp> with WidgetsBindingObserver {
           ? shadApp
           : LocalReminderScope(coordinator: coordinator, child: shadApp),
     );
+    final syncController = widget.syncController;
+    final synchronizedApp = syncController == null
+        ? app
+        : CloudSyncScope(controller: syncController, child: app);
     final accountController = widget.accountController;
     return accountController == null
-        ? app
-        : AccountScope(controller: accountController, child: app);
+        ? synchronizedApp
+        : AccountScope(controller: accountController, child: synchronizedApp);
   }
 }
 
