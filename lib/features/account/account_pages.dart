@@ -371,6 +371,18 @@ class AccountSettingsCard extends StatelessWidget {
                       icon: const Icon(Icons.cloud_sync_outlined),
                       label: const Text('設定首次同步'),
                     ),
+                  if (account.canSynchronize)
+                    OutlinedButton.icon(
+                      onPressed: account.busy
+                          ? null
+                          : () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => const CloudRecoveryPage(),
+                              ),
+                            ),
+                      icon: const Icon(Icons.history_outlined),
+                      label: const Text('雲端復原紀錄'),
+                    ),
                   if (!account.isEmailVerified)
                     Wrap(
                       spacing: 8,

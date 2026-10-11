@@ -59,6 +59,21 @@ class CloudSpaceSnapshot {
   final Map<String, dynamic> settings;
   bool get isEmpty => records.isEmpty && !_hasMeaningfulSettings(settings);
 
+  bool hasSameContent(CloudSpaceSnapshot other) {
+    if (_canonical(settings) != _canonical(other.settings) ||
+        records.length != other.records.length) {
+      return false;
+    }
+    for (final entry in records.entries) {
+      final otherRecord = other.records[entry.key];
+      if (otherRecord == null ||
+          _canonical(entry.value.data) != _canonical(otherRecord.data)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   Map<String, dynamic> toLocalData() {
     final result = cloneJsonMap(settings);
     for (final collection in cloudRecordCollections) {
@@ -77,6 +92,20 @@ class CloudSpaceSnapshot {
       readStringList(value['hiddenHomeSections']).isNotEmpty ||
       readStringList(value['hiddenUpcomingItems']).isNotEmpty ||
       value['homeAutoCollapseOnScroll'] == true;
+}
+
+class CloudRecoveryPoint {
+  const CloudRecoveryPoint({
+    required this.id,
+    required this.createdAt,
+    required this.recordCount,
+    required this.reason,
+  });
+
+  final String id;
+  final DateTime createdAt;
+  final int recordCount;
+  final String reason;
 }
 
 class CloudMergePreview {
@@ -162,6 +191,9 @@ class CloudSpaceRepository {
       .collection('spaces')
       .doc('default');
 
+  CollectionReference<Map<String, dynamic>> _history(String uid) =>
+      _space(uid).collection('history');
+
   Future<CloudSpaceSnapshot> read(String uid) async {
     final space = _space(uid);
     final results = await Future.wait([
@@ -191,7 +223,100 @@ class CloudSpaceRepository {
     );
   }
 
-  Future<void> replace(String uid, CloudSpaceSnapshot snapshot) async {
+  Future<void> replace(
+    String uid,
+    CloudSpaceSnapshot snapshot, {
+    String recoveryReason = '首次同步前',
+  }) async {
+    final previous = await read(uid);
+    if (!previous.isEmpty && !previous.hasSameContent(snapshot)) {
+      await _saveRecovery(uid, previous, reason: recoveryReason);
+    }
+    await _writeSpace(uid, snapshot);
+  }
+
+  Future<List<CloudRecoveryPoint>> listRecoveryPoints(String uid) async {
+    final result = await _history(
+      uid,
+    ).orderBy('createdAt', descending: true).get();
+    return result.docs.map((document) {
+      final data = document.data();
+      final createdAt = data['createdAt'];
+      return CloudRecoveryPoint(
+        id: document.id,
+        createdAt: createdAt is Timestamp
+            ? createdAt.toDate()
+            : DateTime.fromMillisecondsSinceEpoch(0),
+        recordCount: readInt(data['recordCount']),
+        reason: readString(data['reason'], fallback: '同步前'),
+      );
+    }).toList(growable: false);
+  }
+
+  Future<void> restoreRecoveryPoint(String uid, String historyId) async {
+    final history = _history(uid).doc(historyId);
+    final results = await Future.wait([
+      history.get(),
+      history.collection('records').get(),
+    ]);
+    final metadata = results[0] as DocumentSnapshot<Map<String, dynamic>>;
+    if (!metadata.exists) throw StateError('找不到這份雲端復原紀錄');
+    final recordQuery = results[1] as QuerySnapshot<Map<String, dynamic>>;
+    final records = <String, CloudRecord>{};
+    for (final document in recordQuery.docs) {
+      final value = document.data();
+      final collection = readString(value['collection']);
+      final id = readString(value['recordId']);
+      final payload = value['payload'];
+      if (collection.isEmpty || id.isEmpty || payload is! Map) continue;
+      final record = CloudRecord(
+        collection: collection,
+        id: id,
+        data: Map<String, dynamic>.from(payload),
+      );
+      records[record.key] = record;
+    }
+    final settings = metadata.data()?['settings'];
+    await replace(
+      uid,
+      CloudSpaceSnapshot(
+        records: records,
+        settings: settings is Map ? Map<String, dynamic>.from(settings) : {},
+      ),
+      recoveryReason: '還原雲端版本前',
+    );
+  }
+
+  Future<void> _saveRecovery(
+    String uid,
+    CloudSpaceSnapshot snapshot, {
+    required String reason,
+  }) async {
+    final historyId =
+        'history_${DateTime.now().toUtc().microsecondsSinceEpoch}';
+    final history = _history(uid).doc(historyId);
+    final operations = <void Function(WriteBatch)>[
+      for (final record in snapshot.records.values)
+        (batch) => batch.set(
+          history.collection('records').doc(_documentId(record)),
+          {
+            'collection': record.collection,
+            'recordId': record.id,
+            'payload': record.data,
+          },
+        ),
+      (batch) => batch.set(history, {
+        'schema': 'my_note.cloud.recovery.v1',
+        'settings': snapshot.settings,
+        'recordCount': snapshot.records.length,
+        'reason': reason,
+        'createdAt': FieldValue.serverTimestamp(),
+      }),
+    ];
+    await _commitOperations(operations);
+  }
+
+  Future<void> _writeSpace(String uid, CloudSpaceSnapshot snapshot) async {
     final space = _space(uid);
     final existing = await space.collection('records').get();
     final desiredDocumentIds = snapshot.records.values.map(_documentId).toSet();
@@ -211,9 +336,17 @@ class CloudSpaceRepository {
       (batch) => batch.set(space, {
         'schema': 'my_note.cloud.v1',
         'settings': snapshot.settings,
+        'onboardingCompleted': true,
+        'onboardingCompletedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }),
     ];
+    await _commitOperations(operations);
+  }
+
+  Future<void> _commitOperations(
+    List<void Function(WriteBatch)> operations,
+  ) async {
     for (var offset = 0; offset < operations.length; offset += 400) {
       final batch = _firestore.batch();
       for (final operation in operations.skip(offset).take(400)) {
@@ -225,6 +358,133 @@ class CloudSpaceRepository {
 
   String _documentId(CloudRecord record) =>
       base64Url.encode(utf8.encode(record.key)).replaceAll('=', '');
+}
+
+class CloudRecoveryPage extends StatefulWidget {
+  const CloudRecoveryPage({super.key});
+
+  @override
+  State<CloudRecoveryPage> createState() => _CloudRecoveryPageState();
+}
+
+class _CloudRecoveryPageState extends State<CloudRecoveryPage> {
+  final repository = CloudSpaceRepository();
+  List<CloudRecoveryPoint>? points;
+  String? error;
+  bool busy = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (points == null && !busy) _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      final uid = AccountScope.of(context).user!.uid;
+      final result = await repository.listRecoveryPoints(uid);
+      if (!mounted) return;
+      setState(() => points = result);
+    } catch (exception) {
+      if (mounted) setState(() => error = '$exception');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _restore(CloudRecoveryPoint point) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('還原雲端版本？'),
+        content: Text(
+          '目前雲端資料會先建立新的復原點，再還原 ${point.recordCount} 個項目。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('還原'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      final uid = AccountScope.of(context).user!.uid;
+      await repository.restoreRecoveryPoint(uid, point.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已還原雲端版本')));
+      await _load();
+    } catch (exception) {
+      if (mounted) {
+        setState(() {
+          error = '$exception';
+          busy = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final values = points;
+    return Scaffold(
+      appBar: AppBar(title: const Text('雲端復原紀錄')),
+      body: busy && values == null
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  if (error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ),
+                  if (values?.isEmpty ?? true)
+                    const ListTile(
+                      leading: Icon(Icons.history_outlined),
+                      title: Text('目前沒有雲端復原紀錄'),
+                    )
+                  else
+                    for (final point in values!)
+                      ListTile(
+                        leading: const Icon(Icons.cloud_done_outlined),
+                        title: Text('${point.recordCount} 個項目'),
+                        subtitle: Text(
+                          '${_formatRecoveryTime(point.createdAt)} · ${point.reason}',
+                        ),
+                        trailing: IconButton(
+                          tooltip: '還原',
+                          onPressed: busy ? null : () => _restore(point),
+                          icon: const Icon(Icons.restore),
+                        ),
+                      ),
+                ],
+              ),
+            ),
+    );
+  }
 }
 
 class CloudOnboardingPage extends StatefulWidget {
@@ -430,4 +690,11 @@ String _canonical(Object? value) {
   }
   if (value is List) return '[${value.map(_canonical).join(',')}]';
   return jsonEncode(value);
+}
+
+String _formatRecoveryTime(DateTime value) {
+  final local = value.toLocal();
+  String two(int number) => number.toString().padLeft(2, '0');
+  return '${local.year}/${two(local.month)}/${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}';
 }

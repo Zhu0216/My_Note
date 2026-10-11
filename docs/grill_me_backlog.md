@@ -812,8 +812,10 @@ the current behavior has not been independently accepted for this v1 baseline.
   explicitly approved.
 - Dependencies: project owner configuration and approval.
 - Evidence: Firebase Apps/options and Auth providers are active under
-  V2-P1-005; Firestore/Storage onboarding and offline sync continue under
-  V2-P1-006 and V2-P1-007.
+  V2-P1-005; the protected `asia-east1` Firestore database, owner-only rules,
+  first-sync conflict resolution, and cloud recovery are active under
+  V2-P1-006. Storage initialization and offline synchronization continue under
+  V2-P1-007.
 
 ### D-002 — Store release
 
@@ -925,7 +927,7 @@ reserved for the v2 second-half Grill Me.
 ### V2-P1-006 — One-space cloud onboarding and conflict resolution
 
 - Priority: `P1`
-- Status: `IN PROGRESS`
+- Status: `DONE`
 - User-visible behavior: first sync compares one local database with the
   account's single cloud space and asks before transfer or item-by-item merge.
 - Acceptance: no automatic first transfer; same-ID conflicts offer local,
@@ -935,12 +937,18 @@ reserved for the v2 second-half Grill Me.
   migration comparison; V2-P1-005.
 - Completion evidence: product behavior, migration comparison, production
   Firebase resources, and schema implementation were explicitly approved on
-  2026-10-11. The local/cloud snapshot contract, same-ID comparison, local,
-  cloud, or both conflict choices, new-ID assignment, recursive cloud-reference
-  remapping, Firestore repository, and explicit first-sync page are implemented
-  with focused tests. Production deployment is waiting only for an explicit
-  Firestore database region; the project currently has no database and this
-  region cannot be changed in place after creation.
+  2026-10-11. The `(default)` Standard Firestore database was then created in
+  the separately approved immutable `asia-east1` region with deletion
+  protection enabled; owner-only rules and indexes were deployed. A reversible
+  live smoke test proved an authenticated user can write and read only its own
+  path while an unauthenticated read receives 403; all temporary Auth and
+  Firestore data was removed. The local/cloud snapshot contract, same-ID
+  comparison, local/cloud/both conflict choices, new-ID assignment, recursive
+  cloud-reference remapping, Firestore repository, and explicit first-sync
+  page are implemented. Cloud replacement preserves a recovery point whenever
+  content changes, restore preserves the current cloud state before applying
+  an older point, and local imports retain the existing local checkpoint.
+  Focused tests, all 173 Flutter tests, analyzer, and Web debug build pass.
 
 ### V2-P1-007 — Offline-first complete synchronization
 

@@ -62,4 +62,48 @@ void main() {
     final links = merged.records['notes:n2']!.data['links'] as List;
     expect((links.single as Map)['targetId'], 'n1-cloud-copy');
   });
+
+  test('cloud snapshots compare canonical content independent of map order', () {
+    final first = CloudSpaceSnapshot(
+      records: {
+        'notes:n1': CloudRecord(
+          collection: 'notes',
+          id: 'n1',
+          data: {
+            'id': 'n1',
+            'title': 'same',
+            'nested': {'a': 1, 'b': 2},
+          },
+        ),
+      },
+      settings: const {
+        'monthlyBudget': 20000,
+        'noteFolders': <Object>[],
+      },
+    );
+    final same = CloudSpaceSnapshot(
+      records: {
+        'notes:n1': CloudRecord(
+          collection: 'notes',
+          id: 'n1',
+          data: {
+            'nested': {'b': 2, 'a': 1},
+            'title': 'same',
+            'id': 'n1',
+          },
+        ),
+      },
+      settings: const {
+        'noteFolders': <Object>[],
+        'monthlyBudget': 20000,
+      },
+    );
+    final different = CloudSpaceSnapshot(
+      records: {'notes:n1': note('n1', 'different')},
+      settings: first.settings,
+    );
+
+    expect(first.hasSameContent(same), isTrue);
+    expect(first.hasSameContent(different), isFalse);
+  });
 }

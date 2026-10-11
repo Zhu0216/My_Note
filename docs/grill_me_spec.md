@@ -411,9 +411,11 @@ questions and must not be implemented from assumptions.
   it does not leave a metadata-only or thumbnail-only cloud state.
 - Signing out does not delete cloud data. The synchronized local copy remains,
   and the user chooses whether to continue with it as a local-only database.
-- Production Firebase resources, security rules, schema migration, and secrets
-  still require the explicit implementation approval and configuration defined
-  in `AGENTS.md`.
+- Production Firebase resources, security rules, and the synchronization schema
+  migration were explicitly approved on 2026-10-11. The Firestore database
+  region was separately approved as `asia-east1`; secrets and any future paid
+  service or billing change still follow the approval boundaries in
+  `AGENTS.md`.
 
 ### Mind Map responsive workspace
 
